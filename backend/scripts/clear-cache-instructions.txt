@@ -1,0 +1,39 @@
+CARA MEMPERBAIKI AKSES ADMIN KE HALAMAN OFFDAYS
+================================================
+
+Langkah-langkah yang harus dilakukan:
+
+1. LOGOUT dari aplikasi
+   - Klik menu logout di aplikasi
+
+2. CLEAR BROWSER STORAGE
+   Buka Developer Tools (F12) → Application tab → Clear Storage:
+   - Klik "Clear site data"
+   ATAU manual:
+   - Hapus localStorage: Clear browser storage
+   - Hapus cookies
+
+3. LOGIN KEMBALI
+   - Login dengan username: admin
+   - Password: (sesuai yang Anda set)
+
+4. VERIFIKASI
+   Buka Developer Tools (F12) → Console tab, ketik:
+   localStorage.getItem('token')
+
+   Lalu buka Application tab → Local Storage, cari field 'token'
+
+5. TEST API
+   Buka Network tab di Developer Tools, lalu:
+   - Akses halaman /admin/off-days
+   - Cari request ke /api/v1/admin/off-days
+   - Lihat response-nya
+
+   Jika 403 Forbidden:
+   - Berarti token tidak valid atau user tidak memiliki role ADMIN
+
+6. JIKA MASIH GAGAL
+   Jalankan script debugging:
+   node scripts/debug-admin-token.js
+
+================================================

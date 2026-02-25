@@ -1,0 +1,217 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           Int       @id @default(autoincrement())
+  username     String    @unique
+  passwordHash String    @map("password_hash")
+  email        String?
+  fullName     String    @map("full_name")
+  role         String    @default("EMPLOYEE")
+  employeeId   String?   @unique @map("employee_id")
+  // shift         String          @default("SHIFT_1") // Deprecated
+  shiftId      Int?      @map("shift_id")
+  shift        Shift?    @relation(fields: [shiftId], references: [id])
+  department   String    @default("BAR") // BAR, KITCHEN
+  offDay       Int       @default(0) @map("off_day") // 0=Sun, 1=Mon, ..., 6=Sat
+  isActive     Boolean   @default(true) @map("is_active")
+  hourlyRate   Int       @default(0) @map("hourly_rate")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  lastLoginAt  DateTime? @map("last_login_at")
+
+  attendances   Attendance[]
+  leaves        Leave[]
+  schedules     UserSchedule[]
+  notifications Notification[]
+
+  sentSwaps         ShiftSwap[]      @relation("Requester")
+  receivedSwaps     ShiftSwap[]      @relation("Target")
+  OffDayRequest     OffDayRequest[]
+  receivedOffSwaps  OffDayRequest[]  @relation("OffDaySwapTarget")
+
+  @@index([username])
+  @@index([isActive])
+  @@index([role])
+  @@index([shiftId])
+  @@map("users")
+}
+
+model Shift {
+  id        Int      @id @default(autoincrement())
+  name      String
+  startTime String   @map("start_time") // Format: "HH:mm"
+  endTime   String   @map("end_time") // Format: "HH:mm"
+  users     User[]
+  userSchedules UserSchedule[]
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("shifts")
+}
+
+model Attendance {
+  id               Int       @id @default(autoincrement())
+  userId           Int       @map("user_id")
+  date             DateTime
+  clockIn          DateTime  @map("clock_in")
+  clockOut         DateTime? @map("clock_out")
+  clockInLocation  String?   @map("clock_in_location")
+  clockOutLocation String?   @map("clock_out_location")
+  clockInPhoto     String?   @map("clock_in_photo")
+  clockOutPhoto    String?   @map("clock_out_photo")
+  clockInIp        String?   @map("clock_in_ip")
+  clockOutIp       String?   @map("clock_out_ip")
+  status           String    @default("PRESENT")
+  notes            String?
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([userId])
+  @@index([date])
+  @@index([status])
+  @@index([userId, date])
+  @@index([createdAt])
+  @@map("attendance")
+}
+
+model SystemConfig {
+  id          Int      @id @default(autoincrement())
+  key         String   @unique
+  value       String
+  description String?
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("system_config")
+}
+
+model AuditLog {
+  id         Int      @id @default(autoincrement())
+  userId     Int?     @map("user_id")
+  action     String
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id")
+  details    String?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model Leave {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  startDate DateTime @map("start_date")
+  endDate   DateTime @map("end_date")
+  type      String   @default("SICK") // SICK, PERMISSION, ANNUAL
+  reason    String
+  status    String   @default("PENDING") // PENDING, APPROVED, REJECTED
+  proof     String? // Image proof for sick leave
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@index([userId, status])
+  @@index([createdAt])
+  @@map("leaves")
+}
+
+model Notification {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  title     String
+  message   String   @db.Text
+  isRead    Boolean  @default(false) @map("is_read")
+  type      String   @default("INFO") // INFO, SUCCESS, WARNING, ERROR
+  link      String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([userId, isRead])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+model ShiftSwap {
+  id           Int      @id @default(autoincrement())
+  requesterId  Int      @map("requester_id")
+  targetUserId Int      @map("target_user_id")
+  date         DateTime @db.Date
+  status       String   @default("PENDING_USER") // PENDING_USER, PENDING_ADMIN, APPROVED, REJECTED
+  reason       String?
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  requester User @relation("Requester", fields: [requesterId], references: [id])
+  target    User @relation("Target", fields: [targetUserId], references: [id])
+
+  @@index([requesterId])
+  @@index([targetUserId])
+  @@index([date])
+  @@index([status])
+  @@index([requesterId, status])
+  @@index([createdAt])
+  @@map("shift_swaps")
+}
+
+model OffDayRequest {
+  id           Int      @id @default(autoincrement())
+  userId       Int      @map("user_id")
+  targetUserId Int?     @map("target_user_id") // The user to swap with
+  offDate      DateTime @map("off_date") // The day user WANTS to be OFF (currently a working day)
+  workDate     DateTime @map("work_date") // The day user WANTS to WORK (currently their off day)
+  reason       String?
+  status       String   @default("PENDING") // PENDING (target user approval), APPROVED, REJECTED, CANCELLED
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  user   User? @relation(fields: [userId], references: [id])
+  target User? @relation("OffDaySwapTarget", fields: [targetUserId], references: [id])
+
+  @@index([userId])
+  @@index([targetUserId])
+  @@index([status])
+  @@index([userId, status])
+  @@index([createdAt])
+  @@map("off_day_requests")
+}
+
+model UserSchedule {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  date      DateTime @db.Date
+  shiftId   Int?     @map("shift_id")
+  isOffDay  Boolean  @default(false) @map("is_off_day")
+  kitchenStation String? @map("kitchen_station")
+  isInventoryController Boolean @default(false) @map("is_inventory_controller")
+  isShiftPic           Boolean @default(false) @map("is_shift_pic")
+  isSanitationLead     Boolean @default(false) @map("is_sanitation_lead")
+
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shift   Shift? @relation(fields: [shiftId], references: [id])
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([userId, date])
+  @@index([userId])
+  @@index([date])
+  @@map("user_schedules")
+}
