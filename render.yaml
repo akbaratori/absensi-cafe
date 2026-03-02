@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: absensi-cafe-backend
+    env: node
+    rootDir: backend
+    buildCommand: npm install && npx prisma generate
+    startCommand: npx prisma migrate deploy && node src/server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3100
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      - key: CAFE_LATITUDE
+        value: "-5.168772226471969"
+      - key: CAFE_LONGITUDE
+        value: "119.45848536836249"
+      - key: CAFE_RADIUS
+        value: "200"

@@ -2,18 +2,8 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 
-const isDev = process.env.NODE_ENV !== "production";
-
 // Conditionally load basicSsl only in development
 const plugins = [react()];
-if (isDev) {
-  try {
-    const basicSsl = (await import("@vitejs/plugin-basic-ssl")).default;
-    plugins.push(basicSsl());
-  } catch (e) {
-    // basicSsl not available, skip
-  }
-}
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -70,7 +60,6 @@ export default defineConfig({
 
   server: {
     host: true, // Enable external access
-    https: true, // Enforce HTTPS
     port: 3101,
     proxy: {
       "/api": {
