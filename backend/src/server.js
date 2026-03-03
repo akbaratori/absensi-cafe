@@ -3,19 +3,6 @@ const config = require('./config');
 const prisma = require('./utils/database');
 require('fs').writeFileSync('server_started.txt', `Started at ${new Date().toISOString()}`);
 
-// Serve static files in production
-if (config.nodeEnv === 'production') {
-  const path = require('path');
-  const frontendBuildPath = path.join(__dirname, '../../frontend/dist');
-
-  // Serve static files
-  app.use(require('express').static(frontendBuildPath));
-
-  // Handle client-side routing
-  app.get('*', (req, res) => {
-    res.sendFile(path.join(frontendBuildPath, 'index.html'));
-  });
-}
 
 // Start server
 const server = app.listen(config.port, async () => {
