@@ -41,6 +41,14 @@ export const deleteUser = async (id) => {
 };
 
 /**
+ * Get next available Employee ID
+ */
+export const getNextEmployeeId = async (role = 'EMPLOYEE') => {
+  const response = await api.get('/admin/users/next-id', { params: { role } });
+  return response.data;
+};
+
+/**
  * Get system configuration
  */
 export const getConfig = async () => {

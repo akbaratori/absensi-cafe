@@ -4,11 +4,13 @@ import Input from '../../components/shared/Input';
 import Button from '../../components/shared/Button';
 import { showSuccess, showError } from '../../hooks/useToast';
 import { getAllShifts } from '../../services/shiftService';
-import { createUser, updateUser } from '../../services/adminService';
+import { createUser, updateUser, getNextEmployeeId } from '../../services/adminService';
 
 const UserModal = ({ isOpen, onClose, user = null, onSuccess }) => {
     const [loading, setLoading] = useState(false);
     const [shifts, setShifts] = useState([]);
+    const [suggestedId, setSuggestedId] = useState('');
+    const [existingIds, setExistingIds] = useState([]);
     const [formData, setFormData] = useState({
         username: '',
         password: '',
@@ -31,6 +33,19 @@ const UserModal = ({ isOpen, onClose, user = null, onSuccess }) => {
         fetchShifts();
     }, []);
 
+    // Fetch next available Employee ID when creating new user
+    const fetchNextId = async (role) => {
+        try {
+            const response = await getNextEmployeeId(role);
+            setSuggestedId(response.data.nextId);
+            setExistingIds(response.data.existingIds || []);
+            return response.data.nextId;
+        } catch (error) {
+            console.error('Failed to fetch next employee ID');
+            return null;
+        }
+    };
+
     useEffect(() => {
         if (user) {
             setFormData({
@@ -39,12 +54,14 @@ const UserModal = ({ isOpen, onClose, user = null, onSuccess }) => {
                 fullName: user.fullName,
                 email: user.email || '',
                 role: user.role,
-                shiftId: user.shiftId || '', // Use shiftId from user object
+                shiftId: user.shiftId || '',
                 employeeId: user.employeeId || '',
                 hourlyRate: user.hourlyRate || 0,
                 offDay: user.offDay !== undefined ? user.offDay : 0,
                 department: user.department || 'BAR',
             });
+            setSuggestedId('');
+            setExistingIds([]);
         } else {
             setFormData({
                 username: '',
@@ -52,52 +69,38 @@ const UserModal = ({ isOpen, onClose, user = null, onSuccess }) => {
                 fullName: '',
                 email: '',
                 role: 'EMPLOYEE',
-                shiftId: '', // Default empty or first shift logic later
+                shiftId: '',
                 employeeId: '',
                 hourlyRate: 0,
-                offDay: 0, // Default Sunday
+                offDay: 0,
                 department: 'BAR',
+            });
+            // Auto-fetch next ID for new user
+            fetchNextId('EMPLOYEE').then((nextId) => {
+                if (nextId) {
+                    setFormData(prev => ({ ...prev, employeeId: nextId }));
+                }
             });
         }
     }, [user, isOpen]);
 
-    const generateEmployeeId = (role) => {
-        const prefix = role === 'ADMIN' ? 'ADM' : 'EMP';
-        const randomNum = Math.floor(1000 + Math.random() * 9000); // 4 digit random number
-        return `${prefix}-${randomNum}`;
-    };
-
     const handleChange = (e) => {
         const { name, value } = e.target;
 
-        if (name === 'role') {
-            // Auto-generate employeeId if it's empty or looks like an auto-generated one (to allow switching roles to update prefix)
-            // But usually safer to only do it if empty to avoid accidental overwrites of manual edits.
-            // Let's go with: if user is NEW (no user prop) AND employeeId is empty or starts with previous prefix.
-
-            // Simple approach: If creating new user, auto-regenerate. If editing, don't touch unless empty.
-            if (!user && (formData.employeeId === '' || formData.employeeId.startsWith('ADM-') || formData.employeeId.startsWith('EMP-'))) {
-                setFormData((prev) => ({
-                    ...prev,
-                    [name]: value,
-                    employeeId: generateEmployeeId(value)
-                }));
-                return;
-            }
+        if (name === 'role' && !user) {
+            // Fetch new suggested ID when role changes for new user
+            fetchNextId(value).then((nextId) => {
+                if (nextId) {
+                    setFormData(prev => ({ ...prev, [name]: value, employeeId: nextId }));
+                } else {
+                    setFormData(prev => ({ ...prev, [name]: value }));
+                }
+            });
+            return;
         }
 
         setFormData((prev) => ({ ...prev, [name]: value }));
     };
-
-    // Trigger initial generation for new users if empty
-    useEffect(() => {
-        if (!user && !formData.employeeId && formData.role) {
-            setFormData(prev => ({
-                ...prev,
-                employeeId: generateEmployeeId(prev.role)
-            }));
-        }
-    }, [user, formData.role]);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -253,13 +256,25 @@ const UserModal = ({ isOpen, onClose, user = null, onSuccess }) => {
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
-                    <Input
-                        label="Employee ID"
-                        name="employeeId"
-                        value={formData.employeeId}
-                        onChange={handleChange}
-                        placeholder="EMP001"
-                    />
+                    <div>
+                        <Input
+                            label="Employee ID"
+                            name="employeeId"
+                            value={formData.employeeId}
+                            onChange={handleChange}
+                            placeholder={suggestedId || 'EMP0001'}
+                        />
+                        {!user && suggestedId && (
+                            <p className="mt-1 text-xs text-green-500 dark:text-green-400">
+                                ✓ ID berikutnya: <strong>{suggestedId}</strong>
+                            </p>
+                        )}
+                        {existingIds.length > 0 && (
+                            <p className="mt-0.5 text-xs text-gray-400 dark:text-gray-500">
+                                Sudah terpakai: {existingIds.slice(-5).join(', ')}
+                            </p>
+                        )}
+                    </div>
 
                     <Input
                         label="Hourly Rate (Gaji/Jam)"

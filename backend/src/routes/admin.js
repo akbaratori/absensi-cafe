@@ -37,6 +37,13 @@ router.get('/users', validateQuery(usersQuerySchema), adminController.listUsers)
 router.post('/users', validate(createUserSchema), adminController.createUser);
 
 /**
+ * @route   GET /api/v1/admin/users/next-id
+ * @desc    Get next available Employee ID
+ * @access  Private (Admin)
+ */
+router.get('/users/next-id', adminController.getNextEmployeeId);
+
+/**
  * @route   GET /api/v1/admin/users/:id
  * @desc    Get user by ID
  * @access  Private (Admin)

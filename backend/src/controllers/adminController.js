@@ -1,6 +1,7 @@
 const adminService = require('../services/adminService');
 const attendanceService = require('../services/attendanceService');
 const userRepository = require('../repositories/userRepository');
+const prisma = require('../utils/database');
 const { successResponse } = require('../utils/response');
 const { asyncHandler } = require('../utils/response');
 
@@ -63,6 +64,45 @@ class AdminController {
     await adminService.deleteUser(parseInt(id));
 
     return successResponse(res, 200, null, 'User deleted successfully');
+  });
+
+  /**
+   * Get next available Employee ID
+   * GET /api/v1/admin/users/next-id
+   */
+  getNextEmployeeId = asyncHandler(async (req, res) => {
+    const role = req.query.role || 'EMPLOYEE';
+    const prefix = role === 'ADMIN' ? 'ADM' : 'EMP';
+
+    // Find all employee IDs with this prefix
+    const users = await prisma.user.findMany({
+      where: {
+        employeeId: { startsWith: prefix },
+      },
+      select: { employeeId: true },
+      orderBy: { employeeId: 'desc' },
+    });
+
+    // Extract numbers and find the max
+    let maxNum = 0;
+    users.forEach((u) => {
+      if (u.employeeId) {
+        // Support EMP0001, EMP-0001, EMP001 etc.
+        const match = u.employeeId.match(/\d+$/);
+        if (match) {
+          const num = parseInt(match[0], 10);
+          if (num > maxNum) maxNum = num;
+        }
+      }
+    });
+
+    const nextNum = maxNum + 1;
+    const nextId = `${prefix}${String(nextNum).padStart(4, '0')}`;
+
+    // Also return list of existing IDs for reference
+    const existingIds = users.map((u) => u.employeeId).filter(Boolean).sort();
+
+    return successResponse(res, 200, { nextId, existingIds });
   });
 
   /**
