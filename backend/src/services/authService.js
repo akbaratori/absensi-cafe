@@ -5,18 +5,14 @@ const { generateTokens, verifyToken } = require('../utils/jwt');
 const config = require('../config');
 const prisma = require('../utils/database');
 
-const fs = require('fs');
-
 class AuthService {
   /**
    * Login user
    */
   async login(username, password) {
-    fs.appendFileSync('debug.log', `[${new Date().toISOString()}] Login attempt for: ${username}\n`);
     // Find user
     try {
       const user = await userRepository.findByUsernameWithPassword(username);
-      fs.appendFileSync('debug.log', `[${new Date().toISOString()}] User found: ${user ? 'YES' : 'NO'}\n`);
 
       if (!user) {
         throw ErrorCodes.AUTH_ERRORS.INVALID_CREDENTIALS;
@@ -24,7 +20,6 @@ class AuthService {
 
       // Verify password
       const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
-      fs.appendFileSync('debug.log', `[${new Date().toISOString()}] Password valid: ${isPasswordValid}\n`);
 
       if (!isPasswordValid) {
         throw ErrorCodes.AUTH_ERRORS.INVALID_CREDENTIALS;
@@ -40,11 +35,9 @@ class AuthService {
         userId: user.id,
         role: user.role,
       });
-      fs.appendFileSync('debug.log', `[${new Date().toISOString()}] Tokens generated\n`);
 
       // Update last login
       await userRepository.updateLastLogin(user.id);
-      fs.appendFileSync('debug.log', `[${new Date().toISOString()}] Last login updated\n`);
 
       // Return user data without password
       const { passwordHash, ...userWithoutPassword } = user;
@@ -55,7 +48,6 @@ class AuthService {
         user: userWithoutPassword,
       };
     } catch (err) {
-      fs.appendFileSync('debug.log', `[${new Date().toISOString()}] Error in login: ${err.message}\n`);
       throw err;
     }
   }
