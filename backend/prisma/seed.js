@@ -46,6 +46,9 @@ async function main() {
       role: 'ADMIN',
       employeeId: 'ADM001',
       shiftId: shift1.id,
+      department: 'BAR',
+      offDay: 0,
+      hourlyRate: 0,
     },
   });
 
@@ -53,7 +56,7 @@ async function main() {
   const employeePassword = await bcrypt.hash('123456', 10);
   const employee1 = await prisma.user.upsert({
     where: { username: 'akbar' },
-    update: { shiftId: shift1.id }, // Ensure shift is linked if user exists
+    update: { shiftId: shift1.id },
     create: {
       username: 'akbar',
       passwordHash: employeePassword,
@@ -62,6 +65,9 @@ async function main() {
       role: 'EMPLOYEE',
       employeeId: 'EMP001',
       shiftId: shift1.id,
+      department: 'BAR',
+      offDay: 0,
+      hourlyRate: 0,
     },
   });
 
@@ -77,6 +83,9 @@ async function main() {
       role: 'EMPLOYEE',
       employeeId: 'EMP002',
       shiftId: shift2.id,
+      department: 'KITCHEN',
+      offDay: 1,
+      hourlyRate: 0,
     },
   });
 
