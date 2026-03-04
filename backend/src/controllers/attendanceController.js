@@ -10,7 +10,8 @@ class AttendanceController {
   clockIn = asyncHandler(async (req, res) => {
     const { location, notes } = req.body;
     const userId = req.user.id;
-    const photo = req.file ? req.file.path.replace(/\\/g, '/') : null;
+    // With memoryStorage, files are in memory (buffer) not saved to disk
+    const photo = req.file ? `selfie-${Date.now()}.${req.file.originalname.split('.').pop()}` : null;
     const ipAddress = req.ip || req.connection.remoteAddress;
 
     const result = await attendanceService.clockIn(userId, location, notes, photo, ipAddress);
@@ -25,7 +26,8 @@ class AttendanceController {
   clockOut = asyncHandler(async (req, res) => {
     const { location } = req.body;
     const userId = req.user.id;
-    const photo = req.file ? req.file.path.replace(/\\/g, '/') : null;
+    // With memoryStorage, files are in memory (buffer) not saved to disk
+    const photo = req.file ? `selfie-${Date.now()}.${req.file.originalname.split('.').pop()}` : null;
     const ipAddress = req.ip || req.connection.remoteAddress;
 
     const result = await attendanceService.clockOut(userId, location, photo, ipAddress);
