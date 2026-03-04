@@ -105,7 +105,7 @@ const BulkSchedulePanel = ({ onComplete }) => {
             <div className="mb-4">
                 <button
                     onClick={() => setIsOpen(true)}
-                    className="w-full flex items-center justify-between px-4 py-3 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-lg shadow hover:from-amber-600 hover:to-orange-600 transition-all"
+                    className="w-full flex items-center justify-between px-4 py-3 bg-gradient-to-r from-indigo-700 to-slate-700 text-white rounded-lg shadow hover:from-indigo-800 hover:to-slate-800 transition-all"
                 >
                     <div className="flex items-center gap-2">
                         <span className="text-lg">🌙</span>
@@ -118,9 +118,9 @@ const BulkSchedulePanel = ({ onComplete }) => {
     }
 
     return (
-        <div className="mb-4 bg-white dark:bg-gray-800 rounded-lg shadow-md border border-amber-200 dark:border-amber-800 overflow-hidden">
+        <div className="mb-4 bg-white dark:bg-gray-800 rounded-lg shadow-md border border-indigo-200 dark:border-indigo-900 overflow-hidden">
             {/* Header */}
-            <div className="px-4 py-3 bg-gradient-to-r from-amber-500 to-orange-500 text-white flex items-center justify-between">
+            <div className="px-4 py-3 bg-gradient-to-r from-indigo-700 to-slate-700 text-white flex items-center justify-between">
                 <div className="flex items-center gap-2">
                     <span className="text-lg">🌙</span>
                     <h3 className="font-semibold">Generate Jadwal Massal</h3>
@@ -204,7 +204,7 @@ const BulkSchedulePanel = ({ onComplete }) => {
                                 name="selectAll"
                                 checked={formData.selectAll}
                                 onChange={handleChange}
-                                className="rounded border-gray-300 text-amber-500 focus:ring-amber-500"
+                                className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
                             />
                             Pilih Semua
                         </label>
@@ -216,7 +216,7 @@ const BulkSchedulePanel = ({ onComplete }) => {
                                     type="checkbox"
                                     checked={formData.selectedUserIds.includes(u.id)}
                                     onChange={() => toggleUser(u.id)}
-                                    className="rounded border-gray-300 text-amber-500 focus:ring-amber-500"
+                                    className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
                                 />
                                 <span className="text-gray-700 dark:text-gray-300">{u.fullName}</span>
                                 <span className="text-xs text-gray-400">({u.department})</span>
@@ -242,7 +242,7 @@ const BulkSchedulePanel = ({ onComplete }) => {
                     onClick={handleSubmit}
                     loading={loading}
                     variant="primary"
-                    className="w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600"
+                    className="w-full bg-gradient-to-r from-indigo-700 to-slate-700 hover:from-indigo-800 hover:to-slate-800"
                 >
                     🌙 Generate Jadwal Massal
                 </Button>
