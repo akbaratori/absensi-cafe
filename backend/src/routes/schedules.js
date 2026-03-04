@@ -9,6 +9,9 @@ router.use(authenticate);
 // Generate schedule (Admin only)
 router.post('/generate', authorize('ADMIN'), scheduleController.generateSchedule);
 
+// Bulk generate schedule - all staff same shift (Admin only)
+router.post('/bulk-generate', authorize('ADMIN'), scheduleController.bulkGenerateSchedule);
+
 // Check conflicts (Admin only)
 router.post('/check-conflicts', authorize('ADMIN'), scheduleController.checkConflicts);
 

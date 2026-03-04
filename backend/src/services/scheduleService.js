@@ -121,6 +121,83 @@ class ScheduleService {
     }
 
     /**
+     * Bulk generate schedule for multiple users with the same shift
+     * Use case: Ramadan - all staff same shift
+     */
+    async bulkGenerateSchedule(userIds, startDateStr, endDateStr, shiftId, options = {}) {
+        const { keepOffDays = true } = options;
+
+        const startDate = new Date(startDateStr);
+        const endDate = new Date(endDateStr);
+        startDate.setHours(0, 0, 0, 0);
+        endDate.setHours(0, 0, 0, 0);
+
+        // Fetch users to get their off day info
+        const users = await prisma.user.findMany({
+            where: { id: { in: userIds }, isActive: true },
+            select: { id: true, fullName: true, offDay: true }
+        });
+
+        if (users.length === 0) {
+            throw new Error('Tidak ada user aktif yang ditemukan');
+        }
+
+        const allSchedules = [];
+
+        for (const user of users) {
+            let currentDate = new Date(startDate);
+
+            while (currentDate <= endDate) {
+                const dayOfWeek = currentDate.getDay();
+                const isOffDay = keepOffDays && user.offDay !== undefined && user.offDay !== -1 && dayOfWeek === user.offDay;
+
+                allSchedules.push({
+                    userId: user.id,
+                    date: new Date(currentDate),
+                    shiftId: isOffDay ? null : shiftId,
+                    isOffDay: isOffDay
+                });
+
+                currentDate.setDate(currentDate.getDate() + 1);
+            }
+        }
+
+        // Batch upsert in transaction
+        const batchSize = 50;
+        for (let i = 0; i < allSchedules.length; i += batchSize) {
+            const batch = allSchedules.slice(i, i + batchSize);
+            const operations = batch.map(schedule =>
+                prisma.userSchedule.upsert({
+                    where: {
+                        userId_date: {
+                            userId: schedule.userId,
+                            date: schedule.date
+                        }
+                    },
+                    update: {
+                        shiftId: schedule.shiftId,
+                        isOffDay: schedule.isOffDay
+                    },
+                    create: {
+                        userId: schedule.userId,
+                        date: schedule.date,
+                        shiftId: schedule.shiftId,
+                        isOffDay: schedule.isOffDay
+                    }
+                })
+            );
+            await prisma.$transaction(operations);
+        }
+
+        return {
+            totalUsers: users.length,
+            totalDays: Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1,
+            totalSchedules: allSchedules.length,
+            users: users.map(u => u.fullName)
+        };
+    }
+
+    /**
      * Distribute Shift 2 for Kitchen Staff (Detailed Rolling)
      * Rule: Shift 1 (2 people) Max, Shift 2 (3 people).
      * Rolling weekly.

@@ -10,6 +10,7 @@ import api from '../../services/api';
 import { showSuccess, showError } from '../../hooks/useToast';
 import ScheduleCalendar from '../../components/admin/ScheduleCalendar';
 import StationSummaryPanel from '../../components/admin/StationSummaryPanel';
+import BulkSchedulePanel from '../../components/admin/BulkSchedulePanel';
 
 const ScheduleManagementPage = () => {
     const [users, setUsers] = useState([]);
@@ -196,6 +197,8 @@ const ScheduleManagementPage = () => {
                     </Button>
                 </div>
             </div>
+
+            <BulkSchedulePanel />
 
             <StationSummaryPanel />
 

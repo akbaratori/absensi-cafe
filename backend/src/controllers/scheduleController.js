@@ -25,6 +25,40 @@ class ScheduleController {
         }
     }
 
+    async bulkGenerateSchedule(req, res, next) {
+        try {
+            const { userIds, startDate, endDate, shiftId, keepOffDays } = req.body;
+
+            if (!startDate || !endDate || !shiftId) {
+                throw ErrorCodes.SCHEDULE_ERRORS.MISSING_REQUIRED_FIELDS;
+            }
+
+            // If userIds is 'ALL' or empty, get all active employees
+            let targetUserIds = userIds;
+            if (!userIds || userIds === 'ALL' || (Array.isArray(userIds) && userIds.length === 0)) {
+                const prisma = require('../utils/database');
+                const allUsers = await prisma.user.findMany({
+                    where: { isActive: true, role: 'EMPLOYEE' },
+                    select: { id: true }
+                });
+                targetUserIds = allUsers.map(u => u.id);
+            }
+
+            const result = await scheduleService.bulkGenerateSchedule(
+                targetUserIds,
+                startDate,
+                endDate,
+                parseInt(shiftId),
+                { keepOffDays: keepOffDays !== false }
+            );
+
+            return successResponse(res, 200, result, `Jadwal massal berhasil digenerate untuk ${result.totalUsers} karyawan`);
+        } catch (err) {
+            console.error('[ScheduleController] Bulk Generate Error:', err);
+            next(err);
+        }
+    }
+
     async getUserSchedule(req, res, next) {
         try {
             const { userId } = req.params;

@@ -37,3 +37,8 @@ export const getAllSchedules = async ({ startDate, endDate, department }) => {
         params: { startDate, endDate, department }
     });
 };
+
+export const bulkGenerateSchedule = async (data) => {
+    const response = await api.post('/schedules/bulk-generate', data);
+    return response.data;
+};
