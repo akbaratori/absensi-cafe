@@ -61,9 +61,14 @@ class AdminService {
       throw ErrorCodes.USER_ERRORS.USER_NOT_FOUND;
     }
 
-    // Check if username is being changed and if it's already taken
-    if (data.username && data.username !== user.username) {
-      const existingUser = await userRepository.findByUsername(data.username);
+    // Check if username is taken by ANOTHER user (exclude current user)
+    if (data.username) {
+      const existingUser = await prisma.user.findFirst({
+        where: {
+          username: data.username,
+          id: { not: id }, // Exclude current user being edited
+        },
+      });
       if (existingUser) {
         throw ErrorCodes.USER_ERRORS.DUPLICATE_USERNAME;
       }
@@ -72,16 +77,16 @@ class AdminService {
     // Sanitize email
     const email = data.email === '' ? null : data.email;
 
-    // Check if email is being changed and if it's already taken
-    if (email !== undefined && email !== user.email) {
-      if (email) {
-        const userWithEmail = await prisma.user.findFirst({
-          where: { email },
-        });
-
-        if (userWithEmail) {
-          throw ErrorCodes.USER_ERRORS.DUPLICATE_EMAIL;
-        }
+    // Check if email is taken by ANOTHER user (exclude current user)
+    if (email) {
+      const userWithEmail = await prisma.user.findFirst({
+        where: {
+          email,
+          id: { not: id }, // Exclude current user being edited
+        },
+      });
+      if (userWithEmail) {
+        throw ErrorCodes.USER_ERRORS.DUPLICATE_EMAIL;
       }
     }
 
@@ -106,8 +111,11 @@ class AdminService {
       const updatedUser = await userRepository.update(id, updateData);
       return updatedUser;
     } catch (error) {
-      if (error.code === 'P2002' && (error.meta?.target === 'users_employee_id_key' || error.meta?.target?.includes('employeeId'))) {
-        throw ErrorCodes.USER_ERRORS.DUPLICATE_EMPLOYEE_ID;
+      if (error.code === 'P2002') {
+        const target = error.meta?.target;
+        if (target?.includes('username')) throw ErrorCodes.USER_ERRORS.DUPLICATE_USERNAME;
+        if (target?.includes('email')) throw ErrorCodes.USER_ERRORS.DUPLICATE_EMAIL;
+        if (target?.includes('employeeId') || target === 'users_employee_id_key') throw ErrorCodes.USER_ERRORS.DUPLICATE_EMPLOYEE_ID;
       }
       throw error;
     }
