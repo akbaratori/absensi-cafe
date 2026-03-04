@@ -8,6 +8,9 @@ const plugins = [react()];
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins,
+  esbuild: {
+    drop: ["console", "debugger"], // Remove console.logs and debugger in production
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
@@ -18,13 +21,7 @@ export default defineConfig({
     sourcemap: false,
 
     // Minify bundle
-    minify: "terser",
-    terserOptions: {
-      compress: {
-        drop_console: true, // Remove console.logs in production
-        drop_debugger: true,
-      },
-    },
+    minify: "esbuild",
 
     // Optimize chunk splitting
     rollupOptions: {
