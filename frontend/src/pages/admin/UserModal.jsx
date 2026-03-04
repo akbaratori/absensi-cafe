@@ -111,7 +111,13 @@ const UserModal = ({ isOpen, onClose, user = null, onSuccess }) => {
                 // Update existing user
                 const dataToUpdate = { ...formData };
                 if (!dataToUpdate.password) delete dataToUpdate.password;
-                // username can be updated now
+
+                // Sanitize shiftId: empty string -> null
+                if (dataToUpdate.shiftId === '' || dataToUpdate.shiftId === undefined) {
+                    dataToUpdate.shiftId = null;
+                } else {
+                    dataToUpdate.shiftId = parseInt(dataToUpdate.shiftId, 10);
+                }
 
                 // Ensure hourlyRate is a valid number
                 if (dataToUpdate.hourlyRate) {
@@ -125,8 +131,15 @@ const UserModal = ({ isOpen, onClose, user = null, onSuccess }) => {
                 showSuccess('User updated successfully');
             } else {
                 // Create new user
-                // Ensure hourlyRate is a valid number for creation
                 const dataToCreate = { ...formData };
+
+                // Sanitize shiftId: empty string -> null
+                if (dataToCreate.shiftId === '' || dataToCreate.shiftId === undefined) {
+                    dataToCreate.shiftId = null;
+                } else {
+                    dataToCreate.shiftId = parseInt(dataToCreate.shiftId, 10);
+                }
+
                 if (dataToCreate.hourlyRate) {
                     dataToCreate.hourlyRate = parseInt(dataToCreate.hourlyRate, 10);
                 }
