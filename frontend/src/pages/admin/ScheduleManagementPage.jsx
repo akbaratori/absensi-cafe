@@ -9,6 +9,7 @@ import { generateSchedule, distributeKitchenShifts, checkConflicts } from '../..
 import api from '../../services/api';
 import { showSuccess, showError } from '../../hooks/useToast';
 import ScheduleCalendar from '../../components/admin/ScheduleCalendar';
+import StationSummaryPanel from '../../components/admin/StationSummaryPanel';
 
 const ScheduleManagementPage = () => {
     const [users, setUsers] = useState([]);
@@ -195,6 +196,8 @@ const ScheduleManagementPage = () => {
                     </Button>
                 </div>
             </div>
+
+            <StationSummaryPanel />
 
             <Card>
                 <div className="p-4" id="schedule-calendar-container">

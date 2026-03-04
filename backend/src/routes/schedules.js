@@ -25,9 +25,12 @@ router.post('/assign-stations', authorize('ADMIN'), scheduleController.assignSta
 // Manual update schedule (Admin only)
 router.put('/:id', authorize('ADMIN'), scheduleController.updateSchedule);
 
+// Get station summary for a month (Admin only) - MUST be before /:userId
+router.get('/station-summary', authorize('ADMIN'), scheduleController.getStationSummary);
+
 router.get('/:userId', authorize('ADMIN', 'EMPLOYEE'), scheduleController.getUserSchedule);
 
-// Get all schedules (for calendar) - must be before userId if path was ambiguous, but here it's fine if separate
+// Get all schedules (for calendar)
 router.get('/', authorize('ADMIN', 'EMPLOYEE'), scheduleController.getAllSchedules);
 
 module.exports = router;
