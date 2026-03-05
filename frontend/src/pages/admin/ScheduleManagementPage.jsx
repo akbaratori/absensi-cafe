@@ -11,6 +11,7 @@ import { showSuccess, showError } from '../../hooks/useToast';
 import ScheduleCalendar from '../../components/admin/ScheduleCalendar';
 import StationSummaryPanel from '../../components/admin/StationSummaryPanel';
 import BulkSchedulePanel from '../../components/admin/BulkSchedulePanel';
+import ClosingTodayWidget from '../../components/admin/ClosingTodayWidget';
 
 const ScheduleManagementPage = () => {
     const [users, setUsers] = useState([]);
@@ -197,6 +198,8 @@ const ScheduleManagementPage = () => {
                     </Button>
                 </div>
             </div>
+
+            <ClosingTodayWidget />
 
             <BulkSchedulePanel />
 

@@ -140,7 +140,12 @@ const JobdeskClosingPage = () => {
             return;
         }
         const days = getDaysInRange(startDate, endDate);
-        setGenerated(buildRotation(names, jobs, days));
+        const rotation = buildRotation(names, jobs, days);
+        setGenerated(rotation);
+
+        // Simpan ke localStorage agar widget di Jadwal Rolling bisa baca
+        const config = { mode, names, startDate, endDate };
+        localStorage.setItem('jobdesk_closing_config', JSON.stringify(config));
     };
 
     // Find today's entry
@@ -192,8 +197,8 @@ const JobdeskClosingPage = () => {
                                         setGenerated(null);
                                     }}
                                     className={`px-5 py-2 rounded-lg font-semibold text-sm border-2 transition-all ${mode === m
-                                            ? 'bg-indigo-700 text-white border-indigo-700 shadow'
-                                            : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-indigo-400'
+                                        ? 'bg-indigo-700 text-white border-indigo-700 shadow'
+                                        : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-indigo-400'
                                         }`}
                                 >
                                     {m} Orang
@@ -303,8 +308,8 @@ const JobdeskClosingPage = () => {
                                 <button
                                     onClick={() => setViewMode('today')}
                                     className={`px-3 py-1 rounded text-sm font-medium border transition-all ${viewMode === 'today'
-                                            ? 'bg-indigo-700 text-white border-indigo-700'
-                                            : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300'
+                                        ? 'bg-indigo-700 text-white border-indigo-700'
+                                        : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300'
                                         }`}
                                 >
                                     Hari Ini
@@ -312,8 +317,8 @@ const JobdeskClosingPage = () => {
                                 <button
                                     onClick={() => setViewMode('all')}
                                     className={`px-3 py-1 rounded text-sm font-medium border transition-all ${viewMode === 'all'
-                                            ? 'bg-indigo-700 text-white border-indigo-700'
-                                            : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300'
+                                        ? 'bg-indigo-700 text-white border-indigo-700'
+                                        : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300'
                                         }`}
                                 >
                                     Semua Hari
