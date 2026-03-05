@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Calendar as CalendarIcon, Filter, ChevronLeft, ChevronRight, Edit2 } from 'lucide-react';
 import { getAllSchedules, updateSchedule } from '../../services/scheduleService';
+import { getAllShifts } from '../../services/shiftService';
 import Card from '../shared/Card';
 import Avatar from '../shared/Avatar';
 import Modal from '../shared/Modal';
@@ -16,10 +17,17 @@ const ScheduleCalendar = () => {
     const [showEditModal, setShowEditModal] = useState(false);
     const [editForm, setEditForm] = useState({ shiftId: '', isOffDay: false });
     const [updateLoading, setUpdateLoading] = useState(false);
+    const [allShifts, setAllShifts] = useState([]);
 
     useEffect(() => {
         fetchSchedules();
     }, [currentDate, departmentFilter]);
+
+    useEffect(() => {
+        getAllShifts().then(res => {
+            setAllShifts(res.data?.shifts || []);
+        }).catch(() => { });
+    }, []);
 
     // Helper to format date as YYYY-MM-DD in local time
     const formatDateKey = (date) => {
@@ -396,8 +404,11 @@ const ScheduleCalendar = () => {
                                     required={!editForm.isOffDay}
                                 >
                                     <option value="">Pilih Shift</option>
-                                    <option value="1">Shift 1 (Pagi)</option>
-                                    <option value="2">Shift 2 (Siang)</option>
+                                    {allShifts.map(s => (
+                                        <option key={s.id} value={s.id}>
+                                            {s.name} ({s.startTime} - {s.endTime})
+                                        </option>
+                                    ))}
                                 </select>
                             </div>
                         )}
