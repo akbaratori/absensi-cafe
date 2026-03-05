@@ -26,6 +26,7 @@ import SwapApprovalPage from './pages/admin/SwapApprovalPage';
 import OffDayApprovalPage from './pages/admin/OffDayApprovalPage';
 import ScheduleManagementPage from './pages/admin/ScheduleManagementPage';
 import PayrollPage from './pages/admin/PayrollPage';
+import JobdeskClosingPage from './pages/admin/JobdeskClosingPage';
 
 // Components
 
@@ -226,6 +227,15 @@ function App() {
               element={
                 <AdminRoute>
                   <PayrollPage />
+                </AdminRoute>
+              }
+            />
+
+            <Route
+              path="/admin/jobdesk-closing"
+              element={
+                <AdminRoute>
+                  <JobdeskClosingPage />
                 </AdminRoute>
               }
             />

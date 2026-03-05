@@ -72,6 +72,11 @@ const Sidebar = ({ isOpen, onClose }) => {
       icon: Calendar,
     },
     {
+      name: '🌙 Jobdesk Closing',
+      path: '/admin/jobdesk-closing',
+      icon: Calendar,
+    },
+    {
       name: 'Tukar Shift',
       path: '/admin/swaps',
       icon: Calendar,
