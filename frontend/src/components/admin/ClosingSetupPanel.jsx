@@ -81,11 +81,15 @@ const ClosingSetupPanel = () => {
     const todayStr = toLocalDateStr(today);
     const jobs = mode === 5 ? JOBS_5 : JOBS_4;
 
-    // Load employees
+    // Load employees — dijalankan SELALU saat mount (bukan bergantung isOpen)
     useEffect(() => {
-        getUsers({ limit: 200, status: 'active' }).then(res => {
-            setAllEmployees((res.data?.users || []).filter(u => u.role === 'EMPLOYEE'));
-        }).catch(() => { });
+        getUsers({ limit: 100, page: 1, status: 'active' }).then(res => {
+            // res = { success, data: { users: [...], pagination } }
+            const list = res?.data?.users ?? res?.users ?? [];
+            // Tampilkan semua karyawan aktif (EMPLOYEE), fallback ke semua jika kosong
+            const employees = list.filter(u => u.role === 'EMPLOYEE');
+            setAllEmployees(employees.length > 0 ? employees : list);
+        }).catch(err => console.error('[ClosingSetupPanel] getUsers:', err));
     }, []);
 
     // Load saved config
