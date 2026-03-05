@@ -76,10 +76,11 @@ const ScheduleCalendar = () => {
     };
 
     const getShiftColor = (shiftId) => {
-        if (!shiftId) return 'bg-gray-100 text-gray-700 font-bold border-gray-300'; // Off - Darker & Bold
-        if (shiftId === 1) return 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800'; // Morning
-        if (shiftId === 2) return 'bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-900/30 dark:text-orange-300 dark:border-orange-800'; // Afternoon
-        return 'bg-purple-100 text-purple-700'; // Other
+        if (!shiftId) return 'bg-gray-200 text-gray-600 border-gray-300 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600 font-bold'; // Off
+        if (shiftId === 1) return 'bg-blue-600 text-white border-blue-700 dark:bg-blue-700 dark:border-blue-800'; // Shift 1 - Pagi
+        if (shiftId === 2) return 'bg-amber-600 text-white border-amber-700 dark:bg-amber-700 dark:border-amber-800'; // Shift 2 - Siang
+        // All other shifts (Ramadhan, etc) — dark indigo
+        return 'bg-indigo-700 text-white border-indigo-800 dark:bg-indigo-800 dark:border-indigo-900';
     };
 
     const handleScheduleClick = (schedule) => {
@@ -172,11 +173,11 @@ const ScheduleCalendar = () => {
                                                     ({schedule.user.department?.substring(0, 3)})
                                                 </span>
                                                 {schedule.kitchenStation && !schedule.isOffDay && (
-                                                    <span className="block mt-0.5 text-[10px] text-gray-600 dark:text-gray-300 font-bold italic whitespace-pre-line">
+                                                    <span className="block mt-0.5 text-[10px] text-white/80 font-bold italic whitespace-pre-line">
                                                         {schedule.kitchenStation.split(' + ')[0]}
                                                         {/* LOCKED SLOT INDICATOR for Role C (Admin View) */}
                                                         {schedule.kitchenStation.startsWith('C') && (
-                                                            <span className="block mt-0.5 text-[8px] font-extrabold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/30 px-1 rounded border border-red-100 dark:border-red-800 w-fit">
+                                                            <span className="block mt-0.5 text-[8px] font-extrabold text-red-200 bg-red-700 px-1 rounded border border-red-600 w-fit">
                                                                 LOCK 14:00
                                                             </span>
                                                         )}
@@ -202,7 +203,7 @@ const ScheduleCalendar = () => {
 
                                                 {/* Dishwasher Badge for Role D & E (Admin View) */}
                                                 {!schedule.isOffDay && schedule.kitchenStation && (schedule.kitchenStation.startsWith('D') || schedule.kitchenStation.startsWith('E')) && (
-                                                    <span className="block mt-0.5 text-[9px] font-bold text-gray-700 bg-gray-200 px-1 py-0.5 rounded border border-gray-300 w-fit">
+                                                    <span className="block mt-0.5 text-[9px] font-bold text-white bg-gray-600 px-1 py-0.5 rounded border border-gray-500 w-fit">
                                                         [DISHWASHER]
                                                     </span>
                                                 )}
@@ -262,17 +263,21 @@ const ScheduleCalendar = () => {
                 </div>
 
                 {/* Legend */}
-                <div className="flex gap-4 text-xs px-2">
+                <div className="flex flex-wrap gap-4 text-xs px-2">
                     <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded bg-blue-100 border border-blue-200"></div>
+                        <div className="w-3 h-3 rounded bg-blue-600 border border-blue-700"></div>
                         <span className="text-gray-600 dark:text-gray-400">Shift Pagi</span>
                     </div>
                     <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded bg-orange-100 border border-orange-200"></div>
+                        <div className="w-3 h-3 rounded bg-amber-600 border border-amber-700"></div>
                         <span className="text-gray-600 dark:text-gray-400">Shift Siang</span>
                     </div>
                     <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded bg-gray-100 border border-gray-200"></div>
+                        <div className="w-3 h-3 rounded bg-indigo-700 border border-indigo-800"></div>
+                        <span className="text-gray-600 dark:text-gray-400">Shift Lainnya</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded bg-gray-300 border border-gray-400"></div>
                         <span className="text-gray-600 dark:text-gray-400">Libur (OFF)</span>
                     </div>
                 </div>
