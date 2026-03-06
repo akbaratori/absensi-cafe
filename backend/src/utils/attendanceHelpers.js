@@ -40,11 +40,23 @@ const calculateAttendanceStatus = (clockIn, attendanceConfig) => {
   const workStartTime = new Date(clockIn);
   workStartTime.setHours(hours, minutes, 0, 0);
 
-  const graceTime = new Date(workStartTime);
-  graceTime.setMinutes(graceTime.getMinutes() + attendanceConfig.lateGraceMinutes);
+  // Khusus Shift Ramadhan yang masuk jam 14:00
+  // Memastikan grace period selalu maksimal pukul 14:15
+  if (hours === 14 && minutes === 0) {
+    const maxLateTime = new Date(workStartTime);
+    maxLateTime.setHours(14, 15, 0, 0); // Hardcode maksimal toleransi 14:15
 
-  if (clockIn > graceTime) {
-    return 'LATE';
+    if (clockIn > maxLateTime) {
+      return 'LATE';
+    }
+  } else {
+    // Shift Reguler menggunakan grace time dari config (e.g. 15 menit)
+    const graceTime = new Date(workStartTime);
+    graceTime.setMinutes(graceTime.getMinutes() + attendanceConfig.lateGraceMinutes);
+
+    if (clockIn > graceTime) {
+      return 'LATE';
+    }
   }
 
   return 'PRESENT';
