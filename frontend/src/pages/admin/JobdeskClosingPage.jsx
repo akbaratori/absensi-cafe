@@ -83,8 +83,6 @@ const JobdeskClosingPage = () => {
     const [generated, setGenerated] = useState(null);
     const [viewMode, setViewMode] = useState('today'); // 'today' | 'all'
 
-    const jobs = mode === 4 ? JOBS_4 : JOBS_5;
-
     const filledNames = nameInputs.slice(0, mode).filter((n) => n.trim());
 
     const handleGenerate = () => {
@@ -98,10 +96,10 @@ const JobdeskClosingPage = () => {
             return;
         }
         const days = getDaysInRange(startDate, endDate);
-        const rotation = buildRotation(names, jobs, days);
+        const rotation = buildRotation(names, days);
         setGenerated(rotation);
 
-        // Simpan ke localStorage agar widget di Jadwal Rolling bisa baca
+        // Simpan ke localStorage
         const config = { mode, names, startDate, endDate };
         localStorage.setItem('jobdesk_closing_config', JSON.stringify(config));
     };
@@ -231,10 +229,10 @@ const JobdeskClosingPage = () => {
             {/* Job Definitions */}
             <div>
                 <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">
-                    Pembagian Pos ({mode} Orang)
+                    3 Pos Closing ({mode} Orang — {mode - JOBS.length} Bebas per hari)
                 </h2>
-                <div className={`grid grid-cols-2 md:grid-cols-${mode === 4 ? '4' : '5'} gap-3`}>
-                    {jobs.map((job) => (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    {JOBS.map((job) => (
                         <div
                             key={job.id}
                             className={`bg-gradient-to-br ${job.color} text-white rounded-xl p-4 shadow`}
@@ -248,6 +246,14 @@ const JobdeskClosingPage = () => {
                                     </li>
                                 ))}
                             </ul>
+                        </div>
+                    ))}
+                    {/* Bebas slot */}
+                    {Array.from({ length: mode - JOBS.length }).map((_, i) => (
+                        <div key={`free-${i}`} className="bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 rounded-xl p-4 border-2 border-dashed border-gray-300 dark:border-gray-600">
+                            <div className="text-2xl mb-1">🆓</div>
+                            <p className="font-bold text-sm">Bebas / Helper</p>
+                            <p className="text-xs mt-2 opacity-70">Giliran tidak ada tugas hari ini — bantu posisi lain jika diperlukan</p>
                         </div>
                     ))}
                 </div>
@@ -287,24 +293,34 @@ const JobdeskClosingPage = () => {
                         {viewMode === 'today' && (
                             <div>
                                 {todayEntry ? (
-                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                        {todayEntry.assignments.map(({ job, person }) => (
-                                            <div
-                                                key={job.id}
-                                                className={`bg-gradient-to-br ${job.color} text-white rounded-xl p-5 shadow-lg`}
-                                            >
-                                                <div className="text-3xl mb-2">{job.icon}</div>
-                                                <p className="font-bold text-base">{person}</p>
-                                                <p className="text-xs text-white/70 mt-0.5">{job.label}</p>
-                                                <ul className="mt-3 space-y-1">
-                                                    {job.tasks.map((t, i) => (
-                                                        <li key={i} className="text-xs text-white/90 flex items-start gap-1">
-                                                            <span>✓</span> {t}
-                                                        </li>
-                                                    ))}
-                                                </ul>
+                                    <div>
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                            {todayEntry.assignments.map(({ job, person }) => (
+                                                <div
+                                                    key={job.id}
+                                                    className={`bg-gradient-to-br ${job.color} text-white rounded-xl p-5 shadow-lg`}
+                                                >
+                                                    <div className="text-3xl mb-2">{job.icon}</div>
+                                                    <p className="font-bold text-lg">{person}</p>
+                                                    <p className="text-xs text-white/70 mt-0.5">{job.label}</p>
+                                                    <ul className="mt-3 space-y-1">
+                                                        {job.tasks.map((t, i) => (
+                                                            <li key={i} className="text-xs text-white/90 flex items-start gap-1">
+                                                                <span>✓</span> {t}
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                </div>
+                                            ))}
+                                        </div>
+                                        {todayEntry.freeWorkers?.length > 0 && (
+                                            <div className="mt-3 flex items-center gap-2 bg-gray-50 dark:bg-gray-800 rounded-lg px-4 py-2.5 border border-gray-200 dark:border-gray-700">
+                                                <span>🆓</span>
+                                                <span className="text-sm text-gray-600 dark:text-gray-300">
+                                                    <strong>Bebas hari ini:</strong> {todayEntry.freeWorkers.join(', ')}
+                                                </span>
                                             </div>
-                                        ))}
+                                        )}
                                     </div>
                                 ) : (
                                     <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-8 text-center text-gray-400">
@@ -319,36 +335,28 @@ const JobdeskClosingPage = () => {
                                 <table className="min-w-full text-sm">
                                     <thead className="bg-gray-50 dark:bg-gray-800">
                                         <tr>
-                                            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">
-                                                Tanggal
-                                            </th>
-                                            {jobs.map((j) => (
-                                                <th
-                                                    key={j.id}
-                                                    className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase"
-                                                >
+                                            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">Tanggal</th>
+                                            {JOBS.map((j) => (
+                                                <th key={j.id} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">
                                                     {j.icon} Pos {j.id}
                                                 </th>
                                             ))}
+                                            {mode > JOBS.length && <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">🆓 Bebas</th>}
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-900">
-                                        {generated.map(({ date, assignments }, idx) => {
+                                        {generated.map(({ date, assignments, freeWorkers }, idx) => {
                                             const isToday = date.toLocaleDateString('en-CA') === todayStr;
                                             return (
-                                                <tr
-                                                    key={idx}
-                                                    className={isToday ? 'bg-indigo-50 dark:bg-indigo-900/30 font-semibold' : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'}
-                                                >
+                                                <tr key={idx} className={isToday ? 'bg-indigo-50 dark:bg-indigo-900/30 font-semibold' : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'}>
                                                     <td className="px-4 py-2 whitespace-nowrap text-gray-700 dark:text-gray-300">
                                                         {isToday && <span className="mr-1 text-indigo-600">▶</span>}
                                                         {fmtDate(date)}
                                                     </td>
                                                     {assignments.map(({ job, person }) => (
-                                                        <td key={job.id} className="px-4 py-2 whitespace-nowrap text-gray-800 dark:text-gray-200">
-                                                            {person}
-                                                        </td>
+                                                        <td key={job.id} className="px-4 py-2 whitespace-nowrap text-gray-800 dark:text-gray-200">{person}</td>
                                                     ))}
+                                                    {mode > JOBS.length && <td className="px-4 py-2 whitespace-nowrap text-gray-500 dark:text-gray-400 italic">{(freeWorkers || []).join(', ')}</td>}
                                                 </tr>
                                             );
                                         })}
@@ -371,11 +379,12 @@ const JobdeskClosingPage = () => {
                                         <thead>
                                             <tr className="text-left text-xs text-gray-500 dark:text-gray-400 uppercase">
                                                 <th className="pb-2 pr-4">Nama</th>
-                                                {jobs.map((j) => (
+                                                {JOBS.map((j) => (
                                                     <th key={j.id} className="pb-2 px-3">
                                                         {j.icon} Pos {j.id}
                                                     </th>
                                                 ))}
+                                                <th className="pb-2 px-3">🆓 Bebas</th>
                                                 <th className="pb-2 pl-3">Total Hari</th>
                                             </tr>
                                         </thead>

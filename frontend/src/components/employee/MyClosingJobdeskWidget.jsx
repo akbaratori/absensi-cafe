@@ -2,19 +2,11 @@ import { useState, useEffect, useMemo } from 'react';
 import { getClosingConfig, getAllSchedules } from '../../services/scheduleService';
 import { useAuth } from '../../contexts/AuthContext';
 
-// ─── JOB DEFINITIONS (harus sama dengan ClosingSetupPanel) ────────────────────
-const JOBS_4 = [
-    { id: 'A', label: 'Pos A', icon: '🧹', tasks: ['Lap-lap meja', 'Cuci lap'], color: 'from-blue-600 to-blue-700' },
-    { id: 'B', label: 'Pos B', icon: '🫧', tasks: ['Sapu lantai dapur', 'Pel lantai dapur'], color: 'from-emerald-600 to-emerald-700' },
-    { id: 'C', label: 'Pos C', icon: '🚿', tasks: ['Cuci piring', 'Bersihkan WC'], color: 'from-amber-600 to-amber-700' },
-    { id: 'D', label: 'Pos D', icon: '🪑', tasks: ['Angkat bangku', 'Sapu luar', 'Pel luar'], color: 'from-purple-600 to-purple-700' },
-];
-const JOBS_5 = [
-    { id: 'A', label: 'Pos A', icon: '🧹', tasks: ['Lap-lap meja', 'Cuci lap'], color: 'from-blue-600 to-blue-700' },
-    { id: 'B', label: 'Pos B', icon: '🫧', tasks: ['Sapu lantai dapur', 'Pel lantai dapur'], color: 'from-emerald-600 to-emerald-700' },
-    { id: 'C', label: 'Pos C', icon: '🍽️', tasks: ['Cuci piring'], color: 'from-amber-600 to-amber-700' },
-    { id: 'D', label: 'Pos D', icon: '🚿', tasks: ['Bersihkan WC', 'Angkat bangku'], color: 'from-rose-600 to-rose-700' },
-    { id: 'E', label: 'Pos E', icon: '🪑', tasks: ['Sapu luar', 'Pel luar'], color: 'from-purple-600 to-purple-700' },
+// ─── JOB DEFINITIONS (3 posisi, sama dengan ClosingSetupPanel) ──────────────
+const JOBS = [
+    { id: 'A', label: 'Pos A — Dapur Dalam', icon: '🧹', tasks: ['Lap-lap meja', 'Cuci lap'], color: 'from-blue-600 to-blue-700' },
+    { id: 'B', label: 'Pos B — Dapur Dalam', icon: '🫧', tasks: ['Sapu lantai dapur', 'Pel lantai dapur', 'Cuci piring'], color: 'from-emerald-600 to-emerald-700' },
+    { id: 'C', label: 'Pos C — Dapur Luar', icon: '🪑', tasks: ['Angkat bangku', 'Sapu luar', 'Pel luar', 'Bersihkan WC'], color: 'from-purple-600 to-purple-700' },
 ];
 
 const getDayOffset = (startDateStr, targetDateStr) => {
@@ -102,7 +94,6 @@ const MyClosingJobdeskWidget = () => {
         const myWorker = workers.find(w => w.userId === user.id);
         if (!myWorker) return null; // User tidak termasuk tim closing
 
-        const jobs = mode === 5 ? JOBS_5 : JOBS_4;
         const n = workers.length;
         const days = getDaysInRange(startDate, endDate);
         const dayIdx = days.indexOf(todayStr);
@@ -111,23 +102,25 @@ const MyClosingJobdeskWidget = () => {
         // Rotasi workers untuk hari ini
         const rotated = Array.from({ length: n }, (_, i) => workers[(i + dayIdx) % n]);
         const offToday = scheduleMap[todayStr] || new Set();
-        const working = rotated.filter(w => !offToday.has(w.userId));
 
         if (offToday.has(user.id)) {
-            return { isOff: true, job: null, tasks: [] };
+            return { isOff: true, isFree: false, job: null, tasks: [] };
         }
 
+        const working = rotated.filter(w => !offToday.has(w.userId));
         if (working.length === 0) return null;
 
-        // Cari job yang assigned ke user ini
+        // Cari posisi user dalam working list
         const myWorkingIdx = working.findIndex(w => w.userId === user.id);
         if (myWorkingIdx === -1) return null;
 
-        // User ini dapat job index sesuai posisinya di working list
-        const jobIdx = myWorkingIdx % jobs.length;
-        const job = jobs[jobIdx];
+        // Jika index >= jumlah pos (3), user bebas hari ini
+        if (myWorkingIdx >= JOBS.length) {
+            return { isOff: false, isFree: true, job: null, tasks: [] };
+        }
 
-        return { isOff: false, job, tasks: job.tasks };
+        const job = JOBS[myWorkingIdx];
+        return { isOff: false, isFree: false, job, tasks: job.tasks };
     }, [config, user, todayStr, scheduleMap]);
 
     if (loading) return null;
@@ -143,6 +136,20 @@ const MyClosingJobdeskWidget = () => {
                     <div>
                         <p className="font-semibold text-sm text-gray-800 dark:text-gray-200">Jobdesk Closing — {fmtToday}</p>
                         <p className="text-xs text-gray-500">Kamu libur hari ini — tidak ada tugas closing 🎉</p>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    if (todayData.isFree) {
+        return (
+            <div className="bg-gray-50 dark:bg-gray-800 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-4 mb-4">
+                <div className="flex items-center gap-2">
+                    <span className="text-xl">🆓</span>
+                    <div>
+                        <p className="font-semibold text-sm text-gray-800 dark:text-gray-200">Jobdesk Closing — {fmtToday}</p>
+                        <p className="text-xs text-gray-500">Kamu <strong>bebas / helper</strong> hari ini — bantu posisi lain jika dibutuhkan 👋</p>
                     </div>
                 </div>
             </div>

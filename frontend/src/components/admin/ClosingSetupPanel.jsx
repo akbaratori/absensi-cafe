@@ -2,19 +2,11 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { getUsers } from '../../services/adminService';
 import { getAllSchedules, getClosingConfig, saveClosingConfig } from '../../services/scheduleService';
 
-// ─── JOB DEFINITIONS ────────────────────────────────────────────────────────
-const JOBS_4 = [
-    { id: 'A', label: 'Pos A', icon: '🧹', tasks: ['Lap-lap meja', 'Cuci lap'], color: 'from-blue-600 to-blue-700' },
-    { id: 'B', label: 'Pos B', icon: '🫧', tasks: ['Sapu lantai dapur', 'Pel lantai dapur'], color: 'from-emerald-600 to-emerald-700' },
-    { id: 'C', label: 'Pos C', icon: '🚿', tasks: ['Cuci piring', 'Bersihkan WC'], color: 'from-amber-600 to-amber-700' },
-    { id: 'D', label: 'Pos D', icon: '🪑', tasks: ['Angkat bangku', 'Sapu luar', 'Pel luar'], color: 'from-purple-600 to-purple-700' },
-];
-const JOBS_5 = [
-    { id: 'A', label: 'Pos A', icon: '🧹', tasks: ['Lap-lap meja', 'Cuci lap'], color: 'from-blue-600 to-blue-700' },
-    { id: 'B', label: 'Pos B', icon: '🫧', tasks: ['Sapu lantai dapur', 'Pel lantai dapur'], color: 'from-emerald-600 to-emerald-700' },
-    { id: 'C', label: 'Pos C', icon: '🍽️', tasks: ['Cuci piring'], color: 'from-amber-600 to-amber-700' },
-    { id: 'D', label: 'Pos D', icon: '🚿', tasks: ['Bersihkan WC', 'Angkat bangku'], color: 'from-rose-600 to-rose-700' },
-    { id: 'E', label: 'Pos E', icon: '🪑', tasks: ['Sapu luar', 'Pel luar'], color: 'from-purple-600 to-purple-700' },
+// ─── JOB DEFINITIONS (3 posisi, berlaku untuk 4 maupun 5 orang) ──────────────
+const JOBS = [
+    { id: 'A', label: 'Pos A — Dapur Dalam', icon: '🧹', tasks: ['Lap-lap meja', 'Cuci lap'], color: 'from-blue-600 to-blue-700' },
+    { id: 'B', label: 'Pos B — Dapur Dalam', icon: '🫧', tasks: ['Sapu lantai dapur', 'Pel lantai dapur', 'Cuci piring'], color: 'from-emerald-600 to-emerald-700' },
+    { id: 'C', label: 'Pos C — Dapur Luar', icon: '🪑', tasks: ['Angkat bangku', 'Sapu luar', 'Pel luar', 'Bersihkan WC'], color: 'from-purple-600 to-purple-700' },
 ];
 
 const DAY_ID = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
