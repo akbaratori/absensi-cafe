@@ -19,9 +19,10 @@ const formatTime = (isoStr) => {
 };
 
 /**
- * Widget denda keterlambatan untuk karyawan.
- * Hanya menampilkan jumlah terlambat & total potongan — tanpa informasi gaji.
- * @param {string} month - YYYY-MM (opsional, default bulan ini)
+ * Widget denda keterlambatan bertingkat:
+ *   - 15–30 menit terlambat → penaltyLow  (Rp 7.500)
+ *   - > 30 menit terlambat  → penaltyHigh (Rp 15.000)
+ * @param {string} month   - YYYY-MM (opsional, default bulan ini)
  * @param {boolean} compact - Tampilan singkat untuk dashboard
  */
 const LatePenaltyWidget = ({ month, compact = false }) => {
@@ -42,56 +43,57 @@ const LatePenaltyWidget = ({ month, compact = false }) => {
             .finally(() => setLoading(false));
     }, [targetMonth]);
 
-    if (loading) return (
-        <div className="animate-pulse bg-gray-100 dark:bg-gray-800 rounded-xl h-20" />
-    );
+    if (loading) return <div className="animate-pulse bg-gray-100 dark:bg-gray-800 rounded-xl h-20" />;
     if (!data) return null;
 
     const isGood = data.lateCount === 0;
 
-    // ── COMPACT (untuk dashboard) ──────────────────────────────────────────
+    // ── COMPACT (dashboard) ────────────────────────────────────────────────
     if (compact) {
         return (
-            <div className={`rounded-xl p-4 flex items-center gap-3 ${isGood
+            <div className={`rounded-xl p-4 flex items-center gap-3 h-full ${isGood
                 ? 'bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800'
-                : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'
-                }`}>
+                : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'}`}>
                 {isGood
                     ? <CheckCircle className="w-8 h-8 text-emerald-500 flex-shrink-0" />
-                    : <AlertTriangle className="w-8 h-8 text-red-500 flex-shrink-0" />
-                }
+                    : <AlertTriangle className="w-8 h-8 text-red-500 flex-shrink-0" />}
                 <div className="flex-1 min-w-0">
                     <p className="text-xs text-gray-500 dark:text-gray-400">{monthLabel}</p>
                     <p className={`font-bold text-sm ${isGood ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-700 dark:text-red-300'}`}>
-                        {isGood ? '✅ Tidak ada keterlambatan' : `Terlambat ${data.lateCount}x — Potongan ${formatRp(data.totalDeduction)}`}
+                        {isGood
+                            ? '✅ Tidak ada keterlambatan'
+                            : `Terlambat ${data.lateCount}x — Potongan ${formatRp(data.totalDeduction)}`}
                     </p>
+                    {!isGood && (
+                        <p className="text-xs text-gray-400 mt-0.5">
+                            15–30 mnt: {formatRp(data.penaltyLow)} · &gt;30 mnt: {formatRp(data.penaltyHigh)}
+                        </p>
+                    )}
                 </div>
             </div>
         );
     }
 
-    // ── FULL (untuk halaman absensi) ──────────────────────────────────────
+    // ── FULL (halaman absensi) ─────────────────────────────────────────────
     return (
         <div className={`rounded-xl border overflow-hidden ${isGood
             ? 'border-emerald-200 dark:border-emerald-800'
-            : 'border-red-200 dark:border-red-800'
-            }`}>
+            : 'border-red-200 dark:border-red-800'}`}>
+
             {/* Header */}
             <div className={`px-5 py-4 flex items-center justify-between ${isGood
                 ? 'bg-emerald-50 dark:bg-emerald-900/20'
-                : 'bg-red-50 dark:bg-red-900/20'
-                }`}>
+                : 'bg-red-50 dark:bg-red-900/20'}`}>
                 <div className="flex items-center gap-3">
                     {isGood
                         ? <CheckCircle className="w-6 h-6 text-emerald-500 flex-shrink-0" />
-                        : <AlertTriangle className="w-6 h-6 text-red-500 flex-shrink-0" />
-                    }
+                        : <AlertTriangle className="w-6 h-6 text-red-500 flex-shrink-0" />}
                     <div>
                         <p className="font-semibold text-gray-800 dark:text-gray-100 text-sm">
                             Potongan Keterlambatan — {monthLabel}
                         </p>
                         <p className="text-xs text-gray-500 dark:text-gray-400">
-                            {formatRp(data.penaltyPerOccurrence)} per kejadian
+                            15–30 mnt: {formatRp(data.penaltyLow)} &nbsp;·&nbsp; &gt;30 mnt: {formatRp(data.penaltyHigh)}
                         </p>
                     </div>
                 </div>
@@ -103,7 +105,7 @@ const LatePenaltyWidget = ({ month, compact = false }) => {
                 </div>
             </div>
 
-            {/* Detail toggle (hanya jika ada keterlambatan) */}
+            {/* Detail toggle */}
             {!isGood && (
                 <>
                     <button
@@ -119,16 +121,25 @@ const LatePenaltyWidget = ({ month, compact = false }) => {
                             {data.records.map((r, i) => (
                                 <div key={r.id} className="px-5 py-3 flex items-center justify-between">
                                     <div className="flex items-center gap-3">
-                                        <span className="w-6 h-6 rounded-full bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400 text-xs font-bold flex items-center justify-center flex-shrink-0">
+                                        <span className={`w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center flex-shrink-0 ${r.tier === 'high'
+                                            ? 'bg-red-200 dark:bg-red-900/60 text-red-700 dark:text-red-300'
+                                            : 'bg-orange-100 dark:bg-orange-900/40 text-orange-600 dark:text-orange-400'}`}>
                                             {i + 1}
                                         </span>
                                         <div>
-                                            <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{formatDate(r.date)}</p>
+                                            <p className="text-sm font-medium text-gray-800 dark:text-gray-200">
+                                                {formatDate(r.date)}
+                                                <span className={`ml-2 text-xs px-1.5 py-0.5 rounded-full ${r.tier === 'high'
+                                                    ? 'bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400'
+                                                    : 'bg-orange-100 text-orange-600 dark:bg-orange-900/40 dark:text-orange-400'}`}>
+                                                    {r.minutesLate} mnt
+                                                </span>
+                                            </p>
                                             <p className="text-xs text-gray-500">Masuk jam {formatTime(r.clockIn)}</p>
                                         </div>
                                     </div>
                                     <span className="text-sm font-semibold text-red-600 dark:text-red-400">
-                                        -{formatRp(data.penaltyPerOccurrence)}
+                                        -{formatRp(r.penalty)}
                                     </span>
                                 </div>
                             ))}
