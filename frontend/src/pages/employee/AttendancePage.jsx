@@ -4,6 +4,7 @@ import { getAttendanceHistory } from '../../services/attendanceService';
 import { formatDate, formatTime, formatStatus, getStatusBadgeClass } from '../../utils/formatters';
 import { SkeletonTable } from '../../components/shared/Loading';
 import Badge from '../../components/shared/Badge';
+import LatePenaltyWidget from '../../components/employee/LatePenaltyWidget';
 
 const AttendancePage = () => {
   const [attendanceData, setAttendanceData] = useState(null);
@@ -86,6 +87,9 @@ const AttendancePage = () => {
           </Card>
         </div>
       )}
+
+      {/* Potongan Keterlambatan Bulan Ini */}
+      <LatePenaltyWidget />
 
       {/* Attendance Table */}
       <Card>

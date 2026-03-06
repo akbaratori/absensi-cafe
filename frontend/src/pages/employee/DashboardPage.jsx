@@ -7,6 +7,7 @@ import Button from '../../components/shared/Button';
 import SwapRequestModal from '../../components/modals/SwapRequestModal';
 import SwapInboxModal from '../../components/modals/SwapInboxModal';
 import OffDayRequestModal from '../../components/modals/OffDayRequestModal';
+import LatePenaltyWidget from '../../components/employee/LatePenaltyWidget';
 import { getTodayAttendance, clockIn, clockOut, getMonthlySummary } from '../../services/attendanceService';
 import { getUserSchedule } from '../../services/scheduleService';
 import { getLeaveQuota } from '../../services/leaveService';
@@ -493,15 +494,10 @@ const DashboardPage = () => {
           </div>
         </Card>
 
-        {/* Estimated Salary Card */}
-        <Card className="p-6 border-l-4 border-blue-500 md:col-span-3 lg:col-span-1">
-          <div className="text-center">
-            <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">
-              Rp {monthlySummary?.summary?.estimatedSalary ? monthlySummary.summary.estimatedSalary.toLocaleString('id-ID') : '0'}
-            </p>
-            <p className="text-gray-600 dark:text-gray-400 mt-1">Estimasi Gaji Bulan Ini</p>
-          </div>
-        </Card>
+        {/* Potongan Keterlambatan — menggantikan estimasi gaji */}
+        <div className="md:col-span-3 lg:col-span-1">
+          <LatePenaltyWidget compact />
+        </div>
 
         {/* Leave Quota Card */}
         <Card className="p-6 border-l-4 border-indigo-500 md:col-span-3 lg:col-span-1">

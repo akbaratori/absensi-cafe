@@ -89,6 +89,16 @@ export const getMonthlySummary = async (month) => {
   return response.data;
 };
 
+/**
+ * Get late penalty summary for current user
+ */
+export const getMyPenalty = async (month) => {
+  const response = await api.get('/attendance/my-penalty', {
+    params: month ? { month } : {}
+  });
+  return response.data;
+};
+
 // Admin services
 
 /**
