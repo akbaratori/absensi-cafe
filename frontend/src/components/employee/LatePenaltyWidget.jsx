@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { getMyPenalty } from '../../services/attendanceService';
-import { AlertTriangle, CheckCircle, ChevronDown, ChevronUp } from 'lucide-react';
+import { AlertTriangle, CheckCircle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight } from 'lucide-react';
 
 const MONTHS_ID = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
     'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
@@ -18,25 +18,33 @@ const formatTime = (isoStr) => {
     return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 };
 
+const toMonthStr = (d) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+
 /**
- * Widget denda keterlambatan bertingkat:
- *   - 15–30 menit terlambat → penaltyLow  (Rp 7.500)
- *   - > 30 menit terlambat  → penaltyHigh (Rp 15.000)
- * @param {string} month   - YYYY-MM (opsional, default bulan ini)
+ * Widget denda keterlambatan bertingkat dengan navigasi bulan.
  * @param {boolean} compact - Tampilan singkat untuk dashboard
  */
-const LatePenaltyWidget = ({ month, compact = false }) => {
+const LatePenaltyWidget = ({ compact = false }) => {
+    const now = new Date();
+    const [selectedDate, setSelectedDate] = useState(now);
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [showDetail, setShowDetail] = useState(false);
 
-    const now = new Date();
-    const targetMonth = month || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const targetMonth = toMonthStr(selectedDate);
     const [y, m] = targetMonth.split('-').map(Number);
     const monthLabel = `${MONTHS_ID[m - 1]} ${y}`;
+    const isCurrentMonth = toMonthStr(now) === targetMonth;
+
+    const prevMonth = () => setSelectedDate(d => new Date(d.getFullYear(), d.getMonth() - 1, 1));
+    const nextMonth = () => {
+        if (!isCurrentMonth) setSelectedDate(d => new Date(d.getFullYear(), d.getMonth() + 1, 1));
+    };
 
     useEffect(() => {
         setLoading(true);
+        setShowDetail(false);
         getMyPenalty(targetMonth)
             .then(res => setData(res.data))
             .catch(() => setData(null))
@@ -51,24 +59,34 @@ const LatePenaltyWidget = ({ month, compact = false }) => {
     // ── COMPACT (dashboard) ────────────────────────────────────────────────
     if (compact) {
         return (
-            <div className={`rounded-xl p-4 flex items-center gap-3 h-full ${isGood
+            <div className={`rounded-xl p-4 h-full ${isGood
                 ? 'bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800'
                 : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'}`}>
-                {isGood
-                    ? <CheckCircle className="w-8 h-8 text-emerald-500 flex-shrink-0" />
-                    : <AlertTriangle className="w-8 h-8 text-red-500 flex-shrink-0" />}
-                <div className="flex-1 min-w-0">
-                    <p className="text-xs text-gray-500 dark:text-gray-400">{monthLabel}</p>
-                    <p className={`font-bold text-sm ${isGood ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-700 dark:text-red-300'}`}>
-                        {isGood
-                            ? '✅ Tidak ada keterlambatan'
-                            : `Terlambat ${data.lateCount}x — Potongan ${formatRp(data.totalDeduction)}`}
-                    </p>
-                    {!isGood && (
-                        <p className="text-xs text-gray-400 mt-0.5">
-                            15–30 mnt: {formatRp(data.penaltyLow)} · &gt;30 mnt: {formatRp(data.penaltyHigh)}
+                {/* Month nav */}
+                <div className="flex items-center justify-between mb-2">
+                    <button onClick={prevMonth} className="p-1 rounded hover:bg-black/10 transition-colors">
+                        <ChevronLeft className="w-4 h-4 text-gray-500" />
+                    </button>
+                    <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">{monthLabel}</span>
+                    <button onClick={nextMonth} disabled={isCurrentMonth}
+                        className={`p-1 rounded transition-colors ${isCurrentMonth ? 'opacity-30 cursor-not-allowed' : 'hover:bg-black/10'}`}>
+                        <ChevronRight className="w-4 h-4 text-gray-500" />
+                    </button>
+                </div>
+                <div className="flex items-center gap-3">
+                    {isGood
+                        ? <CheckCircle className="w-7 h-7 text-emerald-500 flex-shrink-0" />
+                        : <AlertTriangle className="w-7 h-7 text-red-500 flex-shrink-0" />}
+                    <div className="min-w-0">
+                        <p className={`font-bold text-sm ${isGood ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-700 dark:text-red-300'}`}>
+                            {isGood ? '✅ Tidak ada keterlambatan' : `Terlambat ${data.lateCount}x — ${formatRp(data.totalDeduction)}`}
                         </p>
-                    )}
+                        {!isGood && (
+                            <p className="text-xs text-gray-400 mt-0.5">
+                                15–30 mnt: {formatRp(data.penaltyLow)} · &gt;30 mnt: {formatRp(data.penaltyHigh)}
+                            </p>
+                        )}
+                    </div>
                 </div>
             </div>
         );
@@ -80,7 +98,7 @@ const LatePenaltyWidget = ({ month, compact = false }) => {
             ? 'border-emerald-200 dark:border-emerald-800'
             : 'border-red-200 dark:border-red-800'}`}>
 
-            {/* Header */}
+            {/* Header with month nav */}
             <div className={`px-5 py-4 flex items-center justify-between ${isGood
                 ? 'bg-emerald-50 dark:bg-emerald-900/20'
                 : 'bg-red-50 dark:bg-red-900/20'}`}>
@@ -89,11 +107,21 @@ const LatePenaltyWidget = ({ month, compact = false }) => {
                         ? <CheckCircle className="w-6 h-6 text-emerald-500 flex-shrink-0" />
                         : <AlertTriangle className="w-6 h-6 text-red-500 flex-shrink-0" />}
                     <div>
-                        <p className="font-semibold text-gray-800 dark:text-gray-100 text-sm">
-                            Potongan Keterlambatan — {monthLabel}
-                        </p>
+                        {/* Month navigator */}
+                        <div className="flex items-center gap-1 mb-0.5">
+                            <button onClick={prevMonth} className="p-0.5 rounded hover:bg-black/10 transition-colors">
+                                <ChevronLeft className="w-3.5 h-3.5 text-gray-500" />
+                            </button>
+                            <p className="font-semibold text-gray-800 dark:text-gray-100 text-sm">
+                                Potongan — {monthLabel}
+                            </p>
+                            <button onClick={nextMonth} disabled={isCurrentMonth}
+                                className={`p-0.5 rounded transition-colors ${isCurrentMonth ? 'opacity-30 cursor-not-allowed' : 'hover:bg-black/10'}`}>
+                                <ChevronRight className="w-3.5 h-3.5 text-gray-500" />
+                            </button>
+                        </div>
                         <p className="text-xs text-gray-500 dark:text-gray-400">
-                            15–30 mnt: {formatRp(data.penaltyLow)} &nbsp;·&nbsp; &gt;30 mnt: {formatRp(data.penaltyHigh)}
+                            15–30 mnt: {formatRp(data.penaltyLow)}&nbsp;·&nbsp;&gt;30 mnt: {formatRp(data.penaltyHigh)}
                         </p>
                     </div>
                 </div>

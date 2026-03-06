@@ -269,6 +269,19 @@ const DashboardPage = () => {
 
   return (
     <div className="space-y-6">
+      {/* Banner Terlambat Hari Ini */}
+      {todayData?.status === 'late' && (
+        <div className="flex items-center gap-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl px-5 py-3 animate-pulse-once">
+          <span className="text-2xl">⚠️</span>
+          <div>
+            <p className="font-bold text-red-700 dark:text-red-300 text-sm">Kamu terlambat hari ini!</p>
+            <p className="text-xs text-red-600 dark:text-red-400">
+              Masuk jam <strong>{todayData?.clockIn ? new Date(todayData.clockIn).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : '-'}</strong> — akan dikenakan potongan keterlambatan.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
@@ -476,19 +489,37 @@ const DashboardPage = () => {
 
         <Card className="p-6">
           <div className="text-center">
-            <p className="text-3xl font-bold text-green-600 dark:text-green-400">
-              {(monthlySummary?.summary?.presentDays || 0) +
+            {(() => {
+              const hadir = (monthlySummary?.summary?.presentDays || 0) +
                 (monthlySummary?.summary?.lateDays || 0) +
-                (monthlySummary?.summary?.halfDays || 0)}
-            </p>
-            <p className="text-gray-600 dark:text-gray-400 mt-1">Total Hadir</p>
+                (monthlySummary?.summary?.halfDays || 0);
+              const total = monthlySummary?.summary?.totalWorkingDays || 0;
+              const pct = total > 0 ? Math.round((hadir / total) * 100) : null;
+              return (
+                <>
+                  <p className="text-3xl font-bold text-green-600 dark:text-green-400">{hadir}</p>
+                  <p className="text-gray-600 dark:text-gray-400 mt-1">Total Hadir</p>
+                  {pct !== null && (
+                    <div className="mt-2">
+                      <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
+                        <div
+                          className={`h-1.5 rounded-full transition-all ${pct >= 90 ? 'bg-green-500' : pct >= 75 ? 'bg-amber-500' : 'bg-red-500'}`}
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                      <p className={`text-xs font-semibold mt-1 ${pct >= 90 ? 'text-green-600' : pct >= 75 ? 'text-amber-600' : 'text-red-600'}`}>{pct}% kehadiran</p>
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </div>
         </Card>
 
         <Card className="p-6">
           <div className="text-center">
             <p className="text-3xl font-bold text-amber-600 dark:text-amber-400">
-              {monthlySummary?.summary?.lateDays || '-'}
+              {monthlySummary?.summary?.lateDays || '0'}
             </p>
             <p className="text-gray-600 dark:text-gray-400 mt-1">Total Terlambat</p>
           </div>
