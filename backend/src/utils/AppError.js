@@ -49,6 +49,7 @@ class ErrorCodes {
     SHIFT_NOT_FOUND: new AppError('Shift not found', 404, 'SHIFT_NOT_FOUND'),
     SHIFT_NAME_REQUIRED: new AppError('Shift name is required', 400, 'SHIFT_NAME_REQUIRED'),
     SHIFT_TIME_REQUIRED: new AppError('Shift start and end times are required', 400, 'SHIFT_TIME_REQUIRED'),
+    SHIFT_IN_USE: new AppError('Cannot delete shift because it is currently assigned to users or schedules', 400, 'SHIFT_IN_USE'),
   };
 
   static SCHEDULE_ERRORS = {

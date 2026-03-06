@@ -29,8 +29,12 @@ class ShiftService {
 
     async deleteShift(id) {
         await this.getShiftById(id); // Ensure exists
-        // TODO: Check if users are assigned to this shift before deleting?
-        // For now, let's assume Prisma handles constraint errors if users exist
+
+        const isInUse = await shiftRepository.checkInUse(id);
+        if (isInUse) {
+            throw ErrorCodes.SHIFT_ERRORS.SHIFT_IN_USE;
+        }
+
         return await shiftRepository.delete(id);
     }
 }

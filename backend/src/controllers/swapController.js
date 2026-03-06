@@ -4,8 +4,6 @@ const { asyncHandler } = require('../utils/response');
 exports.createRequest = asyncHandler(async (req, res) => {
     const swap = await swapService.createRequest(req.user.id, req.body);
 
-    // Notify Target User (TODO: Add Notification service logic later)
-
     res.status(201).json({
         status: 'success',
         data: { swap }
@@ -31,8 +29,6 @@ exports.getAllSwaps = asyncHandler(async (req, res) => {
 exports.approveByUser = asyncHandler(async (req, res) => {
     const { id } = req.params;
     const swap = await swapService.approveByUser(id, req.user.id);
-
-    // Notify Admins (TODO)
 
     res.status(200).json({
         status: 'success',

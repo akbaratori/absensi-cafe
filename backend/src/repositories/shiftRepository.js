@@ -26,6 +26,12 @@ class ShiftRepository {
         });
     }
 
+    async checkInUse(id) {
+        const userCount = await prisma.user.count({ where: { shiftId: parseInt(id) } });
+        const scheduleCount = await prisma.userSchedule.count({ where: { shiftId: parseInt(id) } });
+        return userCount > 0 || scheduleCount > 0;
+    }
+
     async delete(id) {
         return await prisma.shift.delete({
             where: { id: parseInt(id) },

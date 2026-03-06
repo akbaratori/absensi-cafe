@@ -42,3 +42,13 @@ export const bulkGenerateSchedule = async (data) => {
     const response = await api.post('/schedules/bulk-generate', data);
     return response.data;
 };
+
+export const getClosingConfig = async () => {
+    const response = await api.get('/schedules/closing-config');
+    return response.data;
+};
+
+export const saveClosingConfig = async (data) => {
+    const response = await api.post('/schedules/closing-config', data);
+    return response.data;
+};

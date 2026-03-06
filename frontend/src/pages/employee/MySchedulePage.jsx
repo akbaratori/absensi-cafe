@@ -4,6 +4,7 @@ import { getUserSchedule } from '../../services/scheduleService';
 import Card from '../../components/shared/Card';
 import Button from '../../components/shared/Button';
 import Badge from '../../components/shared/Badge';
+import MyClosingJobdeskWidget from '../../components/employee/MyClosingJobdeskWidget';
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Clock, Coffee, ChefHat } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths, getDay, isToday } from 'date-fns';
 import { id } from 'date-fns/locale';
@@ -340,6 +341,9 @@ const MySchedulePage = () => {
                     </button>
                 </div>
             </div>
+
+            {/* Jobdesk Closing Ramadhan — hanya muncul jika user ada di tim closing */}
+            <MyClosingJobdeskWidget />
 
             <Card className="p-6">
                 {/* Desktop Calendar View */}

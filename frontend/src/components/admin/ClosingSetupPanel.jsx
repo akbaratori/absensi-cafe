@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { getUsers } from '../../services/adminService';
-import { getAllSchedules } from '../../services/scheduleService';
+import { getAllSchedules, getClosingConfig, saveClosingConfig } from '../../services/scheduleService';
 
 // ─── JOB DEFINITIONS ────────────────────────────────────────────────────────
 const JOBS_4 = [
@@ -92,18 +92,45 @@ const ClosingSetupPanel = () => {
         }).catch(err => console.error('[ClosingSetupPanel] getUsers:', err));
     }, []);
 
-    // Load saved config
+    // Load saved config — coba dari backend dulu, fallback ke localStorage
     useEffect(() => {
-        try {
-            const raw = localStorage.getItem(STORAGE_KEY);
-            if (!raw) return;
-            const cfg = JSON.parse(raw);
-            setMode(cfg.mode || 4);
-            setSelectedUsers(cfg.selectedUsers || Array(5).fill(null));
-            setStartDate(cfg.startDate || '');
-            setEndDate(cfg.endDate || '');
-            setSaved(true);
-        } catch { }
+        getClosingConfig().then(res => {
+            const cfg = res?.data?.config;
+            if (cfg) {
+                setMode(cfg.mode || 4);
+                setSelectedUsers(cfg.selectedUsers || Array(5).fill(null));
+                setStartDate(cfg.startDate || '');
+                setEndDate(cfg.endDate || '');
+                setSaved(true);
+                // Sync ke localStorage sebagai cache
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
+            } else {
+                // Fallback localStorage
+                try {
+                    const raw = localStorage.getItem(STORAGE_KEY);
+                    if (raw) {
+                        const cfg2 = JSON.parse(raw);
+                        setMode(cfg2.mode || 4);
+                        setSelectedUsers(cfg2.selectedUsers || Array(5).fill(null));
+                        setStartDate(cfg2.startDate || '');
+                        setEndDate(cfg2.endDate || '');
+                        setSaved(true);
+                    }
+                } catch { }
+            }
+        }).catch(() => {
+            // Fallback localStorage jika API gagal
+            try {
+                const raw = localStorage.getItem(STORAGE_KEY);
+                if (!raw) return;
+                const cfg2 = JSON.parse(raw);
+                setMode(cfg2.mode || 4);
+                setSelectedUsers(cfg2.selectedUsers || Array(5).fill(null));
+                setStartDate(cfg2.startDate || '');
+                setEndDate(cfg2.endDate || '');
+                setSaved(true);
+            } catch { }
+        });
     }, []);
 
     // Fetch schedule off-days when dates or users change
@@ -144,6 +171,9 @@ const ClosingSetupPanel = () => {
         if (workers.length < mode) { alert(`Pilih ${mode} karyawan terlebih dahulu.`); return; }
         if (!startDate || !endDate) { alert('Masukkan tanggal Ramadhan.'); return; }
         const cfg = { mode, selectedUsers, startDate, endDate };
+        // Simpan ke backend (agar karyawan bisa akses)
+        saveClosingConfig(cfg).catch(err => console.error('Gagal simpan ke backend:', err));
+        // Juga ke localStorage sebagai cache
         localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
         setSaved(true);
         fetchSchedules();

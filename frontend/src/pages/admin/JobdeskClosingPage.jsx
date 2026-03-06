@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import Card from '../../components/shared/Card';
 
-// ─── DATA DEFINISI ────────────────────────────────────────────────────────────
-const JOBS_4 = [
+// ─── DATA DEFINISI (3 Pos, berlaku untuk 4 maupun 5 orang) ──────────────────
+const JOBS = [
     {
         id: 'A',
         label: 'Pos A — Dapur Dalam',
@@ -14,75 +14,24 @@ const JOBS_4 = [
     {
         id: 'B',
         label: 'Pos B — Dapur Dalam',
-        tasks: ['Sapu lantai dapur', 'Pel lantai dapur'],
+        tasks: ['Sapu lantai dapur', 'Pel lantai dapur', 'Cuci piring'],
         icon: '🫧',
         color: 'from-emerald-600 to-emerald-700',
         border: 'border-emerald-500',
     },
     {
         id: 'C',
-        label: 'Pos C — Dapur Dalam',
-        tasks: ['Cuci piring', 'Bersihkan WC'],
-        icon: '🚿',
-        color: 'from-amber-600 to-amber-700',
-        border: 'border-amber-500',
-    },
-    {
-        id: 'D',
-        label: 'Pos D — Dapur Luar',
-        tasks: ['Angkat & rapikan bangku', 'Sapu area luar', 'Pel area luar'],
+        label: 'Pos C — Dapur Luar',
+        tasks: ['Angkat & rapikan bangku', 'Sapu area luar', 'Pel area luar', 'Bersihkan WC'],
         icon: '🪑',
         color: 'from-purple-600 to-purple-700',
         border: 'border-purple-500',
     },
 ];
 
-const JOBS_5 = [
-    {
-        id: 'A',
-        label: 'Pos A — Dapur Dalam',
-        tasks: ['Lap-lap meja', 'Cuci lap'],
-        icon: '🧹',
-        color: 'from-blue-600 to-blue-700',
-        border: 'border-blue-500',
-    },
-    {
-        id: 'B',
-        label: 'Pos B — Dapur Dalam',
-        tasks: ['Sapu lantai dapur', 'Pel lantai dapur'],
-        icon: '🫧',
-        color: 'from-emerald-600 to-emerald-700',
-        border: 'border-emerald-500',
-    },
-    {
-        id: 'C',
-        label: 'Pos C — Dapur Dalam',
-        tasks: ['Cuci piring'],
-        icon: '🍽️',
-        color: 'from-amber-600 to-amber-700',
-        border: 'border-amber-500',
-    },
-    {
-        id: 'D',
-        label: 'Pos D — Dapur Dalam + Luar',
-        tasks: ['Bersihkan WC', 'Angkat & rapikan bangku'],
-        icon: '🚿',
-        color: 'from-rose-600 to-rose-700',
-        border: 'border-rose-500',
-    },
-    {
-        id: 'E',
-        label: 'Pos E — Dapur Luar',
-        tasks: ['Sapu area luar', 'Pel area luar'],
-        icon: '🪑',
-        color: 'from-purple-600 to-purple-700',
-        border: 'border-purple-500',
-    },
-];
-
-// ─── RAMADAN 2025 (default) ───────────────────────────────────────────────────
-const DEFAULT_START = '2025-03-01';
-const DEFAULT_END = '2025-03-30';
+// ─── RAMADAN 2026 (default) ───────────────────────────────────────────────────
+const DEFAULT_START = '2026-03-01';
+const DEFAULT_END = '2026-03-30';
 
 // ─── UTIL ─────────────────────────────────────────────────────────────────────
 const getDaysInRange = (start, end) => {
@@ -102,16 +51,25 @@ const MONTH_ID = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep',
 const fmtDate = (d) =>
     `${DAY_ID[d.getDay()]}, ${d.getDate()} ${MONTH_ID[d.getMonth()]}`;
 
-// Build rotation: each day, shift index by 1 (cyclically)
-const buildRotation = (names, jobs, days) => {
+/**
+ * Build rotation: 3 job positions, N workers.
+ * Each day, rotate who holds each position.
+ * Workers with index >= JOBS.length get "Bebas" (free/helper) that day.
+ */
+const buildRotation = (names, days) => {
     const n = names.length;
-    return days.map((date, dayIdx) => ({
-        date,
-        assignments: jobs.map((job, jobIdx) => ({
-            job,
-            person: names[(jobIdx + dayIdx) % n],
-        })),
-    }));
+    return days.map((date, dayIdx) => {
+        // Rotate the worker order for this day
+        const rotated = Array.from({ length: n }, (_, i) => names[(i + dayIdx) % n]);
+        return {
+            date,
+            assignments: JOBS.map((job, jobIdx) => ({
+                job,
+                person: rotated[jobIdx] ?? '—',
+            })),
+            freeWorkers: rotated.slice(JOBS.length), // workers with no task
+        };
+    });
 };
 
 // ─── COMPONENT ────────────────────────────────────────────────────────────────
