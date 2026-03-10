@@ -4,6 +4,7 @@ const userRepository = require('../repositories/userRepository');
 const prisma = require('../utils/database');
 const { successResponse } = require('../utils/response');
 const { asyncHandler } = require('../utils/response');
+const { sendPushToAll } = require('../services/pushService');
 
 class AdminController {
   /**
@@ -221,6 +222,23 @@ class AdminController {
       pendingLeaves,
       recentActivity: recentActivity.records,
     });
+  });
+
+  /**
+   * Broadcast push notification to all users
+   * POST /api/v1/admin/notifications/broadcast
+   */
+  broadcastNotification = asyncHandler(async (req, res) => {
+    const { title, body, data } = req.body;
+
+    if (!title || !body) {
+      return res.status(400).json({ success: false, message: 'Title and body are required' });
+    }
+
+    // Fire-and-forget push notification (non-blocking)
+    sendPushToAll(title, body, data).catch(() => { });
+
+    return successResponse(res, 200, null, 'Push notification broadcasted successfully');
   });
 }
 

@@ -35,6 +35,7 @@ model User {
   receivedSwaps     ShiftSwap[]      @relation("Target")
   OffDayRequest     OffDayRequest[]
   receivedOffSwaps  OffDayRequest[]  @relation("OffDaySwapTarget")
+  pushSubscriptions PushSubscription[]
 
   @@index([username])
   @@index([isActive])
@@ -215,3 +216,18 @@ model UserSchedule {
   @@index([date])
   @@map("user_schedules")
 }
+
+model PushSubscription {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  endpoint  String   @db.Text
+  p256dh    String   @db.Text
+  auth      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("push_subscriptions")
+}
+

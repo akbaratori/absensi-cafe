@@ -32,3 +32,10 @@ backend/dev.db
 
 # Misc
 server_started.txt
+
+# VAPID keys file (contains private key - DO NOT COMMIT)
+backend/vapid.txt
+vapid.txt
+
+# One-off scripts
+create_icons.js

@@ -160,4 +160,13 @@ router.patch('/off-days/:id/approve', offDayController.approveRequest);
  */
 router.patch('/off-days/:id/reject', offDayController.rejectRequest);
 
+// Push Notification Broadcast Route
+
+/**
+ * @route   POST /api/v1/admin/notifications/broadcast
+ * @desc    Broadcast a push notification to all active users
+ * @access  Private (Admin)
+ */
+router.post('/notifications/broadcast', adminController.broadcastNotification);
+
 module.exports = router;

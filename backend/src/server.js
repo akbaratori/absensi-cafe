@@ -1,7 +1,9 @@
 const app = require('./app');
 const config = require('./config');
 const prisma = require('./utils/database');
+const { initScheduler } = require('./utils/scheduler');
 require('fs').writeFileSync('server_started.txt', `Started at ${new Date().toISOString()}`);
+
 
 
 // Start server
@@ -22,6 +24,8 @@ const server = app.listen(config.port, async () => {
   try {
     await prisma.$connect();
     console.log('✓ Database connected successfully');
+    // Initialize push notification cron scheduler
+    initScheduler();
   } catch (error) {
     console.error('✗ Database connection failed:', error.message);
     process.exit(1);

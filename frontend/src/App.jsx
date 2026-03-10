@@ -5,6 +5,7 @@ import { ThemeProvider } from './contexts/ThemeContext';
 import ProtectedRoute from './components/shared/ProtectedRoute';
 import MainLayout from './components/layout/MainLayout';
 import AuthLayout from './components/layout/AuthLayout';
+import NotificationPermissionBanner from './components/NotificationPermissionBanner';
 
 // Pages
 import LoginPage from './pages/auth/LoginPage';
@@ -264,6 +265,9 @@ function App() {
               }
             />
           </Routes>
+
+          {/* Push notification permission banner (shows for logged-in users) */}
+          <NotificationPermissionBanner />
 
 
         </ThemeProvider>

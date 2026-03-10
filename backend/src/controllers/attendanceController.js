@@ -1,6 +1,8 @@
 const attendanceService = require('../services/attendanceService');
 const { successResponse } = require('../utils/response');
 const { asyncHandler } = require('../utils/response');
+const { sendPushToUser } = require('../services/pushService');
+
 
 class AttendanceController {
   /**
@@ -15,6 +17,14 @@ class AttendanceController {
     const ipAddress = req.ip || req.connection.remoteAddress;
 
     const result = await attendanceService.clockIn(userId, location, notes, photo, ipAddress);
+
+    // Fire-and-forget push notification (non-blocking)
+    sendPushToUser(
+      userId,
+      '✅ Absensi Masuk Berhasil',
+      `Absensi masuk kamu sudah tercatat pada ${new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}.`,
+      { url: '/attendance' }
+    ).catch(() => { });
 
     return successResponse(res, 201, result, 'Clocked in successfully');
   });
@@ -31,6 +41,14 @@ class AttendanceController {
     const ipAddress = req.ip || req.connection.remoteAddress;
 
     const result = await attendanceService.clockOut(userId, location, photo, ipAddress);
+
+    // Fire-and-forget push notification (non-blocking)
+    sendPushToUser(
+      userId,
+      '🏁 Absensi Pulang Berhasil',
+      `Absensi pulang tercatat. Total jam kerja: ${result.totalHours} jam.`,
+      { url: '/attendance' }
+    ).catch(() => { });
 
     return successResponse(
       res,
