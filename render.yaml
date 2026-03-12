@@ -22,3 +22,16 @@ services:
         value: "119.45848536836249"
       - key: CAFE_RADIUS
         value: "200"
+      # Push Notifications (VAPID) - set manually in Render dashboard
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT
+        sync: false
+      # WhatsApp via Fonnte - set manually in Render dashboard
+      - key: FONNTE_TOKEN
+        sync: false
+      - key: WA_GROUP_TARGET
+        sync: false
+
