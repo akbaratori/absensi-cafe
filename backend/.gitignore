@@ -12,7 +12,8 @@ yarn.lock
 .env.*.local
 
 # Prisma
-prisma/migrations/*/migration.sql
+# Note: migration SQL files MUST be tracked in git so Render can run prisma migrate deploy
+prisma/dev.db
 
 # Logs
 logs/
