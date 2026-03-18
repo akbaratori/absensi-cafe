@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Bell, BellOff, X } from 'lucide-react';
-import { isPushSupported, getPermissionStatus, subscribeToPush, isSubscribed } from '../../services/pushService';
+import { Bell, X } from 'lucide-react';
+import { isPushSupported, getPermissionStatus, subscribeToPush, isSubscribed } from '../services/pushService';
+
 
 /**
  * A dismissible banner that asks the user to enable push notifications.
