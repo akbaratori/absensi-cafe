@@ -12,16 +12,18 @@ export const formatDate = (date) => {
 };
 
 /**
- * Format time to readable string
+ * Format time to readable string (HH:MM)
+ * Note: avoid toLocaleTimeString('id-ID') because some browsers use dots (20.17) instead of colons (20:17)
  */
 export const formatTime = (date) => {
   if (!date) return '-';
   const d = new Date(date);
-  return d.toLocaleTimeString('id-ID', {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  if (isNaN(d.getTime())) return '-';
+  const hours = String(d.getHours()).padStart(2, '0');
+  const minutes = String(d.getMinutes()).padStart(2, '0');
+  return `${hours}:${minutes}`;
 };
+
 
 /**
  * Format date and time
