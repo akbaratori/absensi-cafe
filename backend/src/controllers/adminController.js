@@ -141,6 +141,16 @@ class AdminController {
   });
 
   /**
+   * Delete ALL attendance records (for testing/reset)
+   * DELETE /api/v1/admin/attendance/all
+   */
+  deleteAllAttendance = asyncHandler(async (req, res) => {
+    const result = await attendanceService.deleteAllAttendance();
+
+    return successResponse(res, 200, result, `Berhasil menghapus ${result.deleted} data absensi`);
+  });
+
+  /**
    * Get daily attendance report
    * GET /api/v1/admin/reports/daily
    */

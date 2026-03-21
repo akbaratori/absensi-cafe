@@ -458,8 +458,12 @@ class ScheduleService {
     }
 
     async getTodaySchedule(userId) {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
+        // Gunakan WITA (UTC+8) untuk menentukan "hari ini",
+        // agar jadwal yang tersimpan di database (dengan timezone WITA) cocok.
+        const WITA_OFFSET_MS = 8 * 60 * 60 * 1000;
+        const nowWITA = new Date(Date.now() + WITA_OFFSET_MS);
+        const witaDateStr = nowWITA.toISOString().slice(0, 10); // "YYYY-MM-DD" dalam WITA
+        const today = new Date(`${witaDateStr}T00:00:00+08:00`);
 
         return await prisma.userSchedule.findUnique({
             where: {

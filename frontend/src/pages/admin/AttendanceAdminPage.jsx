@@ -4,10 +4,10 @@ import { getAllAttendance } from '../../services/attendanceService';
 import { formatDate, formatTime, formatStatus } from '../../utils/formatters';
 import { SkeletonTable } from '../../components/shared/Loading';
 import Badge from '../../components/shared/Badge';
-import { Trash2 } from 'lucide-react';
+import { Trash2, Trash } from 'lucide-react';
 import Modal from '../../components/shared/Modal';
 import Button from '../../components/shared/Button';
-import { deleteAttendance } from '../../services/adminService';
+import { deleteAttendance, deleteAllAttendance } from '../../services/adminService';
 import { showSuccess, showError } from '../../hooks/useToast';
 
 const AttendanceAdminPage = () => {
@@ -24,6 +24,7 @@ const AttendanceAdminPage = () => {
     recordId: null,
     employeeName: '',
   });
+  const [deleteAllModal, setDeleteAllModal] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [photoModal, setPhotoModal] = useState({
     isOpen: false,
@@ -101,6 +102,21 @@ const AttendanceAdminPage = () => {
     }
   };
 
+  const handleDeleteAll = async () => {
+    setActionLoading(true);
+    try {
+      const result = await deleteAllAttendance();
+      showSuccess(result.message || 'Semua data absensi berhasil dihapus');
+      setDeleteAllModal(false);
+      fetchAttendance(1);
+    } catch (error) {
+      console.error('Failed to delete all attendance:', error);
+      showError('Gagal menghapus semua data absensi');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchAttendance(1);
   }, []);
@@ -128,9 +144,19 @@ const AttendanceAdminPage = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Attendance Management</h1>
-        <p className="text-gray-600 dark:text-gray-400 mt-1">View and manage all employee attendance</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Attendance Management</h1>
+          <p className="text-gray-600 dark:text-gray-400 mt-1">View and manage all employee attendance</p>
+        </div>
+        <button
+          onClick={() => setDeleteAllModal(true)}
+          className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
+          title="Hapus semua data absensi (untuk testing)"
+        >
+          <Trash size={16} />
+          Hapus Semua Absen
+        </button>
       </div>
 
       {/* Filters */}
@@ -451,6 +477,34 @@ const AttendanceAdminPage = () => {
           ) : (
             <p className="text-gray-500">No Image Available</p>
           )}
+        </div>
+      </Modal>
+
+      {/* Delete ALL Modal */}
+      <Modal
+        isOpen={deleteAllModal}
+        onClose={() => setDeleteAllModal(false)}
+        title="Hapus Semua Data Absensi"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <div className="flex items-center gap-3 p-3 bg-red-50 dark:bg-red-900/30 rounded-lg border border-red-200 dark:border-red-700">
+            <Trash size={20} className="text-red-600 flex-shrink-0" />
+            <p className="text-red-700 dark:text-red-300 text-sm font-medium">
+              Tindakan ini akan menghapus <strong>SEMUA</strong> data absensi secara permanen dan tidak dapat dibatalkan!
+            </p>
+          </div>
+          <p className="text-gray-600 dark:text-gray-300 text-sm">
+            Fitur ini khusus untuk keperluan testing. Pastikan Anda benar-benar ingin mereset semua data absensi.
+          </p>
+          <div className="flex justify-end gap-3 mt-6">
+            <Button variant="ghost" onClick={() => setDeleteAllModal(false)} disabled={actionLoading}>
+              Batal
+            </Button>
+            <Button variant="danger" onClick={handleDeleteAll} loading={actionLoading}>
+              Ya, Hapus Semua
+            </Button>
+          </div>
         </div>
       </Modal>
     </div >

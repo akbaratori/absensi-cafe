@@ -39,3 +39,6 @@ vapid.txt
 
 # One-off scripts
 create_icons.js
+
+# Temp build logs
+frontend/build_error*.txt

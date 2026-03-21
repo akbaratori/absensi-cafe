@@ -2,6 +2,8 @@ const attendanceService = require('../services/attendanceService');
 const { successResponse } = require('../utils/response');
 const { asyncHandler } = require('../utils/response');
 const { sendPushToUser } = require('../services/pushService');
+const { sendAttendanceReport } = require('../services/whatsappService');
+const prisma = require('../utils/database');
 
 
 class AttendanceController {
@@ -25,6 +27,43 @@ class AttendanceController {
       `Absensi masuk kamu sudah tercatat pada ${new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}.`,
       { url: '/attendance' }
     ).catch(() => { });
+
+    // Fire-and-forget WhatsApp report (non-blocking)
+    // Check if WA reporting is enabled via config
+    try {
+      // Ambil config grup WA dari systemConfig (jika diset via admin)
+      const waConfig = await prisma.systemConfig.findMany({
+        where: { key: { in: ['waGroupTarget', 'waToken', 'waSendOnClockIn'] } }
+      });
+      const waCfg = Object.fromEntries(waConfig.map(c => [c.key, c.value]));
+
+      // Ambil info shift pegawai
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { fullName: true, employeeId: true, shift: { select: { name: true, startTime: true } } }
+      });
+
+      // Cek apakah fitur WA aktif (default: aktif jika token ada)
+      const waEnabled = waCfg.waSendOnClockIn !== 'false';
+
+      if (waEnabled) {
+        // Override token jika diset via admin config
+        if (waCfg.waToken) process.env.FONNTE_TOKEN = waCfg.waToken;
+        const target = waCfg.waGroupTarget || process.env.WA_GROUP_TARGET;
+
+        sendAttendanceReport({
+          employeeName: user?.fullName || req.user.fullName || 'Pegawai',
+          employeeId: user?.employeeId || '',
+          clockInTime: result.clockIn || new Date(),
+          shiftName: user?.shift?.name || '',
+          shiftStart: user?.shift?.startTime || '',
+          status: result.status || 'PRESENT',
+          notes: notes || '',
+        }, target).catch((err) => console.error('[WhatsApp] Error:', err));
+      }
+    } catch (waErr) {
+      console.error('[WhatsApp] Config fetch error:', waErr.message);
+    }
 
     return successResponse(res, 201, result, 'Clocked in successfully');
   });

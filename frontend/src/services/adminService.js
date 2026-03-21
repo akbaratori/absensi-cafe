@@ -70,6 +70,14 @@ export const deleteAttendance = async (id) => {
 };
 
 /**
+ * Hapus SEMUA data absensi (untuk testing/reset)
+ */
+export const deleteAllAttendance = async () => {
+  const response = await api.delete('/admin/attendance/all');
+  return response.data;
+};
+
+/**
  * Get dashboard statistics
  */
 export const getDashboardStats = async () => {

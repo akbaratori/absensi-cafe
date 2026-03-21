@@ -53,21 +53,23 @@ class AttendanceRepository {
   }
 
   /**
-   * Find today's attendance for user
+   * Find today's attendance for user (using WITA UTC+8 timezone)
    */
   async findTodayByUserId(userId) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // Hitung "hari ini" berdasarkan WITA (UTC+8), bukan UTC lokal server
+    const WITA_OFFSET_MS = 8 * 60 * 60 * 1000;
+    const nowWITA = new Date(Date.now() + WITA_OFFSET_MS);
+    const dateStr = nowWITA.toISOString().slice(0, 10); // "YYYY-MM-DD" in WITA
 
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
+    const todayStartUTC = new Date(`${dateStr}T00:00:00+08:00`);
+    const todayEndUTC   = new Date(`${dateStr}T23:59:59+08:00`);
 
     return await prisma.attendance.findFirst({
       where: {
         userId,
         date: {
-          gte: today,
-          lt: tomorrow,
+          gte: todayStartUTC,
+          lte: todayEndUTC,
         },
       },
       include: {
@@ -135,6 +137,13 @@ class AttendanceRepository {
     return await prisma.attendance.delete({
       where: { id },
     });
+  }
+
+  /**
+   * Delete ALL attendance records (for testing/reset)
+   */
+  async deleteAll() {
+    return await prisma.attendance.deleteMany({});
   }
 
   /**

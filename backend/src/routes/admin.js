@@ -89,6 +89,16 @@ router.put(
 );
 
 /**
+ * @route   DELETE /api/v1/admin/attendance/all
+ * @desc    Delete ALL attendance records (for testing/reset)
+ * @access  Private (Admin)
+ */
+router.delete(
+  '/attendance/all',
+  adminController.deleteAllAttendance
+);
+
+/**
  * @route   DELETE /api/v1/admin/attendance/:id
  * @desc    Delete attendance record
  * @access  Private (Admin)

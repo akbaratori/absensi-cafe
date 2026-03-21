@@ -1,5 +1,19 @@
 const config = require('../config');
 
+// Offset WITA (Waktu Indonesia Tengah / Makassar) = UTC+8
+const WITA_OFFSET_MS = 8 * 60 * 60 * 1000;
+
+/**
+ * Convert any Date to a Date object that represents the same instant
+ * but whose getHours()/getMinutes() reflect WITA (UTC+8) local time.
+ * i.e., toWITA(new Date()).getHours() === current hour in Makassar
+ */
+const toWITA = (date) => {
+  // Shift the UTC epoch forward by 8 hours so that getHours() etc.
+  // return the WITA local values when called on this shifted date.
+  return new Date(date.getTime() + WITA_OFFSET_MS);
+};
+
 /**
  * Get attendance config from database or use defaults
  * @param {Object} prisma - Prisma client
@@ -31,30 +45,35 @@ const getAttendanceConfig = async (prisma) => {
 
 /**
  * Calculate attendance status based on clock-in time
+ * Uses WITA (UTC+8) timezone for accurate comparison in Makassar.
  * @param {Date} clockIn - Clock-in timestamp
  * @param {Object} attendanceConfig - Configuration object
  * @returns {String} Attendance status
  */
 const calculateAttendanceStatus = (clockIn, attendanceConfig) => {
   const [hours, minutes] = attendanceConfig.workStartTime.split(':').map(Number);
-  const workStartTime = new Date(clockIn);
-  workStartTime.setHours(hours, minutes, 0, 0);
+
+  // Convert clock-in time to WITA to get correct local hour/minute
+  const clockInWITA = toWITA(clockIn);
+
+  // Build a reference date at the shift start time in WITA:
+  // We use a UTC Date that, when shifted by +8h, equals YYYY-MM-DD HH:mm in WITA.
+  // Easier: build the shift start as a UTC timestamp = (clockInWITA date at 00:00 UTC) + shift hours
+  // Step 1: get WITA date string (YYYY-MM-DD) for the clock-in day
+  const witaDateStr = clockInWITA.toISOString().slice(0, 10); // "YYYY-MM-DD" in virtual WITA day
+  // Step 2: construct shift start in UTC from WITA time
+  const shiftStartUTC = new Date(`${witaDateStr}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00+08:00`);
 
   // Khusus Shift Ramadhan yang masuk jam 14:00
-  // Memastikan grace period selalu maksimal pukul 14:15
   if (hours === 14 && minutes === 0) {
-    const maxLateTime = new Date(workStartTime);
-    maxLateTime.setHours(14, 15, 0, 0); // Hardcode maksimal toleransi 14:15
-
-    if (clockIn > maxLateTime) {
+    const maxLateUTC = new Date(`${witaDateStr}T14:15:00+08:00`);
+    if (clockIn > maxLateUTC) {
       return 'LATE';
     }
   } else {
-    // Shift Reguler menggunakan grace time dari config (e.g. 15 menit)
-    const graceTime = new Date(workStartTime);
-    graceTime.setMinutes(graceTime.getMinutes() + attendanceConfig.lateGraceMinutes);
-
-    if (clockIn > graceTime) {
+    // Shift Reguler: gunakan grace period dari config
+    const graceTimeUTC = new Date(shiftStartUTC.getTime() + attendanceConfig.lateGraceMinutes * 60 * 1000);
+    if (clockIn > graceTimeUTC) {
       return 'LATE';
     }
   }
@@ -106,23 +125,23 @@ const getMonthDateRange = (month) => {
 };
 
 /**
- * Get today's date start (00:00:00)
- * @returns {Date} Today's date at midnight
+ * Get today's date start in WITA (UTC+8) - returns UTC timestamp
+ * @returns {Date} Start of today in WITA as UTC Date
  */
 const getTodayStart = () => {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return today;
+  const nowWITA = toWITA(new Date());
+  const dateStr = nowWITA.toISOString().slice(0, 10); // YYYY-MM-DD in WITA
+  return new Date(`${dateStr}T00:00:00+08:00`);
 };
 
 /**
- * Get today's date end (23:59:59)
- * @returns {Date} Today's date at end of day
+ * Get today's date end in WITA (UTC+8) - returns UTC timestamp
+ * @returns {Date} End of today in WITA as UTC Date
  */
 const getTodayEnd = () => {
-  const today = new Date();
-  today.setHours(23, 59, 59, 999);
-  return today;
+  const nowWITA = toWITA(new Date());
+  const dateStr = nowWITA.toISOString().slice(0, 10); // YYYY-MM-DD in WITA
+  return new Date(`${dateStr}T23:59:59+08:00`);
 };
 
 /**
@@ -181,6 +200,7 @@ const calculateDistance = (point1, point2) => {
 };
 
 module.exports = {
+  toWITA,
   getAttendanceConfig,
   calculateAttendanceStatus,
   calculateTotalHours,

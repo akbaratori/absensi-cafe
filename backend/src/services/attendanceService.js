@@ -441,6 +441,14 @@ class AttendanceService {
     await attendanceRepository.delete(id);
     return true;
   }
+
+  /**
+   * Admin: Delete ALL attendance records (for testing/reset)
+   */
+  async deleteAllAttendance() {
+    const result = await attendanceRepository.deleteAll();
+    return { deleted: result.count };
+  }
 }
 
 
