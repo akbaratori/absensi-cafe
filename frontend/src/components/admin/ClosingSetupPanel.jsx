@@ -9,6 +9,12 @@ const JOBS = [
     { id: 'C', label: 'Pos C — Dapur Luar', icon: '🪑', tasks: ['Angkat bangku', 'Sapu luar', 'Pel luar', 'Bersihkan WC'], color: 'from-purple-600 to-purple-700' },
 ];
 
+// Alias untuk mode 4 dan 5 orang — jumlah job tetap 3, worker count yang berbeda
+const JOBS_4 = JOBS;
+const JOBS_5 = JOBS;
+
+
+
 const DAY_ID = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
 const MONTH_ID = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
 const fmtDate = (d) => `${DAY_ID[d.getDay()]}, ${d.getDate()} ${MONTH_ID[d.getMonth()]}`;
