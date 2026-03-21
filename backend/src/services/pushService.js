@@ -1,12 +1,21 @@
 const webpush = require('web-push');
 const prisma = require('../utils/database');
 
-// Configure VAPID keys (set via environment variables)
-webpush.setVapidDetails(
-    process.env.VAPID_SUBJECT || 'mailto:admin@cafe.com',
-    process.env.VAPID_PUBLIC_KEY,
-    process.env.VAPID_PRIVATE_KEY
-);
+// Lazily configure VAPID keys only when they are available
+let vapidInitialized = false;
+function initVapid() {
+    if (vapidInitialized) return true;
+    if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
+        return false;
+    }
+    webpush.setVapidDetails(
+        process.env.VAPID_SUBJECT || 'mailto:admin@cafe.com',
+        process.env.VAPID_PUBLIC_KEY,
+        process.env.VAPID_PRIVATE_KEY
+    );
+    vapidInitialized = true;
+    return true;
+}
 
 /**
  * Send a push notification to a specific user
@@ -16,7 +25,7 @@ webpush.setVapidDetails(
  * @param {object} data - additional data (e.g. { url: '/attendance' })
  */
 async function sendPushToUser(userId, title, body, data = {}) {
-    if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
+    if (!initVapid()) {
         console.log('[Push] VAPID keys not configured, skipping push notification');
         return;
     }
@@ -70,7 +79,7 @@ async function sendPushToUser(userId, title, body, data = {}) {
  * Send a push notification to ALL active users
  */
 async function sendPushToAll(title, body, data = {}) {
-    if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
+    if (!initVapid()) {
         console.log('[Push] VAPID keys not configured, skipping broadcast');
         return;
     }
