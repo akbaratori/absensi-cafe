@@ -84,11 +84,11 @@ const ScheduleCalendar = () => {
     };
 
     const getShiftColor = (shiftId) => {
-        if (!shiftId) return 'bg-gray-200 text-gray-600 border-gray-300 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600 font-bold'; // Off
-        if (shiftId === 1) return 'bg-blue-600 text-white border-blue-700 dark:bg-blue-700 dark:border-blue-800'; // Shift 1 - Pagi
-        if (shiftId === 2) return 'bg-amber-600 text-white border-amber-700 dark:bg-amber-700 dark:border-amber-800'; // Shift 2 - Siang
+        if (!shiftId) return 'bg-gray-100 text-gray-500 border-gray-200 dark:bg-[#1a1d24] dark:text-gray-400 dark:border-gray-700 font-bold'; // Off
+        if (shiftId === 1) return 'bg-blue-50 text-blue-900 border-blue-200 dark:bg-[#151f32] dark:text-blue-100 dark:border-[#1e2d4a]'; // Shift 1 - Pagi (Dark Navy)
+        if (shiftId === 2) return 'bg-orange-50 text-orange-900 border-orange-200 dark:bg-[#321c15] dark:text-orange-100 dark:border-[#4a291e]'; // Shift 2 - Siang (Dark Brown)
         // All other shifts (Ramadhan, etc) — dark indigo
-        return 'bg-indigo-700 text-white border-indigo-800 dark:bg-indigo-800 dark:border-indigo-900';
+        return 'bg-indigo-50 text-indigo-900 border-indigo-200 dark:bg-[#1e1b4b] dark:text-indigo-100 dark:border-[#312e81]';
     };
 
     const handleScheduleClick = (schedule) => {
@@ -273,19 +273,19 @@ const ScheduleCalendar = () => {
                 {/* Legend */}
                 <div className="flex flex-wrap gap-4 text-xs px-2">
                     <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded bg-blue-600 border border-blue-700"></div>
+                        <div className="w-3 h-3 rounded bg-blue-200 dark:bg-[#151f32] border border-blue-400 dark:border-[#1e2d4a]"></div>
                         <span className="text-gray-600 dark:text-gray-400">Shift Pagi</span>
                     </div>
                     <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded bg-amber-600 border border-amber-700"></div>
+                        <div className="w-3 h-3 rounded bg-orange-200 dark:bg-[#321c15] border border-orange-400 dark:border-[#4a291e]"></div>
                         <span className="text-gray-600 dark:text-gray-400">Shift Siang</span>
                     </div>
                     <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded bg-indigo-700 border border-indigo-800"></div>
+                        <div className="w-3 h-3 rounded bg-indigo-200 dark:bg-[#1e1b4b] border border-indigo-400 dark:border-[#312e81]"></div>
                         <span className="text-gray-600 dark:text-gray-400">Shift Lainnya</span>
                     </div>
                     <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded bg-gray-300 border border-gray-400"></div>
+                        <div className="w-3 h-3 rounded bg-gray-200 dark:bg-[#1a1d24] border border-gray-400 dark:border-gray-700"></div>
                         <span className="text-gray-600 dark:text-gray-400">Libur (OFF)</span>
                     </div>
                 </div>
