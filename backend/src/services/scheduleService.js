@@ -424,10 +424,16 @@ class ScheduleService {
                 }
                 const weeklyPicId = weeklyPicMap[weekKey];
 
-                const allStaffIds = daySchedules.map(s => s.userId);
+                // 3. Group by Shift and Assign Daily Stations
+                const shiftGroups = {};
+                daySchedules.forEach(s => {
+                    if (!shiftGroups[s.shiftId]) shiftGroups[s.shiftId] = [];
+                    shiftGroups[s.shiftId].push(s.userId);
+                });
 
-                // 3. Assign Daily Stations
-                await this.assignDailyStations(current, allStaffIds, weeklyPicId);
+                for (const shiftId in shiftGroups) {
+                    await this.assignDailyStations(current, shiftGroups[shiftId], weeklyPicId);
+                }
 
                 current.setDate(current.getDate() + 1);
             }
