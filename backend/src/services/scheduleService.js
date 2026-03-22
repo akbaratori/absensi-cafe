@@ -258,21 +258,16 @@ class ScheduleService {
             while (current <= end) {
                 const dateStr = current.toISOString().split('T')[0];
 
-                // Calculate weeks passed since Anchor Date
-                // We use simple math: (Current - Anchor) / 7 days
+                // Calculate days passed since Anchor Date
                 const diffTime = current.getTime() - ANCHOR_DATE.getTime();
                 const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
 
-                // Floor to get completed weeks. Adjust if diffDays is negative (before Feb)
-                // If diffDays is negative, rotation reverses naturally.
-                const weekIndex = Math.floor(diffDays / 7);
-
-                // Calculate Rotation for this Global Week
+                // Calculate Rotation for this Day (Daily Rolling)
                 const staffCount = kitchenStaff.length;
 
-                // Formula: (weekIndex * 2) % count
+                // Shift changes EVERY DAY by 2 people.
                 // Handling negative modulo for dates before anchor
-                const normalizedIndex = ((weekIndex * 2) % staffCount + staffCount) % staffCount;
+                const normalizedIndex = ((diffDays * 2) % staffCount + staffCount) % staffCount;
 
                 const s1_index1 = normalizedIndex;
                 const s1_index2 = (normalizedIndex + 1) % staffCount;
