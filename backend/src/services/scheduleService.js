@@ -414,6 +414,7 @@ class ScheduleService {
                     const picIndex = diffWeeks % kitchenStaffIds.length;
                     weeklyPicMap[weekKey] = kitchenStaffIds[picIndex];
                 }
+                const weeklyPicId = weeklyPicMap[weekKey];
                 const allStaffIds = daySchedules.map(s => s.userId);
 
                 // 3. Assign Daily Stations
