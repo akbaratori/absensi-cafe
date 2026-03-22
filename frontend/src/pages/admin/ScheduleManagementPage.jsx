@@ -27,6 +27,9 @@ const ScheduleManagementPage = () => {
         rotateOffDay: true
     });
     const [kitchenMonth, setKitchenMonth] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
+    const [kitchenDistMode, setKitchenDistMode] = useState('month'); // 'month' or 'range'
+    const [kitchenStartDate, setKitchenStartDate] = useState(new Date().toISOString().slice(0, 10));
+    const [kitchenEndDate, setKitchenEndDate] = useState(new Date().toISOString().slice(0, 10));
     const [generateLoading, setGenerateLoading] = useState(false);
     const [conflicts, setConflicts] = useState([]);
     const [showConflictModal, setShowConflictModal] = useState(false);
@@ -123,8 +126,12 @@ const ScheduleManagementPage = () => {
         e.preventDefault();
         setGenerateLoading(true);
         try {
-            await distributeKitchenShifts(kitchenMonth);
-            showSuccess('Shift Kitchen berhasil didistribusikan (2x Shift 2 per orang)');
+            const payload = kitchenDistMode === 'month' 
+                ? { month: kitchenMonth } 
+                : { startDate: kitchenStartDate, endDate: kitchenEndDate };
+
+            await api.post('/schedules/distribute-kitchen', payload);
+            showSuccess(`Shift Kitchen berhasil didistribusikan (${kitchenDistMode === 'month' ? 'Bulan' : 'Rentang Tanggal'})`);
 
             setShowKitchenModal(false);
         } catch (error) {
@@ -137,8 +144,11 @@ const ScheduleManagementPage = () => {
     const handleAssignStations = async () => {
         setGenerateLoading(true);
         try {
+            const payload = kitchenDistMode === 'month' 
+                ? { month: kitchenMonth } 
+                : { startDate: kitchenStartDate, endDate: kitchenEndDate };
             // Call new endpoint
-            await api.post('/schedules/assign-stations', { month: kitchenMonth });
+            await api.post('/schedules/assign-stations', payload);
             showSuccess('Rotasi Role (A-E) berhasil digenerate ulang!');
             setShowKitchenModal(false);
         } catch (error) {
@@ -336,20 +346,76 @@ const ScheduleManagementPage = () => {
                         Otomatis mengatur jadwal Shift Department Kitchen dengan sistem <b>Rotasi Harian (Daily Rolling)</b>:
                         <br />- <b>Shift 1 (Pagi)</b>: 2 Orang
                         <br />- <b>Shift 2 (Siang)</b>: 3 Orang
-                        <br />- Posisi berputar setiap hari agar pembagian shift lebih adil dan merata dalam sebulan.
+                        <br />- Posisi berputar setiap hari agar pembagian shift lebih adil dan merata.
                     </p>
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            Bulan Target
+
+                    <div className="flex gap-4 border-b border-gray-200 dark:border-gray-700 pb-2">
+                        <label className="flex items-center gap-2 cursor-pointer">
+                            <input 
+                                type="radio" 
+                                name="kitchenDistMode" 
+                                value="month" 
+                                checked={kitchenDistMode === 'month'} 
+                                onChange={(e) => setKitchenDistMode(e.target.value)}
+                                className="text-primary-600 focus:ring-primary-500"
+                            />
+                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Per Bulan Penuh</span>
                         </label>
-                        <input
-                            type="month"
-                            className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 focus:border-primary-500 focus:ring-primary-500"
-                            value={kitchenMonth}
-                            onChange={(e) => setKitchenMonth(e.target.value)}
-                            required
-                        />
+                        <label className="flex items-center gap-2 cursor-pointer">
+                            <input 
+                                type="radio" 
+                                name="kitchenDistMode" 
+                                value="range" 
+                                checked={kitchenDistMode === 'range'} 
+                                onChange={(e) => setKitchenDistMode(e.target.value)}
+                                className="text-primary-600 focus:ring-primary-500"
+                            />
+                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Rentang Tanggal</span>
+                        </label>
                     </div>
+
+                    {kitchenDistMode === 'month' ? (
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                Bulan Target
+                            </label>
+                            <input
+                                type="month"
+                                className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 focus:border-primary-500 focus:ring-primary-500"
+                                value={kitchenMonth}
+                                onChange={(e) => setKitchenMonth(e.target.value)}
+                                required={kitchenDistMode === 'month'}
+                            />
+                        </div>
+                    ) : (
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                    Dari Tanggal
+                                </label>
+                                <input
+                                    type="date"
+                                    className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 focus:border-primary-500 focus:ring-primary-500"
+                                    value={kitchenStartDate}
+                                    onChange={(e) => setKitchenStartDate(e.target.value)}
+                                    required={kitchenDistMode === 'range'}
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                    Sampai Tanggal
+                                </label>
+                                <input
+                                    type="date"
+                                    className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 focus:border-primary-500 focus:ring-primary-500"
+                                    value={kitchenEndDate}
+                                    onChange={(e) => setKitchenEndDate(e.target.value)}
+                                    required={kitchenDistMode === 'range'}
+                                    min={kitchenStartDate}
+                                />
+                            </div>
+                        </div>
+                    )}
 
                     <div className="pt-4 flex flex-col gap-3">
                         <Button type="submit" loading={generateLoading}>

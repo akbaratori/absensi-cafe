@@ -90,29 +90,19 @@ class ScheduleController {
 
     async distributeKitchenShifts(req, res, next) {
         try {
-            // Attempt to get month from body OR query
+            // Attempt to get month or date ranges
             const month = req.body?.month || req.query?.month;
+            const startDate = req.body?.startDate || req.query?.startDate;
+            const endDate = req.body?.endDate || req.query?.endDate;
 
-            console.log('[ScheduleController] distributeKitchenShifts Debug:', {
-                headers: req.headers,
-                body: req.body,
-                query: req.query,
-                resolvedMonth: month
-            });
-
-            if (!month) {
-                console.error('[ScheduleController] Missing month. Body:', req.body, 'Query:', req.query);
+            if (!month && (!startDate || !endDate)) {
                 return res.status(400).json({
                     success: false,
-                    message: 'Missing required field: month',
-                    debug: {
-                        receivedBody: req.body,
-                        receivedQuery: req.query
-                    }
+                    message: 'Missing required field: month OR (startDate and endDate)'
                 });
             }
 
-            const result = await scheduleService.distributeKitchenShifts(month);
+            const result = await scheduleService.distributeKitchenShifts({ month, startDate, endDate });
             return successResponse(res, 200, result, 'Shift kitchen berhasil didistribusikan');
         } catch (err) {
             next(err);
@@ -133,10 +123,15 @@ class ScheduleController {
 
     async assignStationsRotation(req, res, next) {
         try {
-            const { month } = req.body;
-            if (!month) throw ErrorCodes.SCHEDULE_ERRORS.MISSING_REQUIRED_FIELDS;
+            const month = req.body?.month || req.query?.month;
+            const startDate = req.body?.startDate || req.query?.startDate;
+            const endDate = req.body?.endDate || req.query?.endDate;
 
-            const result = await scheduleService.assignStationsRotation(month);
+            if (!month && (!startDate || !endDate)) {
+                throw ErrorCodes.SCHEDULE_ERRORS.MISSING_REQUIRED_FIELDS;
+            }
+
+            const result = await scheduleService.assignStationsRotation({ month, startDate, endDate });
             return successResponse(res, 200, result, 'Rotasi Station berhasil digenerate');
         } catch (err) {
             next(err);

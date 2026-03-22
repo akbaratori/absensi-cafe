@@ -203,13 +203,20 @@ class ScheduleService {
      * Rolling weekly.
      * Pattern: [S1, S1, S2, S2, S2] -> Shift 1 window slides by 2 every week.
      */
-    async distributeKitchenShifts(monthStr) {
+    async distributeKitchenShifts(options) {
         try {
-            // monthStr format: "YYYY-MM"
-            const [year, month] = monthStr.split('-').map(Number);
-            const startDate = new Date(year, month - 1, 1, 0, 0, 0, 0);
-            // End Date: Last day of month at 23:59:59.999
-            const endDate = new Date(year, month, 0, 23, 59, 59, 999);
+            let start, end;
+            if (options.startDate && options.endDate) {
+                start = new Date(options.startDate);
+                start.setHours(0, 0, 0, 0);
+                end = new Date(options.endDate);
+                end.setHours(23, 59, 59, 999);
+            } else {
+                // Fallback to monthStr
+                const [year, month] = options.month.split('-').map(Number);
+                start = new Date(year, month - 1, 1, 0, 0, 0, 0);
+                end = new Date(year, month, 0, 23, 59, 59, 999);
+            }
 
             // Get all KITCHEN staff Sorted by ID for consistent rotation
             const kitchenStaff = await prisma.user.findMany({
@@ -243,12 +250,12 @@ class ScheduleService {
             const ANCHOR_DATE = new Date(2026, 1, 1); // Feb 1, 2026 (Month is 0-indexed)
 
             // Iterate Date by Date
-            let current = new Date(startDate);
+            let current = new Date(start);
 
             // Define createData array
             const createData = [];
 
-            while (current <= endDate) {
+            while (current <= end) {
                 const dateStr = current.toISOString().split('T')[0];
 
                 // Calculate weeks passed since Anchor Date
@@ -306,11 +313,11 @@ class ScheduleService {
 
             // Execute Transaction (Delete then Create)
             await prisma.$transaction(async (tx) => {
-                // Delete existing for this group & month
+                // Delete existing for this group & date range
                 const deleted = await tx.userSchedule.deleteMany({
                     where: {
                         userId: { in: kitchenStaff.map(u => u.id) },
-                        date: { gte: startDate, lte: endDate }
+                        date: { gte: start, lte: end }
                     }
                 });
                 console.log(`[ScheduleService] Deleted ${deleted.count} existing kitchen records.`);
@@ -329,8 +336,8 @@ class ScheduleService {
             // --- STATION ASSIGNMENT LOGIC ---
             // After transactions, assign daily stations
             // Iterate day by day again
-            current = new Date(startDate);
-            while (current <= endDate) {
+            current = new Date(start);
+            while (current <= end) {
                 // We need to fetch the inserted data or filter from createData
                 // Filtering createData is faster but we need to ensure we only process WORKING people
                 const daySchedules = createData.filter(d => d.date.getTime() === current.getTime() && !d.isOffDay && d.shiftId);
@@ -363,16 +370,24 @@ class ScheduleService {
      * ONLY Assign Stations (Nodes/Roles) based on existing shifts.
      * Does NOT change Shift Pagi/Siang or Off Days.
      */
-    async assignStationsRotation(monthStr) {
+    async assignStationsRotation(options) {
         try {
-            const [year, month] = monthStr.split('-').map(Number);
-            const startDate = new Date(year, month - 1, 1, 0, 0, 0, 0);
-            const endDate = new Date(year, month, 0, 23, 59, 59, 999);
+            let start, end;
+            if (options.startDate && options.endDate) {
+                start = new Date(options.startDate);
+                start.setHours(0, 0, 0, 0);
+                end = new Date(options.endDate);
+                end.setHours(23, 59, 59, 999);
+            } else {
+                const [year, month] = options.month.split('-').map(Number);
+                start = new Date(year, month - 1, 1, 0, 0, 0, 0);
+                end = new Date(year, month, 0, 23, 59, 59, 999);
+            }
 
             // Get all schedules
             const schedules = await prisma.userSchedule.findMany({
                 where: {
-                    date: { gte: startDate, lte: endDate },
+                    date: { gte: start, lte: end },
                     user: { department: 'KITCHEN', isActive: true },
                     isOffDay: false,
                     shiftId: { not: null }
@@ -381,7 +396,7 @@ class ScheduleService {
             });
 
             // Iterate day by day
-            let current = new Date(startDate);
+            let current = new Date(start);
 
             // Helper for Weekly Rotation (Track Week Start -> PIC User ID)
             const weeklyPicMap = {};
@@ -392,7 +407,7 @@ class ScheduleService {
             });
             const kitchenStaffIds = allKitchenStaff.map(u => u.id);
 
-            while (current <= endDate) {
+            while (current <= end) {
                 const daySchedules = schedules.filter(s => new Date(s.date).getDate() === current.getDate());
 
                 // 1. Determine Week Key (Monday as Start)
@@ -425,7 +440,7 @@ class ScheduleService {
             // CLEANUP: Ensure NO OFF DAYS have stations (Clean up artifacts)
             await prisma.userSchedule.updateMany({
                 where: {
-                    date: { gte: startDate, lte: endDate },
+                    date: { gte: start, lte: end },
                     isOffDay: true
                 },
                 data: { kitchenStation: null, isInventoryController: false }
