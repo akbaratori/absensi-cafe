@@ -337,17 +337,9 @@ class ScheduleService {
                 // Filtering createData is faster but we need to ensure we only process WORKING people
                 const daySchedules = createData.filter(d => d.date.getTime() === current.getTime() && !d.isOffDay && d.shiftId);
 
-                // Group by Shift to ensure each shift has its own set of stations (e.g. 1 Main Cook per shift)
-                const shiftGroups = {};
-                daySchedules.forEach(s => {
-                    if (!shiftGroups[s.shiftId]) shiftGroups[s.shiftId] = [];
-                    shiftGroups[s.shiftId].push(s.userId);
-                });
-
-                // Assign for each shift group
-                for (const shiftId in shiftGroups) {
-                    await this.assignDailyStations(current, shiftGroups[shiftId]);
-                }
+                // Assign across all staff working today linearly so all 5 roles rotate perfectly
+                const allStaffIds = daySchedules.map(s => s.userId);
+                await this.assignDailyStations(current, allStaffIds, weeklyPicId);
 
                 current.setDate(current.getDate() + 1);
             }
@@ -422,18 +414,10 @@ class ScheduleService {
                     const picIndex = diffWeeks % kitchenStaffIds.length;
                     weeklyPicMap[weekKey] = kitchenStaffIds[picIndex];
                 }
-                const weeklyPicId = weeklyPicMap[weekKey];
+                const allStaffIds = daySchedules.map(s => s.userId);
 
-                // 3. Group by Shift and Assign Daily Stations
-                const shiftGroups = {};
-                daySchedules.forEach(s => {
-                    if (!shiftGroups[s.shiftId]) shiftGroups[s.shiftId] = [];
-                    shiftGroups[s.shiftId].push(s.userId);
-                });
-
-                for (const shiftId in shiftGroups) {
-                    await this.assignDailyStations(current, shiftGroups[shiftId], weeklyPicId);
-                }
+                // 3. Assign Daily Stations
+                await this.assignDailyStations(current, allStaffIds, weeklyPicId);
 
                 current.setDate(current.getDate() + 1);
             }
@@ -650,103 +634,38 @@ class ScheduleService {
     async assignDailyStations(date, staffIds, weeklyPicId) {
         if (!staffIds || staffIds.length === 0) return;
 
-        // 1. Get History of last 2 days (Yesterday and Day Before)
-        const d1 = new Date(date);
-        d1.setDate(d1.getDate() - 1); // Yesterday
-        const d2 = new Date(date);
-        d2.setDate(d2.getDate() - 2); // Day Before
+        // 1. Prepare Staff Pool (Sort by ID for consistent ordering)
+        let availableStaff = [...staffIds].sort((a, b) => a - b);
 
-        // Create range from DayBefore Start to Yesterday End
-        const historyStart = new Date(d2);
-        historyStart.setHours(0, 0, 0, 0);
+        // 2. Calculate deterministic rotation based on Anchor Date
+        const ANCHOR_DATE = new Date(2026, 1, 1);
+        const diffTime = Math.abs(date.getTime() - ANCHOR_DATE.getTime());
+        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
 
-        const historyEnd = new Date(d1);
-        historyEnd.setHours(23, 59, 59, 999);
+        // Shift array by `diffDays % availableStaff.length`
+        const shiftAmount = diffDays % availableStaff.length;
+        const rotatedStaff = [...availableStaff.slice(shiftAmount), ...availableStaff.slice(0, shiftAmount)];
 
-        const lastAssignments = await prisma.userSchedule.findMany({
-            where: {
-                date: {
-                    gte: historyStart,
-                    lte: historyEnd
-                },
-                userId: { in: staffIds }
-            },
-            select: { userId: true, kitchenStation: true, date: true }
-        });
-
-        // Map History: { userId: { yesterday: 'A', dayBefore: 'A' } }
-        const historyMap = {};
-
-        lastAssignments.forEach(a => {
-            if (!historyMap[a.userId]) historyMap[a.userId] = {};
-
-            const aDate = new Date(a.date);
-            // Check if matches yesterday date (ignore time)
-            if (aDate.getDate() === d1.getDate()) {
-                historyMap[a.userId].yesterday = a.kitchenStation
-                    ? a.kitchenStation.split(' + ')[0] // Strip dishwasher
-                    : null;
-            }
-            // Check if matches dayBefore date
-            else if (aDate.getDate() === d2.getDate()) {
-                historyMap[a.userId].dayBefore = a.kitchenStation
-                    ? a.kitchenStation.split(' + ')[0]
-                    : null;
-            }
-        });
-
-        // 2. Prepare Staff Pool
-        let availableStaff = [...staffIds];
-
-        // Shuffle initially for randomness/fairness in equal situations
-        availableStaff.sort(() => Math.random() - 0.5);
-
-        const newAssignments = []; // { userId, station }
+        const newAssignments = []; 
 
         // 3. Assign based on Priority Order (A, B, C, D, E)
-        for (const station of PRIORITY_ORDER) {
-            if (availableStaff.length === 0) break;
+        for (let i = 0; i < rotatedStaff.length; i++) {
+            if (i < PRIORITY_ORDER.length) {
+                let station = PRIORITY_ORDER[i];
+                let userId = rotatedStaff[i];
 
-            // Score Candidates
-            let bestCandidateIndex = -1;
-            let bestScore = -999;
-
-            for (let i = 0; i < availableStaff.length; i++) {
-                const uid = availableStaff[i];
-                const history = historyMap[uid] || {};
-                const sYesterday = history.yesterday;
-                const sDayBefore = history.dayBefore;
-
-                let score = 0;
-
-                // Constraint: Max 2 Days Logic
-                if (sYesterday === station && sDayBefore === station) {
-                    score = -1000;
-                }
-                // Heuristic: Prefer someone who didn't do this yesterday
-                else if (sYesterday === station) {
-                    score = -10;
-                } else {
-                    score = 10;
+                // --- RULE: PIC Stok cannot hold Role A (Main Cook) ---
+                if (userId === weeklyPicId && station.startsWith('A - Main Cook')) {
+                    // Swap with the next person in line (Role B) if possible
+                    if (i + 1 < rotatedStaff.length && i + 1 < PRIORITY_ORDER.length) {
+                        const temp = rotatedStaff[i];
+                        rotatedStaff[i] = rotatedStaff[i + 1];
+                        rotatedStaff[i + 1] = temp;
+                        userId = rotatedStaff[i]; // Update to the newly swapped user
+                    }
                 }
 
-                // --- NEW RULE: PIC Stok cannot hold Role A (Main Cook) ---
-                // If this user is the PIC Stok (Weekly), discourage/ban Role A.
-                // Note: weeklyPicId is passed in.
-                if (uid === weeklyPicId && station.startsWith('A - Main Cook')) {
-                    score = -99999; // Effectively Ban
-                }
-
-                if (score > bestScore) {
-                    bestScore = score;
-                    bestCandidateIndex = i;
-                }
-            }
-
-            if (bestCandidateIndex !== -1) {
-                const userId = availableStaff[bestCandidateIndex];
                 newAssignments.push({ userId, station });
-                availableStaff.splice(bestCandidateIndex, 1);
             }
         }
 
