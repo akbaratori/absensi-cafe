@@ -48,7 +48,7 @@ const getAttendanceConfig = async (prisma) => {
  * Uses WITA (UTC+8) timezone for accurate comparison in Makassar.
  * @param {Date} clockIn - Clock-in timestamp
  * @param {Object} attendanceConfig - Configuration object
- * @returns {String} Attendance status
+ * @returns {Object} { status: String, lateMinutes: Number }
  */
 const calculateAttendanceStatus = (clockIn, attendanceConfig) => {
   const [hours, minutes] = attendanceConfig.workStartTime.split(':').map(Number);
@@ -57,28 +57,26 @@ const calculateAttendanceStatus = (clockIn, attendanceConfig) => {
   const clockInWITA = toWITA(clockIn);
 
   // Build a reference date at the shift start time in WITA:
-  // We use a UTC Date that, when shifted by +8h, equals YYYY-MM-DD HH:mm in WITA.
-  // Easier: build the shift start as a UTC timestamp = (clockInWITA date at 00:00 UTC) + shift hours
-  // Step 1: get WITA date string (YYYY-MM-DD) for the clock-in day
   const witaDateStr = clockInWITA.toISOString().slice(0, 10); // "YYYY-MM-DD" in virtual WITA day
-  // Step 2: construct shift start in UTC from WITA time
   const shiftStartUTC = new Date(`${witaDateStr}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00+08:00`);
 
   // Khusus Shift Ramadhan yang masuk jam 14:00
   if (hours === 14 && minutes === 0) {
     const maxLateUTC = new Date(`${witaDateStr}T14:15:00+08:00`);
     if (clockIn > maxLateUTC) {
-      return 'LATE';
+      const lateMinutes = Math.ceil((clockIn.getTime() - shiftStartUTC.getTime()) / (60 * 1000));
+      return { status: 'LATE', lateMinutes };
     }
   } else {
     // Shift Reguler: gunakan grace period dari config
     const graceTimeUTC = new Date(shiftStartUTC.getTime() + attendanceConfig.lateGraceMinutes * 60 * 1000);
     if (clockIn > graceTimeUTC) {
-      return 'LATE';
+      const lateMinutes = Math.ceil((clockIn.getTime() - shiftStartUTC.getTime()) / (60 * 1000));
+      return { status: 'LATE', lateMinutes };
     }
   }
 
-  return 'PRESENT';
+  return { status: 'PRESENT', lateMinutes: 0 };
 };
 
 /**

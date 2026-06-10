@@ -60,7 +60,7 @@ model Shift {
 model Attendance {
   id               Int       @id @default(autoincrement())
   userId           Int       @map("user_id")
-  date             DateTime
+  date             DateTime  @db.Date
   clockIn          DateTime  @map("clock_in")
   clockOut         DateTime? @map("clock_out")
   clockInLocation  String?   @map("clock_in_location")
@@ -70,6 +70,7 @@ model Attendance {
   clockInIp        String?   @map("clock_in_ip")
   clockOutIp       String?   @map("clock_out_ip")
   status           String    @default("PRESENT")
+  lateMinutes      Int       @default(0) @map("late_minutes")
   notes            String?
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
@@ -204,6 +205,7 @@ model UserSchedule {
   isInventoryController Boolean @default(false) @map("is_inventory_controller")
   isShiftPic           Boolean @default(false) @map("is_shift_pic")
   isSanitationLead     Boolean @default(false) @map("is_sanitation_lead")
+  isManualOverride     Boolean @default(false) @map("is_manual_override")
 
   user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   shift   Shift? @relation(fields: [shiftId], references: [id])

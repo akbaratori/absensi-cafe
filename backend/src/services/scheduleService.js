@@ -12,21 +12,28 @@ class ScheduleService {
     async generateSchedule(userId, startDateStr, months, options = {}) {
         const {
             shiftPattern = [1], // Default Shift 1
-            baseOffDay = 0, // Sunday
+            baseOffDay = 0, // Sunday (0=Sun, 1=Mon, ..., 6=Sat — matches JS getUTCDay)
             rotateOffDay = true
         } = options;
 
-        const startDate = new Date(startDateStr);
+        // Parse startDate as UTC midnight — all date math uses UTC to prevent timezone drift
+        const startDate = new Date(startDateStr + 'T00:00:00Z');
         const endDate = new Date(startDate);
-        endDate.setMonth(endDate.getMonth() + months);
+        endDate.setUTCMonth(endDate.getUTCMonth() + months);
 
         const schedules = [];
         let currentDate = new Date(startDate);
-        let shiftIndex = 0;
 
         // For rotating off day logic
         let currentOffDay = baseOffDay;
-        let lastMonth = currentDate.getMonth();
+        let lastMonth = currentDate.getUTCMonth();
+
+        // Find the Monday on or immediately preceding startDate for shift pattern rotation
+        // This ensures the pattern always starts at index 0 for the user's first week
+        const userAnchorMonday = new Date(startDate);
+        const startDayOfWeek = userAnchorMonday.getUTCDay();
+        const daysToMonday = startDayOfWeek === 0 ? 6 : startDayOfWeek - 1;
+        userAnchorMonday.setUTCDate(userAnchorMonday.getUTCDate() - daysToMonday);
 
         while (currentDate < endDate) {
             // Handle Special Cases
@@ -42,9 +49,9 @@ class ScheduleService {
                     isOffDay: true
                 });
             } else {
-                // Normal Generation Logic
-                const dayOfWeek = currentDate.getDay();
-                const currentMonth = currentDate.getMonth();
+                // Normal Generation Logic — all using UTC methods
+                const dayOfWeek = currentDate.getUTCDay();
+                const currentMonth = currentDate.getUTCMonth();
 
                 // Migrate off-day if month changed
                 if (rotateOffDay && currentMonth !== lastMonth && currentOffDay !== -1) {
@@ -56,12 +63,13 @@ class ScheduleService {
                 let shiftId = null;
 
                 if (!isOffDay) {
-                    // Week-based rotation
-                    const diffTime = Math.abs(currentDate - startDate);
-                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                    // Week-based rotation anchored to the user's starting Monday (Mon-Sun cycle)
+                    // This ensures the first week always uses the first shift in the pattern
+                    const diffTime = currentDate.getTime() - userAnchorMonday.getTime();
+                    const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
                     const weekIndex = Math.floor(diffDays / 7);
 
-                    const patternIndex = weekIndex % shiftPattern.length;
+                    const patternIndex = ((weekIndex % shiftPattern.length) + shiftPattern.length) % shiftPattern.length;
                     shiftId = shiftPattern[patternIndex];
                 }
 
@@ -73,8 +81,8 @@ class ScheduleService {
                 });
             }
 
-            // Next day
-            currentDate.setDate(currentDate.getDate() + 1);
+            // Next day — use UTC to prevent timezone drift
+            currentDate.setUTCDate(currentDate.getUTCDate() + 1);
         }
 
         // Special handling for -99 (Delete)
@@ -127,10 +135,9 @@ class ScheduleService {
     async bulkGenerateSchedule(userIds, startDateStr, endDateStr, shiftId, options = {}) {
         const { keepOffDays = true } = options;
 
-        const startDate = new Date(startDateStr);
-        const endDate = new Date(endDateStr);
-        startDate.setHours(0, 0, 0, 0);
-        endDate.setHours(0, 0, 0, 0);
+        // Parse dates as UTC midnight to prevent timezone drift
+        const startDate = new Date(startDateStr + 'T00:00:00Z');
+        const endDate = new Date(endDateStr + 'T00:00:00Z');
 
         // Fetch users to get their off day info
         const users = await prisma.user.findMany({
@@ -148,7 +155,7 @@ class ScheduleService {
             let currentDate = new Date(startDate);
 
             while (currentDate <= endDate) {
-                const dayOfWeek = currentDate.getDay();
+                const dayOfWeek = currentDate.getUTCDay();
                 const isOffDay = keepOffDays && user.offDay !== undefined && user.offDay !== -1 && dayOfWeek === user.offDay;
 
                 allSchedules.push({
@@ -158,7 +165,7 @@ class ScheduleService {
                     isOffDay: isOffDay
                 });
 
-                currentDate.setDate(currentDate.getDate() + 1);
+                currentDate.setUTCDate(currentDate.getUTCDate() + 1);
             }
         }
 
@@ -229,25 +236,40 @@ class ScheduleService {
                 return { message: 'No kitchen staff found' };
             }
 
-            // Fetch existing schedules to respect OFF DAYS
+            // Fetch existing schedules to respect OFF DAYS and manual overrides
             const existingSchedules = await prisma.userSchedule.findMany({
                 where: {
                     userId: { in: kitchenStaff.map(u => u.id) },
-                    date: { gte: startDate, lte: endDate }
+                    date: { gte: start, lte: end }
                 }
             });
 
-            // Map: UserID -> DateString -> isOffDay
-            const offDayMap = {};
+            // Map: UserID -> DateString -> { isOffDay, isManualOverride }
+            const scheduleMap = {};
             existingSchedules.forEach(s => {
-                if (!offDayMap[s.userId]) offDayMap[s.userId] = {};
+                if (!scheduleMap[s.userId]) scheduleMap[s.userId] = {};
                 const d = s.date.toISOString().split('T')[0];
-                offDayMap[s.userId][d] = s.isOffDay;
+                scheduleMap[s.userId][d] = { isOffDay: s.isOffDay, isManualOverride: s.isManualOverride };
             });
+
+            // Collect IDs of manually overridden schedules (DO NOT delete or overwrite)
+            const manualOverrideIds = existingSchedules
+                .filter(s => s.isManualOverride)
+                .map(s => s.id);
+
+            console.log(`[ScheduleService] Found ${manualOverrideIds.length} manual override schedules — these will be preserved.`);
 
             // Anchor Date: February 1, 2026 (User defined "Correct Month")
             // This ensures rotation continues seamlessly from Feb 2026 onwards.
             const ANCHOR_DATE = new Date(2026, 1, 1); // Feb 1, 2026 (Month is 0-indexed)
+
+            // Track Shift 1 (Pagi) counts per staff — used to ensure fairness
+            const shift1Count = {};
+            const shift2Count = {};
+            kitchenStaff.forEach(u => {
+                shift1Count[u.id] = 0;
+                shift2Count[u.id] = 0;
+            });
 
             // Iterate Date by Date
             let current = new Date(start);
@@ -258,67 +280,90 @@ class ScheduleService {
             while (current <= end) {
                 const dateStr = current.toISOString().split('T')[0];
 
-                // Calculate days passed since Anchor Date
-                const diffTime = current.getTime() - ANCHOR_DATE.getTime();
-                const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+                // 1. Evaluate who is working today (and who has manual override)
+                const staffOffStatus = {};
+                const workingStaffIds = [];
 
-                // Calculate Rotation for this Day (Daily Rolling)
-                const staffCount = kitchenStaff.length;
-
-                // Shift changes EVERY DAY by 2 people.
-                // Handling negative modulo for dates before anchor
-                const normalizedIndex = ((diffDays * 2) % staffCount + staffCount) % staffCount;
-
-                const s1_index1 = normalizedIndex;
-                const s1_index2 = (normalizedIndex + 1) % staffCount;
-
-                const shift1UserIds = [
-                    kitchenStaff[s1_index1].id,
-                    kitchenStaff[s1_index2].id
-                ];
-
-                // Assign Shifts
                 kitchenStaff.forEach(user => {
+                    const existingEntry = scheduleMap[user.id]?.[dateStr];
+                    // Skip counting manual override staff — they handle their own shift
+                    if (existingEntry?.isManualOverride) {
+                        staffOffStatus[user.id] = existingEntry.isOffDay;
+                        return;
+                    }
                     let isOff = false;
-                    // Check map or default to User's configured Off Day
-                    if (offDayMap[user.id] && offDayMap[user.id][dateStr] !== undefined) {
-                        isOff = offDayMap[user.id][dateStr];
+                    if (existingEntry !== undefined) {
+                        isOff = existingEntry.isOffDay;
                     } else {
-                        // Respect individual off day (default is 0/Sunday if not set)
                         isOff = current.getDay() === user.offDay;
                     }
+                    staffOffStatus[user.id] = isOff;
+                    if (!isOff) workingStaffIds.push(user.id);
+                });
 
-                    let shiftId = 2; // Default to Shift 2 (Siang)
-                    if (shift1UserIds.includes(user.id)) {
-                        shiftId = 1; // Selected for Shift 1 (Pagi)
+                // 2. Pick Pagi (Shift 1) from WORKING staff — fairly distribute
+                // Sort: fewest Pagi first. Tie-break: most Siang first (more rest).
+                // Secondary tie-break: random order (shuffle equally-ranked staff)
+                const MAX_SHIFT_1 = 2;
+                const sorted = [...workingStaffIds].sort((a, b) => {
+                    const diff = shift1Count[a] - shift1Count[b];
+                    if (diff !== 0) return diff;
+                    // Secondary: who has had more Siang (give them Pagi as rest)
+                    return shift2Count[b] - shift2Count[a];
+                });
+
+                const shift1UserIds = sorted.slice(0, MAX_SHIFT_1);
+
+                // Increment counts
+                shift1UserIds.forEach(id => shift1Count[id]++);
+                workingStaffIds.forEach(id => {
+                    if (!shift1UserIds.includes(id)) shift2Count[id]++;
+                });
+
+                // 3. Assign Shifts — skip staff who have manual override for this date
+                kitchenStaff.forEach(user => {
+                    const existingEntry = scheduleMap[user.id]?.[dateStr];
+                    // Preserve manual overrides
+                    if (existingEntry?.isManualOverride) return;
+
+                    let isOff = staffOffStatus[user.id];
+                    let shiftId = 2; // Default Shift 2 (Siang)
+
+                    if (!isOff && shift1UserIds.includes(user.id)) {
+                        shiftId = 1; // Shift 1 (Pagi)
                     }
-
                     if (isOff) shiftId = null;
 
                     createData.push({
                         userId: user.id,
                         date: new Date(current),
                         shiftId: shiftId,
-                        isOffDay: isOff
+                        isOffDay: isOff,
+                        isManualOverride: false
                     });
                 });
 
                 current.setDate(current.getDate() + 1);
             }
 
-            // Execute Transaction (Delete then Create)
-            await prisma.$transaction(async (tx) => {
-                // Delete existing for this group & date range
-                const deleted = await tx.userSchedule.deleteMany({
-                    where: {
-                        userId: { in: kitchenStaff.map(u => u.id) },
-                        date: { gte: start, lte: end }
-                    }
-                });
-                console.log(`[ScheduleService] Deleted ${deleted.count} existing kitchen records.`);
+            // Log fairness summary
+            console.log('[ScheduleService] Shift fairness summary:');
+            kitchenStaff.forEach(u => {
+                console.log(`  ${u.fullName}: Pagi=${shift1Count[u.id]}, Siang=${shift2Count[u.id]}`);
+            });
 
-                // createMany
-                // Using chunking just in case
+            // Execute Transaction (Delete non-manual entries then Create)
+            await prisma.$transaction(async (tx) => {
+                // Delete only NON-manual-override records for this group & date range
+                const deleteWhere = {
+                    userId: { in: kitchenStaff.map(u => u.id) },
+                    date: { gte: start, lte: end },
+                    isManualOverride: false
+                };
+                const deleted = await tx.userSchedule.deleteMany({ where: deleteWhere });
+                console.log(`[ScheduleService] Deleted ${deleted.count} auto-generated kitchen records (manual overrides preserved).`);
+
+                // createMany (chunked)
                 const CHUNK_SIZE = 50;
                 for (let i = 0; i < createData.length; i += CHUNK_SIZE) {
                     await tx.userSchedule.createMany({
@@ -329,20 +374,10 @@ class ScheduleService {
             });
 
             // --- STATION ASSIGNMENT LOGIC ---
-            // After transactions, assign daily stations
-            // Iterate day by day again
-            current = new Date(start);
-            while (current <= end) {
-                // We need to fetch the inserted data or filter from createData
-                // Filtering createData is faster but we need to ensure we only process WORKING people
-                const daySchedules = createData.filter(d => d.date.getTime() === current.getTime() && !d.isOffDay && d.shiftId);
-
-                // Assign across all staff working today linearly so all 5 roles rotate perfectly
-                const allStaffIds = daySchedules.map(s => s.userId);
-                await this.assignDailyStations(current, allStaffIds, weeklyPicId);
-
-                current.setDate(current.getDate() + 1);
-            }
+            // After Pagi/Siang rules are saved to DB, infer stations dynamically.
+            // This reuses `assignStationsRotation` which explicitly reads back from the DB
+            // (including any manual overrides that were preserved) to assign perfectly.
+            await this.assignStationsRotation({ startDate: start.toISOString(), endDate: end.toISOString() });
 
             return { message: `Distributed weekly rolling shifts for ${kitchenStaff.length} kitchen staff` };
 
@@ -387,12 +422,20 @@ class ScheduleService {
 
             // Helper for Weekly Rotation (Track Week Start -> PIC User ID)
             const weeklyPicMap = {};
-            const allKitchenStaff = await prisma.user.findMany({
-                where: { department: 'KITCHEN', isActive: true },
-                orderBy: { id: 'asc' },
-                select: { id: true }
+            
+            // Infer participating kitchen staff directly from the fetched schedules
+            // so we don't rely on global 'isActive' state which breaks if someone resigns.
+            const uniqueStaffIds = new Set(schedules.map(s => s.userId));
+            const kitchenStaffIds = Array.from(uniqueStaffIds).sort((a, b) => a - b);
+
+            // TRACKING OBJECT for fair distribution across the generation period
+            const stationCounts = {};
+            kitchenStaffIds.forEach(id => {
+                stationCounts[id] = {};
+                PRIORITY_ORDER.forEach(station => {
+                    stationCounts[id][station] = 0;
+                });
             });
-            const kitchenStaffIds = allKitchenStaff.map(u => u.id);
 
             while (current <= end) {
                 const daySchedules = schedules.filter(s => new Date(s.date).getDate() === current.getDate());
@@ -418,7 +461,7 @@ class ScheduleService {
                 const allStaffIds = daySchedules.map(s => s.userId);
 
                 // 3. Assign Daily Stations
-                await this.assignDailyStations(current, allStaffIds, weeklyPicId);
+                await this.assignDailyStations(current, allStaffIds, weeklyPicId, stationCounts);
 
                 current.setDate(current.getDate() + 1);
             }
@@ -483,14 +526,65 @@ class ScheduleService {
      * Update a specific schedule (Admin Manual Edit)
      */
     async updateSchedule(scheduleId, data) {
-        const { shiftId, isOffDay } = data;
+        const { shiftId, isOffDay, kitchenStation } = data;
+
+        const updateData = {
+            shiftId: isOffDay ? null : shiftId,
+            isOffDay: isOffDay,
+            isManualOverride: true, // flag: protect from rolling distribution overwrite
+        };
+
+        if (kitchenStation !== undefined) {
+            updateData.kitchenStation = isOffDay ? null : (kitchenStation === '' ? null : kitchenStation);
+        } else if (isOffDay) {
+            updateData.kitchenStation = null;
+        }
 
         return await prisma.userSchedule.update({
             where: { id: scheduleId },
-            data: {
-                shiftId: isOffDay ? null : shiftId,
-                isOffDay: isOffDay,
-                kitchenStation: isOffDay ? null : undefined // Clear station if OFF
+            data: updateData,
+            include: {
+                user: {
+                    select: {
+                        id: true,
+                        fullName: true,
+                        department: true
+                    }
+                },
+                shift: true
+            }
+        });
+    }
+
+    /**
+     * Upsert single schedule (Add Schedule from Calendar)
+     */
+    async upsertSingleSchedule(data) {
+        const { userId, date, shiftId, isOffDay, kitchenStation } = data;
+        
+        // Parse date as UTC midnight — consistent with how all other schedules are stored
+        // new Date("2026-04-30") → 2026-04-30T00:00:00.000Z (UTC midnight) ✓
+        const scheduleDate = new Date(date);
+
+        const upsertData = {
+            shiftId: isOffDay ? null : (shiftId ? parseInt(shiftId) : null),
+            isOffDay: Boolean(isOffDay),
+            kitchenStation: isOffDay ? null : (kitchenStation === '' ? null : kitchenStation),
+            isManualOverride: true, // flag: protect from rolling distribution overwrite
+        };
+
+        return await prisma.userSchedule.upsert({
+            where: {
+                userId_date: {
+                    userId: parseInt(userId),
+                    date: scheduleDate
+                }
+            },
+            update: upsertData,
+            create: {
+                userId: parseInt(userId),
+                date: scheduleDate,
+                ...upsertData
             },
             include: {
                 user: {
@@ -524,13 +618,14 @@ class ScheduleService {
         if (!user) throw ErrorCodes.USER_NOT_FOUND;
 
         // 2. Simulate Off Days
-        const startDate = new Date(startDateStr);
+        // Parse as UTC midnight — consistent with generateSchedule
+        const startDate = new Date(startDateStr + 'T00:00:00Z');
         const endDate = new Date(startDate);
-        endDate.setMonth(endDate.getMonth() + months);
+        endDate.setUTCMonth(endDate.getUTCMonth() + months);
 
         let currentDate = new Date(startDate);
         let currentOffDay = parseInt(baseOffDay);
-        let lastMonth = currentDate.getMonth();
+        let lastMonth = currentDate.getUTCMonth();
 
         const proposedOffDates = [];
 
@@ -539,9 +634,9 @@ class ScheduleService {
                 // Full Off Mode: Every day is off
                 proposedOffDates.push(new Date(currentDate));
             } else {
-                // Normal Mode
-                const dayOfWeek = currentDate.getDay();
-                const currentMonth = currentDate.getMonth();
+                // Normal Mode — use UTC to match generateSchedule
+                const dayOfWeek = currentDate.getUTCDay();
+                const currentMonth = currentDate.getUTCMonth();
 
                 if (rotateOffDay && currentMonth !== lastMonth && currentOffDay !== -1) {
                     currentOffDay = (currentOffDay + 1) % 7;
@@ -552,7 +647,7 @@ class ScheduleService {
                     proposedOffDates.push(new Date(currentDate));
                 }
             }
-            currentDate.setDate(currentDate.getDate() + 1);
+            currentDate.setUTCDate(currentDate.getUTCDate() + 1);
         }
 
         if (proposedOffDates.length === 0) return [];
@@ -632,42 +727,80 @@ class ScheduleService {
             throw error;
         }
     }
-    async assignDailyStations(date, staffIds, weeklyPicId) {
+    async assignDailyStations(date, staffIds, weeklyPicId, stationCounts = null) {
         if (!staffIds || staffIds.length === 0) return;
 
-        // 1. Prepare Staff Pool (Sort by ID for consistent ordering)
-        let availableStaff = [...staffIds].sort((a, b) => a - b);
+        let counts = stationCounts;
 
-        // 2. Calculate deterministic rotation based on Anchor Date
-        const ANCHOR_DATE = new Date(2026, 1, 1);
-        const diffTime = Math.abs(date.getTime() - ANCHOR_DATE.getTime());
-        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+        // If no tracking provided (e.g. from redistributeStations), fetch counts from DB for current month
+        if (!counts) {
+            counts = {};
+            staffIds.forEach(id => {
+                counts[id] = {};
+                PRIORITY_ORDER.forEach(st => counts[id][st] = 0);
+            });
 
-        // Shift array by `diffDays % availableStaff.length`
-        const shiftAmount = diffDays % availableStaff.length;
-        const rotatedStaff = [...availableStaff.slice(shiftAmount), ...availableStaff.slice(0, shiftAmount)];
+            const startOfMonth = new Date(date.getFullYear(), date.getMonth(), 1);
+            const pastSchedules = await prisma.userSchedule.findMany({
+                where: {
+                    date: { gte: startOfMonth, lt: date },
+                    userId: { in: staffIds },
+                    kitchenStation: { not: null }
+                }
+            });
+
+            pastSchedules.forEach(s => {
+                const uid = s.userId;
+                const baseStation = s.kitchenStation.split(' + ')[0].trim();
+                const fullStation = PRIORITY_ORDER.find(p => p.startsWith(baseStation));
+                if (fullStation && counts[uid]) {
+                    counts[uid][fullStation]++;
+                }
+            });
+        }
 
         const newAssignments = []; 
+        const unassignedStaff = [...staffIds];
 
-        // 3. Assign based on Priority Order (A, B, C, D, E)
-        for (let i = 0; i < rotatedStaff.length; i++) {
-            if (i < PRIORITY_ORDER.length) {
-                let station = PRIORITY_ORDER[i];
-                let userId = rotatedStaff[i];
+        // 3. Assign based on Priority Order (A, B, C, D, E) using fair cumulative counts
+        for (const station of PRIORITY_ORDER) {
+            if (unassignedStaff.length === 0) break;
 
-                // --- RULE: PIC Stok cannot hold Role A (Main Cook) ---
-                if (userId === weeklyPicId && station.startsWith('A - Main Cook')) {
-                    // Swap with the next person in line (Role B) if possible
-                    if (i + 1 < rotatedStaff.length && i + 1 < PRIORITY_ORDER.length) {
-                        const temp = rotatedStaff[i];
-                        rotatedStaff[i] = rotatedStaff[i + 1];
-                        rotatedStaff[i + 1] = temp;
-                        userId = rotatedStaff[i]; // Update to the newly swapped user
-                    }
+            // Sort unassigned staff to find the fairest candidate for this station
+            unassignedStaff.sort((a, b) => {
+                // Primary: Who has done THIS station the least?
+                const countA = counts[a][station] || 0;
+                const countB = counts[b][station] || 0;
+                if (countA !== countB) return countA - countB;
+
+                // Secondary tie-breaker: For high-priority (A, B), prioritize those who have done less high-priority overall
+                const isHighPriority = station.startsWith('A') || station.startsWith('B');
+                if (isHighPriority) {
+                     const sumHighA = (counts[a][PRIORITY_ORDER[0]] || 0) + (counts[a][PRIORITY_ORDER[1]] || 0);
+                     const sumHighB = (counts[b][PRIORITY_ORDER[0]] || 0) + (counts[b][PRIORITY_ORDER[1]] || 0);
+                     if (sumHighA !== sumHighB) return sumHighA - sumHighB;
                 }
 
-                newAssignments.push({ userId, station });
+                return a - b; // fallback
+            });
+
+            let chosenIndex = 0;
+            let userId = unassignedStaff[chosenIndex];
+
+            // --- RULE: PIC Stok cannot hold Role A (Main Cook) ---
+            if (station.startsWith('A - Main Cook') && userId === weeklyPicId && unassignedStaff.length > 1) {
+                // Skip the PIC Stok, pick the next fairest person
+                chosenIndex = 1;
+                userId = unassignedStaff[chosenIndex];
             }
+
+            newAssignments.push({ userId, station });
+            
+            // Update tracking
+            if (counts[userId] && counts[userId][station] !== undefined) {
+                counts[userId][station]++;
+            }
+            unassignedStaff.splice(chosenIndex, 1);
         }
 
         // 4. Determine Control Roles (Strict: Max 1 Control Role per Person)

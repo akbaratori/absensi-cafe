@@ -27,27 +27,10 @@ router.post('/redistribute-stations', authorize('ADMIN'), scheduleController.red
 // Assign Station Rotation (Admin only) - Monthly Loop
 router.post('/assign-stations', authorize('ADMIN'), scheduleController.assignStationsRotation);
 
+// Add single schedule (Admin only)
+router.post('/single', authorize('ADMIN'), scheduleController.upsertSingleSchedule);
 
-// Manual update schedule (Admin only)
-router.put('/:id', authorize('ADMIN'), scheduleController.updateSchedule);
-
-// Get station summary for a month (Admin only) - MUST be before /:userId
-router.get('/station-summary', authorize('ADMIN'), scheduleController.getStationSummary);
-
-router.get('/:userId', authorize('ADMIN', 'EMPLOYEE'), scheduleController.getUserSchedule);
-
-// Get all schedules (for calendar)
-router.get('/', authorize('ADMIN', 'EMPLOYEE'), scheduleController.getAllSchedules);
-
-// ─── Closing Config (read: all authenticated; write: admin only) ──────────
-// GET  /schedules/closing-config — karyawan baca config
-router.get('/closing-config', asyncHandler(async (req, res) => {
-    const cfg = await prisma.systemConfig.findUnique({ where: { key: 'closing_jobdesk_config' } });
-    const data = cfg ? JSON.parse(cfg.value) : null;
-    return successResponse(res, 200, { config: data });
-}));
-
-// POST /schedules/closing-config — admin simpan config
+// POST closing-config (Admin only) — must be before /:id
 router.post('/closing-config', authorize('ADMIN'), asyncHandler(async (req, res) => {
     const value = JSON.stringify(req.body);
     await prisma.systemConfig.upsert({
@@ -58,4 +41,29 @@ router.post('/closing-config', authorize('ADMIN'), asyncHandler(async (req, res)
     return successResponse(res, 200, { config: req.body }, 'Konfigurasi closing berhasil disimpan');
 }));
 
+// Manual update schedule (Admin only)
+router.put('/:id', authorize('ADMIN'), scheduleController.updateSchedule);
+
+// Delete single schedule (Admin only)
+router.delete('/:id', authorize('ADMIN'), scheduleController.deleteSchedule);
+
+// ─── Static GET routes MUST be before /:userId ────────────────────────────
+
+// Get station summary for a month (Admin only) - MUST be before /:userId
+router.get('/station-summary', authorize('ADMIN'), scheduleController.getStationSummary);
+
+// GET closing-config — must be before /:userId
+router.get('/closing-config', asyncHandler(async (req, res) => {
+    const cfg = await prisma.systemConfig.findUnique({ where: { key: 'closing_jobdesk_config' } });
+    const data = cfg ? JSON.parse(cfg.value) : null;
+    return successResponse(res, 200, { config: data });
+}));
+
+// Get all schedules (for calendar) - MUST be before /:userId
+router.get('/', authorize('ADMIN', 'EMPLOYEE'), scheduleController.getAllSchedules);
+
+// Get schedule by userId - dynamic param LAST
+router.get('/:userId', authorize('ADMIN', 'EMPLOYEE'), scheduleController.getUserSchedule);
+
 module.exports = router;
+

@@ -5,6 +5,7 @@ const prisma = require('../utils/database');
 const { successResponse } = require('../utils/response');
 const { asyncHandler } = require('../utils/response');
 const { sendPushToAll } = require('../services/pushService');
+const auditService = require('../services/auditService');
 
 class AdminController {
   /**
@@ -50,7 +51,7 @@ class AdminController {
   updateUser = asyncHandler(async (req, res) => {
     const { id } = req.params;
 
-    const result = await adminService.updateUser(parseInt(id), req.body);
+    const result = await adminService.updateUser(parseInt(id), req.body, req.user.id);
 
     return successResponse(res, 200, result, 'User updated successfully');
   });
@@ -62,7 +63,7 @@ class AdminController {
   deleteUser = asyncHandler(async (req, res) => {
     const { id } = req.params;
 
-    await adminService.deleteUser(parseInt(id));
+    await adminService.deleteUser(parseInt(id), req.user.id);
 
     return successResponse(res, 200, null, 'User deleted successfully');
   });
@@ -123,7 +124,7 @@ class AdminController {
   updateAttendance = asyncHandler(async (req, res) => {
     const { id } = req.params;
 
-    const result = await attendanceService.updateAdmin(parseInt(id), req.body);
+    const result = await attendanceService.updateAdmin(parseInt(id), req.body, req.user.id);
 
     return successResponse(res, 200, result, 'Attendance record updated');
   });
@@ -135,7 +136,7 @@ class AdminController {
   deleteAttendance = asyncHandler(async (req, res) => {
     const { id } = req.params;
 
-    await attendanceService.deleteAttendance(parseInt(id));
+    await attendanceService.deleteAttendance(parseInt(id), req.user.id);
 
     return successResponse(res, 200, null, 'Attendance record deleted successfully');
   });
@@ -201,7 +202,7 @@ class AdminController {
    * PUT /api/v1/admin/config
    */
   updateConfig = asyncHandler(async (req, res) => {
-    const result = await adminService.updateConfig(req.body);
+    const result = await adminService.updateConfig(req.body, req.user.id);
 
     return successResponse(res, 200, result, 'Configuration updated successfully');
   });
@@ -210,8 +211,10 @@ class AdminController {
    * GET /api/v1/admin/dashboard-stats
    */
   getDashboardStats = asyncHandler(async (req, res) => {
-    // Use local time for "Today" to match user's perspective
-    const today = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD in local time
+    // Use WITA (UTC+8) for "Today" to match cafe timezone
+    const WITA_OFFSET_MS = 8 * 60 * 60 * 1000;
+    const nowWITA = new Date(Date.now() + WITA_OFFSET_MS);
+    const today = nowWITA.toISOString().slice(0, 10); // YYYY-MM-DD in WITA
 
     // Parallelize queries for performance
     const [attendanceSummary, pendingLeaves] = await Promise.all([
@@ -249,6 +252,15 @@ class AdminController {
     sendPushToAll(title, body, data).catch(() => { });
 
     return successResponse(res, 200, null, 'Push notification broadcasted successfully');
+  });
+  /**
+   * Get audit logs
+   * GET /api/v1/admin/audit-logs
+   */
+  getAuditLogs = asyncHandler(async (req, res) => {
+    const filters = req.query; // page, limit, userId, action, entityType, startDate, endDate
+    const result = await auditService.getLogs(filters);
+    return successResponse(res, 200, result);
   });
 }
 

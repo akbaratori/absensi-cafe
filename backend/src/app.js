@@ -121,7 +121,7 @@ app.use('/api/v1/auth/refresh', authLimiter);
 // Stricter rate limiting for admin endpoints
 const adminLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 50, // 50 requests per 15 minutes
+  max: 1000, // Increased from 50 to prevent 429 in dashboard
   message: {
     success: false,
     error: {

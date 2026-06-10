@@ -26,6 +26,16 @@ export const updateSchedule = async (id, data) => {
     return response.data;
 };
 
+export const deleteSchedule = async (id) => {
+    const response = await api.delete(`/schedules/${id}`);
+    return response.data;
+};
+
+export const upsertSingleSchedule = async (data) => {
+    const response = await api.post('/schedules/single', data);
+    return response.data;
+};
+
 export const getUserSchedule = async (userId, startDate, endDate) => {
     return api.get(`/schedules/${userId}`, {
         params: { startDate, endDate }

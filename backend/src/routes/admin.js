@@ -179,4 +179,13 @@ router.patch('/off-days/:id/reject', offDayController.rejectRequest);
  */
 router.post('/notifications/broadcast', adminController.broadcastNotification);
 
+// Audit Logs Route
+
+/**
+ * @route   GET /api/v1/admin/audit-logs
+ * @desc    Get audit trail logs with optional filters
+ * @access  Private (Admin)
+ */
+router.get('/audit-logs', adminController.getAuditLogs);
+
 module.exports = router;

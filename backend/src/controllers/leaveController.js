@@ -63,6 +63,15 @@ exports.updateLeaveStatus = asyncHandler(async (req, res) => {
 
     const leave = await leaveService.updateLeaveStatus(id, status);
 
+    // Audit trail
+    const auditService = require('../services/auditService');
+    await auditService.logLeaveAction(req.user.id, status === 'APPROVED' ? 'APPROVE' : 'REJECT', id, {
+        leaveUserId: leave.userId,
+        leaveType: leave.type,
+        startDate: leave.startDate,
+        endDate: leave.endDate,
+    });
+
     // Notify User
     const prisma = require('../utils/database');
     await prisma.notification.create({

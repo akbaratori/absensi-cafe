@@ -40,8 +40,9 @@ const ScheduleManagementPage = () => {
 
     const fetchUsers = async () => {
         try {
-            const response = await getUsers({ limit: 100 });
-            setUsers(response.data.users);
+            const response = await getUsers({ limit: 100, status: 'active' });
+            // Ensure we safely access the nested data and fallback to an empty array
+            setUsers(response?.data?.users || []);
         } catch (error) {
             console.error('Failed to fetch users:', error);
         } finally {

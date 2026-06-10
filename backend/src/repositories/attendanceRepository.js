@@ -16,6 +16,7 @@ class AttendanceRepository {
         clockInPhoto: data.clockInPhoto || null,
         clockInIp: data.clockInIp || null,
         status: data.status,
+        lateMinutes: data.lateMinutes || 0,
         notes: data.notes || null,
       },
     });
@@ -173,6 +174,7 @@ class AttendanceRepository {
           clockIn: true,
           clockOut: true,
           status: true,
+          lateMinutes: true,
           notes: true,
         },
       }),
@@ -311,14 +313,48 @@ class AttendanceRepository {
       where: { isActive: true },
     });
 
+    // Get employees on scheduled off-day today
+    const offDaySchedules = await prisma.userSchedule.count({
+      where: {
+        date: { gte: targetDate, lt: nextDate },
+        isOffDay: true,
+        user: { isActive: true }
+      }
+    });
+
+    // Get employees on approved leave today
+    const onLeaveCount = await prisma.leave.count({
+      where: {
+        status: 'APPROVED',
+        startDate: { lte: nextDate },
+        endDate: { gte: targetDate }
+      }
+    });
+
+    // Count employees whose static offDay matches today's day of week
+    const dayOfWeek = targetDate.getDay(); // 0=Sun ... 6=Sat
+    const staticOffDayCount = await prisma.user.count({
+      where: {
+        isActive: true,
+        offDay: dayOfWeek,
+      }
+    });
+
+    // Effective employees expected to work today (avoid double-counting with scheduled off-days)
+    const totalExcluded = offDaySchedules + onLeaveCount + staticOffDayCount;
+    const expectedToWork = Math.max(0, totalEmployees - totalExcluded);
+
     // Calculate summary
     const summary = {
       totalEmployees,
+      expectedToWork,
       present: 0,
       late: 0,
       absent: 0,
       halfDay: 0,
       notClockedIn: 0,
+      onLeave: onLeaveCount,
+      onOffDay: offDaySchedules + staticOffDayCount,
     };
 
     records.forEach((record) => {
@@ -328,7 +364,8 @@ class AttendanceRepository {
       else if (record.status === 'HALF_DAY') summary.halfDay++;
     });
 
-    summary.notClockedIn = totalEmployees - records.length;
+    // notClockedIn = expected workers minus those who have any attendance record
+    summary.notClockedIn = Math.max(0, expectedToWork - records.length);
 
     return {
       date: targetDate.toISOString().split('T')[0],

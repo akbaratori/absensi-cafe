@@ -172,9 +172,10 @@ class UserRepository {
    * List users with pagination and filters
    */
   async list(options = {}) {
-    const { page = 1, limit = 20, role, status, search } = options;
-
-    const skip = (page - 1) * limit;
+    const { page, limit, role, status, search } = options;
+    const pageNum = parseInt(page) || 1;
+    const limitNum = parseInt(limit) || 20;
+    const skip = (pageNum - 1) * limitNum;
 
     const where = {
       ...(role && { role }),
@@ -192,7 +193,7 @@ class UserRepository {
       prisma.user.findMany({
         where,
         skip,
-        take: limit,
+        take: limitNum,
         select: {
           id: true,
           username: true,
@@ -217,10 +218,10 @@ class UserRepository {
     return {
       users,
       pagination: {
-        page,
-        limit,
+        page: pageNum,
+        limit: limitNum,
         totalRecords: total,
-        totalPages: Math.ceil(total / limit),
+        totalPages: Math.ceil(total / limitNum),
       },
     };
   }

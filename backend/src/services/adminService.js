@@ -4,6 +4,7 @@ const configRepository = require('../repositories/configRepository');
 const authService = require('./authService');
 const prisma = require('../utils/database');
 const { configCache } = require('../utils/cache');
+const auditService = require('./auditService');
 
 class AdminService {
   /**
@@ -47,13 +48,16 @@ class AdminService {
       employeeId,
     });
 
+    // Audit trail
+    await auditService.logUserChange(null, 'CREATE', user.id, { username: data.username, fullName: data.fullName, role: data.role });
+
     return user;
   }
 
   /**
    * Update user
    */
-  async updateUser(id, data) {
+  async updateUser(id, data, adminId = null) {
     // Check if user exists
     const user = await userRepository.findById(id);
 
@@ -109,6 +113,13 @@ class AdminService {
     // Update user
     try {
       const updatedUser = await userRepository.update(id, updateData);
+
+      // Audit trail
+      await auditService.logUserChange(adminId, 'UPDATE', id, {
+        before: { fullName: user.fullName, role: user.role, shiftId: user.shiftId, isActive: user.isActive },
+        after: updateData,
+      });
+
       return updatedUser;
     } catch (error) {
       if (error.code === 'P2002') {
@@ -124,7 +135,7 @@ class AdminService {
   /**
    * Delete user (Hard Delete)
    */
-  async deleteUser(id) {
+  async deleteUser(id, adminId = null) {
     const user = await userRepository.findById(id);
 
     if (!user) {
@@ -134,6 +145,11 @@ class AdminService {
     // Prevent deleting the main admin/yourself if needed?
     // For now, let's implement hard delete
     await userRepository.delete(id);
+
+    // Audit trail
+    await auditService.logUserChange(adminId, 'DELETE', id, {
+      deletedUser: { username: user.username, fullName: user.fullName, role: user.role },
+    });
 
     return true;
   }
@@ -172,7 +188,10 @@ class AdminService {
   /**
    * Update system configuration
    */
-  async updateConfig(updates) {
+  async updateConfig(updates, adminId = null) {
+    // Get current config before update for audit
+    const beforeConfig = await this.getConfig();
+
     const configMap = {};
 
     if (updates.workStartTime) configMap.workStartTime = updates.workStartTime;
@@ -190,7 +209,12 @@ class AdminService {
     // Invalidate cache
     configCache.delete('system:config');
 
-    return await this.getConfig();
+    const afterConfig = await this.getConfig();
+
+    // Audit trail
+    await auditService.logConfigChange(adminId, { before: beforeConfig, after: afterConfig });
+
+    return afterConfig;
   }
 }
 

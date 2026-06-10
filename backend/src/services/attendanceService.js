@@ -4,6 +4,7 @@ const prisma = require('../utils/database');
 const { getAttendanceConfig, calculateAttendanceStatus, calculateTotalHours, formatLocation, getTodayStart, getTodayEnd, formatStatus, parseStatus, calculateDistance } = require('../utils/attendanceHelpers');
 const swapService = require('./swapService'); // Import SwapService
 const offDayService = require('./offDayService'); // Import OffDayService
+const auditService = require('./auditService');
 
 const shifts = require('../config/shifts');
 
@@ -38,8 +39,12 @@ class AttendanceService {
         throw error;
       }
     } else {
-      // Optional: Reject if no location provided at all
-      // throw new Error("Location permission is required to clock in.");
+      // MANDATORY: Reject if no location provided
+      const error = new Error('Izin lokasi diperlukan untuk absensi masuk. Aktifkan GPS dan izinkan akses lokasi.');
+      error.statusCode = 400;
+      error.code = 'LOCATION_REQUIRED';
+      error.isOperational = true;
+      throw error;
     }
 
     const existingRecord = await attendanceRepository.findTodayByUserId(userId);
@@ -89,16 +94,20 @@ class AttendanceService {
 
     // Create attendance record
     const clockInTime = new Date();
-    const status = calculateAttendanceStatus(clockInTime, config);
+    const { status, lateMinutes } = calculateAttendanceStatus(clockInTime, config);
+
+    // Use WITA midnight for the date field to ensure consistent day boundaries
+    const todayMidnightWITA = getTodayStart(); // Returns UTC equivalent of 00:00:00+08:00
 
     const record = await attendanceRepository.create({
       userId,
-      date: clockInTime,
+      date: todayMidnightWITA,
       clockIn: clockInTime,
       clockInLocation: formatLocation(location),
       clockInPhoto: photo, // Store photo path
       clockInIp: ipAddress, // Store IP
       status,
+      lateMinutes,
       notes,
     });
 
@@ -235,7 +244,7 @@ class AttendanceService {
   /**
    * Admin: Update attendance record
    */
-  async updateAdmin(id, updates) {
+  async updateAdmin(id, updates, adminId = null) {
     const record = await attendanceRepository.findById(id);
 
     if (!record) {
@@ -264,6 +273,12 @@ class AttendanceService {
     const updatedRecord = await attendanceRepository.update(id, {
       ...updates,
       ...(status && { status }),
+    });
+
+    // Audit trail: log admin edit
+    await auditService.logAttendanceUpdate(adminId, id, {
+      before: { clockIn: record.clockIn, clockOut: record.clockOut, status: record.status },
+      after: updates,
     });
 
     return {
@@ -431,7 +446,7 @@ class AttendanceService {
   /**
    * Admin: Delete attendance record
    */
-  async deleteAttendance(id) {
+  async deleteAttendance(id, adminId = null) {
     const record = await attendanceRepository.findById(id);
 
     if (!record) {
@@ -439,6 +454,16 @@ class AttendanceService {
     }
 
     await attendanceRepository.delete(id);
+
+    // Audit trail: log admin delete
+    await auditService.logAttendanceDelete(adminId, id, {
+      userId: record.userId,
+      date: record.date,
+      clockIn: record.clockIn,
+      clockOut: record.clockOut,
+      status: record.status,
+    });
+
     return true;
   }
 

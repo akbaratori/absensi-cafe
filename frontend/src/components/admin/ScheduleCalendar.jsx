@@ -1,12 +1,20 @@
 import { useState, useEffect } from 'react';
-import { Calendar as CalendarIcon, Filter, ChevronLeft, ChevronRight, Edit2 } from 'lucide-react';
-import { getAllSchedules, updateSchedule } from '../../services/scheduleService';
+import { Calendar as CalendarIcon, Filter, ChevronLeft, ChevronRight, Plus, Trash2 } from 'lucide-react';
+import { getAllSchedules, updateSchedule, upsertSingleSchedule, deleteSchedule } from '../../services/scheduleService';
 import { getAllShifts } from '../../services/shiftService';
+import { getUsers } from '../../services/adminService';
 import Card from '../shared/Card';
-import Avatar from '../shared/Avatar';
 import Modal from '../shared/Modal';
 import Button from '../shared/Button';
 import { showSuccess, showError } from '../../hooks/useToast';
+
+const KITCHEN_STATIONS = [
+    'A - Main Cook',
+    'B - Support Cook / Snack',
+    'C - Checker / Stock',
+    'D - Runner / Area',
+    'E - Helper / Floating'
+];
 
 const ScheduleCalendar = () => {
     const [currentDate, setCurrentDate] = useState(new Date());
@@ -15,9 +23,15 @@ const ScheduleCalendar = () => {
     const [departmentFilter, setDepartmentFilter] = useState('ALL');
     const [selectedSchedule, setSelectedSchedule] = useState(null);
     const [showEditModal, setShowEditModal] = useState(false);
-    const [editForm, setEditForm] = useState({ shiftId: '', isOffDay: false });
+    const [editForm, setEditForm] = useState({ shiftId: '', isOffDay: false, kitchenStation: '' });
     const [updateLoading, setUpdateLoading] = useState(false);
     const [allShifts, setAllShifts] = useState([]);
+    const [allUsers, setAllUsers] = useState([]);
+    const [showAddModal, setShowAddModal] = useState(false);
+    const [addTargetDate, setAddTargetDate] = useState(null);
+    const [addForm, setAddForm] = useState({ userId: '', shiftId: '', isOffDay: false, kitchenStation: '' });
+    const [addLoading, setAddLoading] = useState(false);
+    const [deleteLoading, setDeleteLoading] = useState(false);
 
     useEffect(() => {
         fetchSchedules();
@@ -27,6 +41,10 @@ const ScheduleCalendar = () => {
         getAllShifts().then(res => {
             setAllShifts(res.data?.shifts || []);
         }).catch(() => { });
+
+        getUsers({ status: 'active', limit: 100 }).then(res => {
+            setAllUsers(res.data?.users || []);
+        }).catch((err) => { console.error('[ScheduleCalendar] Failed to fetch users:', err); });
     }, []);
 
     // Helper to format date as YYYY-MM-DD in local time
@@ -83,6 +101,22 @@ const ScheduleCalendar = () => {
         return schedules.filter(s => s.date.startsWith(dateKey));
     };
 
+    /**
+     * Build a map of station → staff name for a given date,
+     * excluding a specific userId (so the current user's own station stays selectable).
+     */
+    const getStationAssignments = (dateKey, excludeUserId) => {
+        const map = {}; // { 'A - Main Cook': 'Indy', ... }
+        schedules
+            .filter(s => s.date.startsWith(dateKey) && !s.isOffDay && s.kitchenStation)
+            .forEach(s => {
+                if (s.userId !== excludeUserId) {
+                    map[s.kitchenStation] = s.user.fullName;
+                }
+            });
+        return map;
+    };
+
     const getShiftColor = (shiftId) => {
         if (!shiftId) return 'bg-gray-100 text-gray-500 border-gray-200 dark:bg-[#1a1d24] dark:text-gray-400 dark:border-gray-700 font-bold'; // Off
         if (shiftId === 1) return 'bg-blue-50 text-blue-900 border-blue-200 dark:bg-[#1d3257] dark:text-blue-100 dark:border-[#2a4575]'; // Shift 1 - Pagi (Brighter Royal Navy)
@@ -95,9 +129,44 @@ const ScheduleCalendar = () => {
         setSelectedSchedule(schedule);
         setEditForm({
             shiftId: schedule.shiftId || '',
-            isOffDay: schedule.isOffDay
+            isOffDay: schedule.isOffDay,
+            kitchenStation: schedule.kitchenStation || ''
         });
         setShowEditModal(true);
+    };
+
+    const handleAddClick = (day) => {
+        const date = new Date(currentDate.getFullYear(), currentDate.getMonth(), day);
+        setAddTargetDate(formatDateKey(date));
+        setAddForm({ userId: '', shiftId: '', isOffDay: false, kitchenStation: '' });
+        setShowAddModal(true);
+    };
+
+    const handleAddSchedule = async (e) => {
+        e.preventDefault();
+        if (!addForm.userId || !addTargetDate) return;
+        if (!addForm.isOffDay && !addForm.shiftId) {
+            showError('Pilih shift terlebih dahulu');
+            return;
+        }
+        setAddLoading(true);
+        try {
+            await upsertSingleSchedule({
+                userId: addForm.userId,
+                date: addTargetDate,
+                shiftId: addForm.isOffDay ? null : parseInt(addForm.shiftId),
+                isOffDay: addForm.isOffDay,
+                kitchenStation: addForm.kitchenStation || null
+            });
+            showSuccess('Jadwal pegawai berhasil ditambahkan');
+            setShowAddModal(false);
+            fetchSchedules();
+        } catch (error) {
+            showError('Gagal menambahkan jadwal');
+            console.error(error);
+        } finally {
+            setAddLoading(false);
+        }
     };
 
     const handleUpdateSchedule = async (e) => {
@@ -108,12 +177,13 @@ const ScheduleCalendar = () => {
         try {
             await updateSchedule(selectedSchedule.id, {
                 shiftId: editForm.isOffDay ? null : parseInt(editForm.shiftId),
-                isOffDay: editForm.isOffDay
+                isOffDay: editForm.isOffDay,
+                kitchenStation: editForm.kitchenStation || null
             });
 
             showSuccess('Jadwal berhasil diperbarui');
             setShowEditModal(false);
-            fetchSchedules(); // Refresh data
+            fetchSchedules();
         } catch (error) {
             showError('Gagal memperbarui jadwal');
             console.error(error);
@@ -122,12 +192,33 @@ const ScheduleCalendar = () => {
         }
     };
 
+    const handleDeleteSchedule = async () => {
+        if (!selectedSchedule) return;
+        const confirmMsg = `Hapus jadwal ${selectedSchedule.user.fullName} pada tanggal ${new Date(selectedSchedule.date).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}?`;
+        if (!window.confirm(confirmMsg)) return;
+
+        setDeleteLoading(true);
+        try {
+            await deleteSchedule(selectedSchedule.id);
+            showSuccess('Jadwal berhasil dihapus');
+            setShowEditModal(false);
+            fetchSchedules();
+        } catch (error) {
+            showError('Gagal menghapus jadwal');
+            console.error(error);
+        } finally {
+            setDeleteLoading(false);
+        }
+    };
+
     // Render calendar grid
     const renderCalendar = () => {
         const year = currentDate.getFullYear();
         const month = currentDate.getMonth();
         const daysInMonth = new Date(year, month + 1, 0).getDate();
-        const firstDayOfMonth = new Date(year, month, 1).getDay(); // 0 = Sun
+        // Monday-first: Sun=0→6, Mon=1→0, Tue=2→1, ..., Sat=6→5
+        const rawFirstDay = new Date(year, month, 1).getDay();
+        const firstDayOfMonth = (rawFirstDay + 6) % 7;
 
         const blanks = Array(firstDayOfMonth).fill(null);
         const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
@@ -136,7 +227,7 @@ const ScheduleCalendar = () => {
 
         return (
             <div className="grid grid-cols-7 gap-px bg-gray-200 dark:bg-gray-700 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
-                {['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'].map(day => (
+                {['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'].map(day => (
                     <div key={day} className="bg-gray-50 dark:bg-gray-800 p-2 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
                         {day}
                     </div>
@@ -149,14 +240,21 @@ const ScheduleCalendar = () => {
                     const isCurrentDay = isToday(new Date(year, month, day));
 
                     return (
-                        <div key={day} className={`bg-white dark:bg-gray-900 min-h-[120px] p-2 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors ${isCurrentDay ? 'ring-2 ring-inset ring-primary-500' : ''}`}>
+                        <div key={day} className={`group relative bg-white dark:bg-gray-900 min-h-[120px] p-2 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors ${isCurrentDay ? 'ring-2 ring-inset ring-primary-500' : ''}`}>
                             <div className="flex justify-between items-start mb-2">
                                 <span className={`text-sm font-medium ${isCurrentDay ? 'text-primary-600 dark:text-primary-400' : 'text-gray-900 dark:text-gray-100'}`}>
                                     {day}
                                 </span>
-                                <span className="text-xs text-gray-400">
-                                    {daysSchedules.length} Staf
-                                </span>
+                                <div className="flex items-center gap-1">
+                                    <span className="text-xs text-gray-400">{daysSchedules.length} Staf</span>
+                                    <button
+                                        onClick={() => handleAddClick(day)}
+                                        className="opacity-0 group-hover:opacity-100 transition-opacity w-5 h-5 flex items-center justify-center rounded-full bg-primary-500 hover:bg-primary-600 text-white ml-1"
+                                        title="Tambah jadwal pegawai"
+                                    >
+                                        <Plus className="w-3 h-3" />
+                                    </button>
+                                </div>
                             </div>
 
                             <div className="space-y-1">
@@ -250,9 +348,15 @@ const ScheduleCalendar = () => {
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-100 dark:border-gray-700">
                     <div className="flex items-center gap-4">
                         <div className="flex items-center bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
-                            <span className="px-4 font-bold text-xl text-gray-900 dark:text-white min-w-[200px] text-center">
+                            <button onClick={prevMonth} className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 transition-colors">
+                                <ChevronLeft className="w-5 h-5" />
+                            </button>
+                            <span className="px-4 font-bold text-xl text-gray-900 dark:text-white min-w-[180px] text-center">
                                 {monthNames[currentDate.getMonth()]} {currentDate.getFullYear()}
                             </span>
+                            <button onClick={nextMonth} className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 transition-colors">
+                                <ChevronRight className="w-5 h-5" />
+                            </button>
                         </div>
                     </div>
 
@@ -393,33 +497,187 @@ const ScheduleCalendar = () => {
                         </div>
 
                         {!editForm.isOffDay && (
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                    Pilih Shift
-                                </label>
-                                <select
-                                    className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 focus:border-primary-500 focus:ring-primary-500"
-                                    value={editForm.shiftId}
-                                    onChange={(e) => setEditForm({ ...editForm, shiftId: e.target.value })}
-                                    required={!editForm.isOffDay}
-                                >
-                                    <option value="">Pilih Shift</option>
-                                    {allShifts.map(s => (
-                                        <option key={s.id} value={s.id}>
-                                            {s.name} ({s.startTime} - {s.endTime})
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
+                            <>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                        Pilih Shift
+                                    </label>
+                                    <select
+                                        className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 focus:border-primary-500 focus:ring-primary-500"
+                                        value={editForm.shiftId}
+                                        onChange={(e) => setEditForm({ ...editForm, shiftId: e.target.value })}
+                                        required={!editForm.isOffDay}
+                                    >
+                                        <option value="">Pilih Shift</option>
+                                        {allShifts.map(s => (
+                                            <option key={s.id} value={s.id}>
+                                                {s.name} ({s.startTime} - {s.endTime})
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                        Jobdesk / Stasiun Dapur <span className="text-gray-400 font-normal">(opsional)</span>
+                                    </label>
+                                    {(() => {
+                                        const dateKey = selectedSchedule?.date?.substring(0, 10) || '';
+                                        const taken = getStationAssignments(dateKey, selectedSchedule?.userId);
+                                        const isKitchen = selectedSchedule?.user?.department === 'KITCHEN';
+                                        
+                                        return (
+                                            <select
+                                                className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 focus:border-primary-500 focus:ring-primary-500"
+                                                value={editForm.kitchenStation}
+                                                onChange={(e) => setEditForm({ ...editForm, kitchenStation: e.target.value })}
+                                            >
+                                                <option value="">-- Tidak Ada / Hapus Jobdesk --</option>
+                                                {KITCHEN_STATIONS.filter(s => isKitchen || s.startsWith('D') || s.startsWith('E')).map(s => {
+                                                    const assignedTo = taken[s];
+                                                    return (
+                                                        <option key={s} value={s} disabled={!!assignedTo}>
+                                                            {s}{assignedTo ? ` — ${assignedTo}` : ''}
+                                                        </option>
+                                                    );
+                                                })}
+                                            </select>
+                                        );
+                                    })()}
+                                </div>
+                            </>
+                        )}
+                    </div>
+
+                    <div className="pt-4 flex justify-between items-center">
+                        <Button
+                            variant="danger"
+                            type="button"
+                            onClick={handleDeleteSchedule}
+                            loading={deleteLoading}
+                            className="flex items-center gap-1"
+                        >
+                            <Trash2 className="w-4 h-4" />
+                            Hapus
+                        </Button>
+                        <div className="flex gap-3">
+                            <Button variant="outline" type="button" onClick={() => setShowEditModal(false)}>
+                                Batal
+                            </Button>
+                            <Button type="submit" loading={updateLoading}>
+                                Simpan Perubahan
+                            </Button>
+                        </div>
+                    </div>
+                </form>
+            </Modal>
+
+            {/* Add Schedule Modal */}
+            <Modal
+                isOpen={showAddModal}
+                onClose={() => setShowAddModal(false)}
+                title="Tambah Jadwal Pegawai"
+            >
+                <form onSubmit={handleAddSchedule} className="space-y-4">
+                    {addTargetDate && (
+                        <div className="p-3 bg-primary-50 dark:bg-primary-900/20 rounded-lg border border-primary-100 dark:border-primary-800">
+                            <p className="text-xs text-primary-600 dark:text-primary-400 font-medium">Tanggal</p>
+                            <p className="font-semibold text-primary-800 dark:text-primary-200">
+                                {new Date(addTargetDate + 'T00:00:00').toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                            </p>
+                        </div>
+                    )}
+
+                    <div className="space-y-3">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                Pilih Pegawai <span className="text-red-500">*</span>
+                            </label>
+                            <select
+                                className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 focus:border-primary-500 focus:ring-primary-500"
+                                value={addForm.userId}
+                                onChange={(e) => setAddForm({ ...addForm, userId: e.target.value })}
+                                required
+                            >
+                                <option value="">-- Pilih Pegawai --</option>
+                                {allUsers.map(u => (
+                                    <option key={u.id} value={u.id}>
+                                        {u.fullName} ({u.department})
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div className="flex items-center">
+                            <input
+                                type="checkbox"
+                                id="addIsOffDay"
+                                className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
+                                checked={addForm.isOffDay}
+                                onChange={(e) => setAddForm({ ...addForm, isOffDay: e.target.checked })}
+                            />
+                            <label htmlFor="addIsOffDay" className="ml-2 block text-sm font-medium text-gray-900 dark:text-gray-300">
+                                Set sebagai Libur (OFF)
+                            </label>
+                        </div>
+
+                        {!addForm.isOffDay && (
+                            <>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                        Pilih Shift <span className="text-red-500">*</span>
+                                    </label>
+                                    <select
+                                        className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 focus:border-primary-500 focus:ring-primary-500"
+                                        value={addForm.shiftId}
+                                        onChange={(e) => setAddForm({ ...addForm, shiftId: e.target.value })}
+                                        required={!addForm.isOffDay}
+                                    >
+                                        <option value="">Pilih Shift</option>
+                                        {allShifts.map(s => (
+                                            <option key={s.id} value={s.id}>
+                                                {s.name} ({s.startTime} - {s.endTime})
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                        Jobdesk / Stasiun Dapur <span className="text-gray-400 font-normal">(opsional)</span>
+                                    </label>
+                                    {(() => {
+                                        const taken = addTargetDate ? getStationAssignments(addTargetDate, addForm.userId) : {};
+                                        const selectedUser = allUsers.find(u => u.id === parseInt(addForm.userId));
+                                        const isKitchen = selectedUser?.department === 'KITCHEN';
+                                        
+                                        return (
+                                            <select
+                                                className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 focus:border-primary-500 focus:ring-primary-500"
+                                                value={addForm.kitchenStation}
+                                                onChange={(e) => setAddForm({ ...addForm, kitchenStation: e.target.value })}
+                                            >
+                                                <option value="">-- Tidak Ada --</option>
+                                                {KITCHEN_STATIONS.filter(s => isKitchen || s.startsWith('D') || s.startsWith('E')).map(s => {
+                                                    const assignedTo = taken[s];
+                                                    return (
+                                                        <option key={s} value={s} disabled={!!assignedTo}>
+                                                            {s}{assignedTo ? ` — ${assignedTo}` : ''}
+                                                        </option>
+                                                    );
+                                                })}
+                                            </select>
+                                        );
+                                    })()}
+                                </div>
+                            </>
                         )}
                     </div>
 
                     <div className="pt-4 flex justify-end gap-3">
-                        <Button variant="outline" type="button" onClick={() => setShowEditModal(false)}>
+                        <Button variant="outline" type="button" onClick={() => setShowAddModal(false)}>
                             Batal
                         </Button>
-                        <Button type="submit" loading={updateLoading}>
-                            Simpan Perubahan
+                        <Button type="submit" loading={addLoading}>
+                            Tambah Jadwal
                         </Button>
                     </div>
                 </form>

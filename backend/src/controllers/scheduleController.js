@@ -142,15 +142,75 @@ class ScheduleController {
     async updateSchedule(req, res, next) {
         try {
             const { id } = req.params;
-            const { shiftId, isOffDay } = req.body;
+            const { shiftId, isOffDay, kitchenStation } = req.body;
 
             const updatedSchedule = await scheduleService.updateSchedule(parseInt(id), {
                 shiftId: shiftId ? parseInt(shiftId) : null,
-                isOffDay: isOffDay
+                isOffDay: isOffDay,
+                kitchenStation: kitchenStation
+            });
+
+            // Audit trail
+            const auditService = require('../services/auditService');
+            await auditService.logScheduleChange(req.user.id, id, {
+                shiftId, isOffDay, kitchenStation
             });
 
             return successResponse(res, 200, updatedSchedule, 'Jadwal berhasil diperbarui');
         } catch (err) {
+            next(err);
+        }
+    }
+
+    async deleteSchedule(req, res, next) {
+        try {
+            const { id } = req.params;
+            const prisma = require('../utils/database');
+
+            // Get schedule before delete for audit
+            const schedule = await prisma.userSchedule.findUnique({ where: { id: parseInt(id) } });
+
+            await prisma.userSchedule.delete({
+                where: { id: parseInt(id) }
+            });
+
+            // Audit trail
+            const auditService = require('../services/auditService');
+            await auditService.log({
+                userId: req.user.id,
+                action: 'DELETE',
+                entityType: 'SCHEDULE',
+                entityId: id,
+                details: schedule ? { deletedSchedule: { userId: schedule.userId, date: schedule.date, shiftId: schedule.shiftId } } : null,
+            });
+
+            return successResponse(res, 200, null, 'Jadwal berhasil dihapus');
+        } catch (err) {
+            next(err);
+        }
+    }
+
+    async upsertSingleSchedule(req, res, next) {
+        try {
+            const { userId, date, shiftId, isOffDay, kitchenStation } = req.body;
+            
+            console.log('[upsertSingleSchedule] body:', req.body);
+
+            if (!userId || !date) {
+                return res.status(400).json({ success: false, message: 'User ID and Date are required' });
+            }
+
+            const upsertedSchedule = await scheduleService.upsertSingleSchedule({
+                userId,
+                date,
+                shiftId: shiftId ? parseInt(shiftId) : null,
+                isOffDay: Boolean(isOffDay),
+                kitchenStation
+            });
+
+            return successResponse(res, 200, upsertedSchedule, 'Jadwal berhasil ditambahkan');
+        } catch (err) {
+            console.error('[upsertSingleSchedule] ERROR:', err.message, err.code);
             next(err);
         }
     }
