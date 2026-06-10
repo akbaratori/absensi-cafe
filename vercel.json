@@ -1,7 +1,7 @@
 {
   "version": 2,
-  "installCommand": "npm install && cd backend && npm install",
-  "buildCommand": "cd frontend && npm install && npm run build && cd ../backend && npx prisma generate",
+  "installCommand": "npm install && cd backend && npm install && cd ../frontend && npm install --include=dev",
+  "buildCommand": "cd frontend && npm run build && cd ../backend && npx prisma generate",
   "outputDirectory": "frontend/dist",
   "functions": {
     "api/index.js": {
