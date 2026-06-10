@@ -3,12 +3,32 @@
   "installCommand": "npm install && cd backend && npm install && cd ../frontend && npm install --include=dev",
   "buildCommand": "cd frontend && npm run build && cd ../backend && npx prisma generate",
   "outputDirectory": "frontend/dist",
+  "crons": [
+    {
+      "path": "/api/cron/auto-clockout",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/absent-detection",
+      "schedule": "50 15 * * *"
+    }
+  ],
   "functions": {
     "api/index.js": {
       "includeFiles": "backend/src/**,backend/node_modules/.prisma/**,backend/node_modules/@prisma/**,backend/node_modules/**,backend/prisma/schema.prisma,backend/package.json"
+    },
+    "api/cron/auto-clockout.js": {
+      "includeFiles": "backend/node_modules/.prisma/**,backend/node_modules/@prisma/**,backend/node_modules/**,backend/prisma/schema.prisma"
+    },
+    "api/cron/absent-detection.js": {
+      "includeFiles": "backend/node_modules/.prisma/**,backend/node_modules/@prisma/**,backend/node_modules/**,backend/prisma/schema.prisma"
     }
   },
   "rewrites": [
+    {
+      "source": "/api/cron/(.*)",
+      "destination": "/api/cron/$1"
+    },
     {
       "source": "/api/(.*)",
       "destination": "/api/index.js"
