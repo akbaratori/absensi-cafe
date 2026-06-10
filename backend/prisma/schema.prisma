@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "mysql"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -15,11 +15,10 @@ model User {
   fullName     String    @map("full_name")
   role         String    @default("EMPLOYEE")
   employeeId   String?   @unique @map("employee_id")
-  // shift         String          @default("SHIFT_1") // Deprecated
   shiftId      Int?      @map("shift_id")
   shift        Shift?    @relation(fields: [shiftId], references: [id])
-  department   String    @default("BAR") // BAR, KITCHEN
-  offDay       Int       @default(0) @map("off_day") // 0=Sun, 1=Mon, ..., 6=Sat
+  department   String    @default("BAR")
+  offDay       Int       @default(0) @map("off_day")
   isActive     Boolean   @default(true) @map("is_active")
   hourlyRate   Int       @default(0) @map("hourly_rate")
   createdAt    DateTime  @default(now()) @map("created_at")
@@ -47,8 +46,8 @@ model User {
 model Shift {
   id        Int      @id @default(autoincrement())
   name      String
-  startTime String   @map("start_time") // Format: "HH:mm"
-  endTime   String   @map("end_time") // Format: "HH:mm"
+  startTime String   @map("start_time")
+  endTime   String   @map("end_time")
   users     User[]
   userSchedules UserSchedule[]
   createdAt DateTime @default(now()) @map("created_at")
@@ -116,10 +115,10 @@ model Leave {
   userId    Int      @map("user_id")
   startDate DateTime @map("start_date")
   endDate   DateTime @map("end_date")
-  type      String   @default("SICK") // SICK, PERMISSION, ANNUAL
+  type      String   @default("SICK")
   reason    String
-  status    String   @default("PENDING") // PENDING, APPROVED, REJECTED
-  proof     String? // Image proof for sick leave
+  status    String   @default("PENDING")
+  proof     String?
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -136,9 +135,9 @@ model Notification {
   id        Int      @id @default(autoincrement())
   userId    Int      @map("user_id")
   title     String
-  message   String   @db.Text
+  message   String
   isRead    Boolean  @default(false) @map("is_read")
-  type      String   @default("INFO") // INFO, SUCCESS, WARNING, ERROR
+  type      String   @default("INFO")
   link      String?
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -156,7 +155,7 @@ model ShiftSwap {
   requesterId  Int      @map("requester_id")
   targetUserId Int      @map("target_user_id")
   date         DateTime @db.Date
-  status       String   @default("PENDING_USER") // PENDING_USER, PENDING_ADMIN, APPROVED, REJECTED
+  status       String   @default("PENDING_USER")
   reason       String?
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
@@ -176,11 +175,11 @@ model ShiftSwap {
 model OffDayRequest {
   id           Int      @id @default(autoincrement())
   userId       Int      @map("user_id")
-  targetUserId Int?     @map("target_user_id") // The user to swap with
-  offDate      DateTime @map("off_date") // The day user WANTS to be OFF (currently a working day)
-  workDate     DateTime @map("work_date") // The day user WANTS to WORK (currently their off day)
+  targetUserId Int?     @map("target_user_id")
+  offDate      DateTime @map("off_date")
+  workDate     DateTime @map("work_date")
   reason       String?
-  status       String   @default("PENDING") // PENDING (target user approval), APPROVED, REJECTED, CANCELLED
+  status       String   @default("PENDING")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
@@ -222,8 +221,8 @@ model UserSchedule {
 model PushSubscription {
   id        Int      @id @default(autoincrement())
   userId    Int      @map("user_id")
-  endpoint  String   @db.Text
-  p256dh    String   @db.Text
+  endpoint  String
+  p256dh    String
   auth      String
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -232,4 +231,3 @@ model PushSubscription {
   @@index([userId])
   @@map("push_subscriptions")
 }
-
