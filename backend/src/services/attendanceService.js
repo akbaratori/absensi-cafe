@@ -17,11 +17,21 @@ class AttendanceService {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    // Check for Off Day
-    const isOffDay = await offDayService.isOffDay(userId, today);
-    if (isOffDay) {
+    // UNIFIED OFF-DAY CHECK: UserSchedule is primary source of truth
+    const scheduleService = require('./scheduleService');
+    const todaySchedule = await scheduleService.getTodaySchedule(userId);
+
+    if (todaySchedule && todaySchedule.isOffDay) {
+      // Schedule explicitly says off day — this is the definitive source
       throw ErrorCodes.ATTENDANCE_ERRORS.OFF_DAY_WORK;
+    } else if (!todaySchedule) {
+      // No schedule exists — fallback to static offDayService (User.offDay + OffDayRequest)
+      const isOffDay = await offDayService.isOffDay(userId, today);
+      if (isOffDay) {
+        throw ErrorCodes.ATTENDANCE_ERRORS.OFF_DAY_WORK;
+      }
     }
+    // If todaySchedule exists and isOffDay=false → working day, proceed
 
     // Validate Location (Geofencing)
     const config = await getAttendanceConfig(prisma);
@@ -64,31 +74,18 @@ class AttendanceService {
     if (activeSwapShift) {
       config.workStartTime = activeSwapShift.startTime;
       config.workEndTime = activeSwapShift.endTime;
+    } else if (todaySchedule && todaySchedule.shift) {
+      // 2. Use schedule shift (already fetched above)
+      config.workStartTime = todaySchedule.shift.startTime;
+      config.workEndTime = todaySchedule.shift.endTime;
     } else {
-      // 2. Check for Dynamic Schedule (UserSchedule)
-      const scheduleService = require('./scheduleService'); // Lazy load to avoid circular dependency if any
-      const todaySchedule = await scheduleService.getTodaySchedule(userId);
+      // 3. Fallback to User Default Shift
+      const user = await attendanceRepository.findUserById(userId);
+      const userShift = user?.shift;
 
-      if (todaySchedule) {
-        if (todaySchedule.isOffDay) {
-          // Re-check off day here if schedule says so, though we checked earlier. 
-          // It's safer to rely on scheduleService for truth source.
-          throw ErrorCodes.ATTENDANCE_ERRORS.OFF_DAY_WORK;
-        }
-
-        if (todaySchedule.shift) {
-          config.workStartTime = todaySchedule.shift.startTime;
-          config.workEndTime = todaySchedule.shift.endTime;
-        }
-      } else {
-        // 3. Fallback to User Default Shift
-        const user = await attendanceRepository.findUserById(userId);
-        const userShift = user?.shift;
-
-        if (userShift) {
-          config.workStartTime = userShift.startTime;
-          config.workEndTime = userShift.endTime;
-        }
+      if (userShift) {
+        config.workStartTime = userShift.startTime;
+        config.workEndTime = userShift.endTime;
       }
     }
 
@@ -128,6 +125,32 @@ class AttendanceService {
     if (existingRecord.clockOut) {
       const error = ErrorCodes.ATTENDANCE_ERRORS.ALREADY_CLOCKED_OUT;
       error.message = `You have already clocked out today at ${existingRecord.clockOut.toTimeString().slice(0, 5)}`;
+      throw error;
+    }
+
+    // Validate Location (Geofencing) for clock-out
+    const config = await getAttendanceConfig(prisma);
+    const cafeLocation = {
+      latitude: config.cafeLatitude || -6.2088,
+      longitude: config.cafeLongitude || 106.8456,
+    };
+    const maxDistance = config.radiusMeters || 100;
+
+    if (location && location.latitude && location.longitude) {
+      const distance = calculateDistance(location, cafeLocation);
+      if (distance > maxDistance) {
+        const error = new Error(`Terlalu jauh untuk clock-out! Jarak: ${Math.round(distance)}m. Maks: ${maxDistance}m.`);
+        error.statusCode = 400;
+        error.code = 'INVALID_LOCATION';
+        error.isOperational = true;
+        throw error;
+      }
+    } else {
+      // MANDATORY: Reject if no location provided
+      const error = new Error('Izin lokasi diperlukan untuk absensi pulang. Aktifkan GPS dan izinkan akses lokasi.');
+      error.statusCode = 400;
+      error.code = 'LOCATION_REQUIRED';
+      error.isOperational = true;
       throw error;
     }
 

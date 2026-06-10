@@ -188,4 +188,27 @@ router.post('/notifications/broadcast', adminController.broadcastNotification);
  */
 router.get('/audit-logs', adminController.getAuditLogs);
 
+// Public Holidays Routes
+
+/**
+ * @route   GET /api/v1/admin/holidays
+ * @desc    Get all public holidays
+ * @access  Private (Admin)
+ */
+router.get('/holidays', adminController.getHolidays);
+
+/**
+ * @route   POST /api/v1/admin/holidays
+ * @desc    Create a public holiday
+ * @access  Private (Admin)
+ */
+router.post('/holidays', adminController.createHoliday);
+
+/**
+ * @route   DELETE /api/v1/admin/holidays/:id
+ * @desc    Delete a public holiday
+ * @access  Private (Admin)
+ */
+router.delete('/holidays/:id', adminController.deleteHoliday);
+
 module.exports = router;

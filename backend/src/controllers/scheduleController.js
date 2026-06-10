@@ -12,13 +12,24 @@ class ScheduleController {
                 throw ErrorCodes.SCHEDULE_ERRORS.MISSING_REQUIRED_FIELDS;
             }
 
+            // Auto conflict check before generating
+            const conflicts = await scheduleService.checkConflicts(parseInt(userId), startDate, parseInt(months), {
+                baseOffDay: parseInt(baseOffDay),
+                rotateOffDay: rotateOffDay === true || rotateOffDay === 'true'
+            });
+
             const schedules = await scheduleService.generateSchedule(parseInt(userId), startDate, parseInt(months), {
                 shiftPattern,
                 baseOffDay: parseInt(baseOffDay),
                 rotateOffDay: rotateOffDay === true || rotateOffDay === 'true'
             });
 
-            return successResponse(res, 200, schedules, 'Jadwal berhasil digenerate');
+            const hasConflicts = Object.keys(conflicts).length > 0;
+            const message = hasConflicts
+                ? `Jadwal berhasil digenerate (⚠️ ${Object.keys(conflicts).length} hari konflik dengan karyawan lain di departemen yang sama)`
+                : 'Jadwal berhasil digenerate';
+
+            return successResponse(res, 200, { schedules, conflicts }, message);
         } catch (err) {
             console.error('[ScheduleController] Error:', err);
             next(err);

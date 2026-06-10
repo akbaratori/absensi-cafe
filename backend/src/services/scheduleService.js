@@ -102,7 +102,23 @@ class ScheduleService {
         // Bulk upsert
         // Prisma doesn't support bulk upsert nicely for SQLite/MySQL depending on version, 
         // but transaction is good.
-        const operations = schedules.map(schedule =>
+        // PROTECT: Skip dates where manual override exists
+        const existingManualOverrides = await prisma.userSchedule.findMany({
+            where: {
+                userId,
+                date: { gte: startDate, lt: endDate },
+                isManualOverride: true
+            },
+            select: { date: true }
+        });
+        const manualDates = new Set(existingManualOverrides.map(s => s.date.toISOString().split('T')[0]));
+
+        const filteredSchedules = schedules.filter(s => {
+            const dateStr = s.date.toISOString().split('T')[0];
+            return !manualDates.has(dateStr);
+        });
+
+        const operations = filteredSchedules.map(schedule =>
             prisma.userSchedule.upsert({
                 where: {
                     userId_date: {

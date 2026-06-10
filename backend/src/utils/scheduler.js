@@ -74,6 +74,15 @@ function initScheduler() {
             const todayStart = new Date(`${witaDateStr}T00:00:00+08:00`);
             const todayEnd = new Date(`${witaDateStr}T23:59:59+08:00`);
 
+            // Check if today is a public holiday
+            const isPublicHoliday = await prisma.publicHoliday.findFirst({
+                where: { date: { gte: todayStart, lte: todayEnd } }
+            });
+            if (isPublicHoliday) {
+                console.log(`[AbsentDetection] Skipped — today is a public holiday: ${isPublicHoliday.name}`);
+                return;
+            }
+
             const employees = await prisma.user.findMany({
                 where: { isActive: true, role: 'EMPLOYEE' },
                 select: { id: true, fullName: true, offDay: true }

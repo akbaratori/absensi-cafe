@@ -340,6 +340,36 @@ class AttendanceRepository {
       }
     });
 
+    // Check if today is a public holiday
+    const isPublicHoliday = await prisma.publicHoliday.findFirst({
+      where: { date: { gte: targetDate, lt: nextDate } }
+    });
+
+    // If public holiday, no one is expected to work
+    if (isPublicHoliday) {
+      const summary = {
+        totalEmployees,
+        expectedToWork: 0,
+        present: 0,
+        late: 0,
+        absent: 0,
+        halfDay: 0,
+        notClockedIn: 0,
+        onLeave: onLeaveCount,
+        onOffDay: totalEmployees,
+        isPublicHoliday: isPublicHoliday.name,
+      };
+
+      records.forEach((record) => {
+        if (record.status === 'PRESENT') summary.present++;
+        else if (record.status === 'LATE') summary.late++;
+        else if (record.status === 'ABSENT') summary.absent++;
+        else if (record.status === 'HALF_DAY') summary.halfDay++;
+      });
+
+      return { date: targetDate.toISOString().split('T')[0], summary, records };
+    }
+
     // Effective employees expected to work today (avoid double-counting with scheduled off-days)
     const totalExcluded = offDaySchedules + onLeaveCount + staticOffDayCount;
     const expectedToWork = Math.max(0, totalEmployees - totalExcluded);

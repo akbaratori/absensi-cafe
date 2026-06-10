@@ -157,7 +157,10 @@ class AdminController {
    */
   getDailyReport = asyncHandler(async (req, res) => {
     const { date } = req.query;
-    const queryDate = date || new Date().toLocaleDateString('en-CA');
+    // Use WITA for default "today" instead of server local time
+    const WITA_OFFSET_MS = 8 * 60 * 60 * 1000;
+    const nowWITA = new Date(Date.now() + WITA_OFFSET_MS);
+    const queryDate = date || nowWITA.toISOString().slice(0, 10);
 
     const result = await attendanceService.getDailySummary(queryDate);
 
@@ -261,6 +264,48 @@ class AdminController {
     const filters = req.query; // page, limit, userId, action, entityType, startDate, endDate
     const result = await auditService.getLogs(filters);
     return successResponse(res, 200, result);
+  });
+
+  /**
+   * Get public holidays
+   * GET /api/v1/admin/holidays
+   */
+  getHolidays = asyncHandler(async (req, res) => {
+    const { year } = req.query;
+    const where = {};
+    if (year) {
+      where.date = {
+        gte: new Date(`${year}-01-01`),
+        lte: new Date(`${year}-12-31`),
+      };
+    }
+    const holidays = await prisma.publicHoliday.findMany({ where, orderBy: { date: 'asc' } });
+    return successResponse(res, 200, holidays);
+  });
+
+  /**
+   * Create public holiday
+   * POST /api/v1/admin/holidays
+   */
+  createHoliday = asyncHandler(async (req, res) => {
+    const { date, name, description } = req.body;
+    if (!date || !name) {
+      return res.status(400).json({ success: false, message: 'Date and name are required' });
+    }
+    const holiday = await prisma.publicHoliday.create({
+      data: { date: new Date(date), name, description: description || null }
+    });
+    return successResponse(res, 201, holiday, 'Hari libur berhasil ditambahkan');
+  });
+
+  /**
+   * Delete public holiday
+   * DELETE /api/v1/admin/holidays/:id
+   */
+  deleteHoliday = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    await prisma.publicHoliday.delete({ where: { id: parseInt(id) } });
+    return successResponse(res, 200, null, 'Hari libur berhasil dihapus');
   });
 }
 

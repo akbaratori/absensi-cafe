@@ -231,3 +231,14 @@ model PushSubscription {
   @@index([userId])
   @@map("push_subscriptions")
 }
+
+model PublicHoliday {
+  id          Int      @id @default(autoincrement())
+  date        DateTime @db.Date @unique
+  name        String
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([date])
+  @@map("public_holidays")
+}
