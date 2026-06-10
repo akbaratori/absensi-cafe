@@ -140,14 +140,35 @@ app.get('/', (req, res) => {
 });
 
 // Debug endpoint (temporary) to check env vars
-app.get('/api/v1/debug-env', (req, res) => {
+app.get('/api/v1/debug-env', async (req, res) => {
   const dbUrl = process.env.POSTGRES_PRISMA_URL || process.env.DATABASE_URL || 'NOT SET';
+  
+  // Test DB connection and check admin user
+  let dbCheck = 'not tested';
+  try {
+    const prisma = require('./utils/database');
+    const admin = await prisma.user.findUnique({ 
+      where: { username: 'admin' },
+      select: { id: true, username: true, role: true, isActive: true, passwordHash: true }
+    });
+    if (admin) {
+      const bcrypt = require('bcrypt');
+      const valid = await bcrypt.compare('admin123', admin.passwordHash);
+      dbCheck = `User found: id=${admin.id}, role=${admin.role}, active=${admin.isActive}, password_valid=${valid}, hash_prefix=${admin.passwordHash.substring(0, 15)}`;
+    } else {
+      dbCheck = 'Admin user NOT FOUND in database';
+    }
+  } catch (e) {
+    dbCheck = `DB Error: ${e.message}`;
+  }
+
   res.json({
     NODE_ENV: process.env.NODE_ENV,
     hasPostgresPrismaUrl: !!process.env.POSTGRES_PRISMA_URL,
     hasDatabaseUrl: !!process.env.DATABASE_URL,
     dbHost: dbUrl.includes('@') ? dbUrl.split('@')[1]?.split('/')[0] : 'parse error',
     jwtSecretSet: !!process.env.JWT_SECRET,
+    dbCheck,
   });
 });
 
