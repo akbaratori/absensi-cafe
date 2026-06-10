@@ -172,7 +172,7 @@ class ScheduleService {
 
             while (currentDate <= endDate) {
                 const dayOfWeek = currentDate.getUTCDay();
-                const isOffDay = keepOffDays && user.offDay !== undefined && user.offDay !== -1 && dayOfWeek === user.offDay;
+                const isOffDay = keepOffDays && user.offDay != null && user.offDay !== -1 && dayOfWeek === user.offDay;
 
                 allSchedules.push({
                     userId: user.id,

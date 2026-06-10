@@ -60,20 +60,11 @@ const calculateAttendanceStatus = (clockIn, attendanceConfig) => {
   const witaDateStr = clockInWITA.toISOString().slice(0, 10); // "YYYY-MM-DD" in virtual WITA day
   const shiftStartUTC = new Date(`${witaDateStr}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00+08:00`);
 
-  // Khusus Shift Ramadhan yang masuk jam 14:00
-  if (hours === 14 && minutes === 0) {
-    const maxLateUTC = new Date(`${witaDateStr}T14:15:00+08:00`);
-    if (clockIn > maxLateUTC) {
-      const lateMinutes = Math.ceil((clockIn.getTime() - shiftStartUTC.getTime()) / (60 * 1000));
-      return { status: 'LATE', lateMinutes };
-    }
-  } else {
-    // Shift Reguler: gunakan grace period dari config
-    const graceTimeUTC = new Date(shiftStartUTC.getTime() + attendanceConfig.lateGraceMinutes * 60 * 1000);
-    if (clockIn > graceTimeUTC) {
-      const lateMinutes = Math.ceil((clockIn.getTime() - shiftStartUTC.getTime()) / (60 * 1000));
-      return { status: 'LATE', lateMinutes };
-    }
+  // Gunakan grace period dari config untuk semua shift (termasuk Ramadhan)
+  const graceTimeUTC = new Date(shiftStartUTC.getTime() + attendanceConfig.lateGraceMinutes * 60 * 1000);
+  if (clockIn > graceTimeUTC) {
+    const lateMinutes = Math.ceil((clockIn.getTime() - shiftStartUTC.getTime()) / (60 * 1000));
+    return { status: 'LATE', lateMinutes };
   }
 
   return { status: 'PRESENT', lateMinutes: 0 };

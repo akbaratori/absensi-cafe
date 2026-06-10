@@ -290,19 +290,26 @@ class AttendanceService {
       throw ErrorCodes.ATTENDANCE_ERRORS.ATTENDANCE_NOT_FOUND;
     }
 
-    // Validate updates
-    if (updates.clockIn && updates.clockOut && updates.clockOut < updates.clockIn) {
-      // Cross-midnight check would go here
-      const clockInDate = updates.clockIn.toISOString().split('T')[0];
-      const clockOutDate = updates.clockOut.toISOString().split('T')[0];
+    // Validate updates: ensure clockOut is always after clockIn
+    const effectiveClockIn = updates.clockIn || record.clockIn;
+    const effectiveClockOut = updates.clockOut || record.clockOut;
 
-      // Allow cross-midnight if dates are different
-      if (clockInDate === clockOutDate) {
-        const error = new Error('Clock-out time must be after clock-in time');
-        error.statusCode = 400;
-        error.code = 'VALIDATION_ERROR';
-        error.isOperational = true;
-        throw error;
+    if (effectiveClockIn && effectiveClockOut) {
+      const clockInTime = new Date(effectiveClockIn);
+      const clockOutTime = new Date(effectiveClockOut);
+
+      if (clockOutTime < clockInTime) {
+        const clockInDate = clockInTime.toISOString().split('T')[0];
+        const clockOutDate = clockOutTime.toISOString().split('T')[0];
+
+        // Allow cross-midnight if dates are different
+        if (clockInDate === clockOutDate) {
+          const error = new Error('Jam keluar harus setelah jam masuk');
+          error.statusCode = 400;
+          error.code = 'VALIDATION_ERROR';
+          error.isOperational = true;
+          throw error;
+        }
       }
     }
 
