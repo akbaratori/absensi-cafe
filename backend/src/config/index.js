@@ -1,4 +1,7 @@
-require('dotenv').config();
+// Only load .env file in development (Vercel provides env vars directly)
+if (process.env.NODE_ENV !== 'production') {
+  require('dotenv').config();
+}
 
 module.exports = {
   // Server
