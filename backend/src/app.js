@@ -139,6 +139,18 @@ app.get('/', (req, res) => {
   });
 });
 
+// Debug endpoint (temporary) to check env vars
+app.get('/api/v1/debug-env', (req, res) => {
+  const dbUrl = process.env.POSTGRES_PRISMA_URL || process.env.DATABASE_URL || 'NOT SET';
+  res.json({
+    NODE_ENV: process.env.NODE_ENV,
+    hasPostgresPrismaUrl: !!process.env.POSTGRES_PRISMA_URL,
+    hasDatabaseUrl: !!process.env.DATABASE_URL,
+    dbHost: dbUrl.includes('@') ? dbUrl.split('@')[1]?.split('/')[0] : 'parse error',
+    jwtSecretSet: !!process.env.JWT_SECRET,
+  });
+});
+
 // Swagger Documentation
 swaggerDocs(app, config.port);
 
