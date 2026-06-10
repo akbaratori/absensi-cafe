@@ -96,6 +96,10 @@ class AttendanceService {
     // Use WITA midnight for the date field to ensure consistent day boundaries
     const todayMidnightWITA = getTodayStart(); // Returns UTC equivalent of 00:00:00+08:00
 
+    // Lock shift info: append shift used for this clock-in to notes for audit
+    const shiftInfo = `[Shift: ${config.workStartTime}-${config.workEndTime}]`;
+    const finalNotes = notes ? `${notes} ${shiftInfo}` : shiftInfo;
+
     const record = await attendanceRepository.create({
       userId,
       date: todayMidnightWITA,
@@ -105,7 +109,7 @@ class AttendanceService {
       clockInIp: ipAddress, // Store IP
       status,
       lateMinutes,
-      notes,
+      notes: finalNotes,
     });
 
     return record;
