@@ -311,7 +311,7 @@ class ScheduleService {
                     if (existingEntry !== undefined) {
                         isOff = existingEntry.isOffDay;
                     } else {
-                        isOff = current.getDay() === user.offDay;
+                        isOff = current.getUTCDay() === user.offDay;
                     }
                     staffOffStatus[user.id] = isOff;
                     if (!isOff) workingStaffIds.push(user.id);

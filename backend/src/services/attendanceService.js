@@ -158,6 +158,22 @@ class AttendanceService {
     const clockOutTime = new Date();
     const totalHours = calculateTotalHours(existingRecord.clockIn, clockOutTime);
 
+    // Validate duration: minimum 30 minutes, maximum 16 hours
+    if (totalHours < 0.5) {
+      const error = new Error(`Durasi kerja terlalu singkat (${Math.round(totalHours * 60)} menit). Minimum 30 menit.`);
+      error.statusCode = 400;
+      error.code = 'DURATION_TOO_SHORT';
+      error.isOperational = true;
+      throw error;
+    }
+    if (totalHours > 16) {
+      const error = new Error(`Durasi kerja terlalu lama (${totalHours.toFixed(1)} jam). Jika lupa clock-out kemarin, hubungi admin.`);
+      error.statusCode = 400;
+      error.code = 'DURATION_TOO_LONG';
+      error.isOperational = true;
+      throw error;
+    }
+
     const updatedRecord = await attendanceRepository.update(existingRecord.id, {
       clockOut: clockOutTime,
       clockOutLocation: formatLocation(location),
