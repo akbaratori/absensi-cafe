@@ -1,8 +1,18 @@
 {
-  "buildCommand": "cd frontend && npm install && npm run build",
+  "version": 2,
+  "installCommand": "npm install && cd backend && npm install",
+  "buildCommand": "cd frontend && npm install && npm run build && cd ../backend && npx prisma generate",
   "outputDirectory": "frontend/dist",
-  "framework": null,
+  "functions": {
+    "api/index.js": {
+      "includeFiles": "backend/**"
+    }
+  },
   "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/index.js"
+    },
     {
       "source": "/(.*)",
       "destination": "/index.html"
