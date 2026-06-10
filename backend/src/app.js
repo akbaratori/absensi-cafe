@@ -58,12 +58,17 @@ if (config.nodeEnv === 'development' || !process.env.CORS_ALLOWED_ORIGINS) {
 app.use(cors({
   ...config.cors,
   origin: (origin, callback) => {
-    // Allow requests with no origin (like mobile apps or curl requests)
+    // Allow requests with no origin (same-origin, mobile apps, curl, serverless)
     if (!origin) return callback(null, true);
 
+    // Always allow same-origin (Vercel deploys frontend+backend on same domain)
     if (allowedOrigins.indexOf(origin) !== -1 || config.nodeEnv === 'development') {
       callback(null, true);
     } else {
+      // In production with combined deploy, allow all .vercel.app domains
+      if (origin.endsWith('.vercel.app') || origin.endsWith('.vercel.sh')) {
+        return callback(null, true);
+      }
       callback(new Error('Not allowed by CORS'));
     }
   }
