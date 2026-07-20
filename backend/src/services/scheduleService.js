@@ -542,7 +542,7 @@ class ScheduleService {
      * Update a specific schedule (Admin Manual Edit)
      */
     async updateSchedule(scheduleId, data) {
-        const { shiftId, isOffDay, kitchenStation } = data;
+        const { shiftId, isOffDay, kitchenStation, temporaryDepartment } = data;
 
         const updateData = {
             shiftId: isOffDay ? null : shiftId,
@@ -554,6 +554,13 @@ class ScheduleService {
             updateData.kitchenStation = isOffDay ? null : (kitchenStation === '' ? null : kitchenStation);
         } else if (isOffDay) {
             updateData.kitchenStation = null;
+        }
+
+        // Handle temporary department override (null = use employee's permanent department)
+        if (temporaryDepartment !== undefined) {
+            updateData.temporaryDepartment = (temporaryDepartment === '' || temporaryDepartment === 'default')
+                ? null
+                : temporaryDepartment;
         }
 
         return await prisma.userSchedule.update({
@@ -576,17 +583,18 @@ class ScheduleService {
      * Upsert single schedule (Add Schedule from Calendar)
      */
     async upsertSingleSchedule(data) {
-        const { userId, date, shiftId, isOffDay, kitchenStation } = data;
+        const { userId, date, shiftId, isOffDay, kitchenStation, temporaryDepartment } = data;
         
-        // Parse date as UTC midnight — consistent with how all other schedules are stored
-        // new Date("2026-04-30") → 2026-04-30T00:00:00.000Z (UTC midnight) ✓
         const scheduleDate = new Date(date);
 
         const upsertData = {
             shiftId: isOffDay ? null : (shiftId ? parseInt(shiftId) : null),
             isOffDay: Boolean(isOffDay),
             kitchenStation: isOffDay ? null : (kitchenStation === '' ? null : kitchenStation),
-            isManualOverride: true, // flag: protect from rolling distribution overwrite
+            isManualOverride: true,
+            temporaryDepartment: (temporaryDepartment === '' || temporaryDepartment === 'default' || !temporaryDepartment)
+                ? null
+                : temporaryDepartment,
         };
 
         return await prisma.userSchedule.upsert({

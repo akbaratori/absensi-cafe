@@ -153,18 +153,19 @@ class ScheduleController {
     async updateSchedule(req, res, next) {
         try {
             const { id } = req.params;
-            const { shiftId, isOffDay, kitchenStation } = req.body;
+            const { shiftId, isOffDay, kitchenStation, temporaryDepartment } = req.body;
 
             const updatedSchedule = await scheduleService.updateSchedule(parseInt(id), {
                 shiftId: shiftId ? parseInt(shiftId) : null,
                 isOffDay: isOffDay,
-                kitchenStation: kitchenStation
+                kitchenStation: kitchenStation,
+                temporaryDepartment: temporaryDepartment,
             });
 
             // Audit trail
             const auditService = require('../services/auditService');
             await auditService.logScheduleChange(req.user.id, id, {
-                shiftId, isOffDay, kitchenStation
+                shiftId, isOffDay, kitchenStation, temporaryDepartment
             });
 
             return successResponse(res, 200, updatedSchedule, 'Jadwal berhasil diperbarui');
@@ -203,7 +204,7 @@ class ScheduleController {
 
     async upsertSingleSchedule(req, res, next) {
         try {
-            const { userId, date, shiftId, isOffDay, kitchenStation } = req.body;
+            const { userId, date, shiftId, isOffDay, kitchenStation, temporaryDepartment } = req.body;
             
             console.log('[upsertSingleSchedule] body:', req.body);
 
@@ -216,7 +217,8 @@ class ScheduleController {
                 date,
                 shiftId: shiftId ? parseInt(shiftId) : null,
                 isOffDay: Boolean(isOffDay),
-                kitchenStation
+                kitchenStation,
+                temporaryDepartment,
             });
 
             return successResponse(res, 200, upsertedSchedule, 'Jadwal berhasil ditambahkan');

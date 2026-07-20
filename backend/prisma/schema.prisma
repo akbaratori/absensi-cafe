@@ -206,6 +206,7 @@ model UserSchedule {
   isShiftPic           Boolean @default(false) @map("is_shift_pic")
   isSanitationLead     Boolean @default(false) @map("is_sanitation_lead")
   isManualOverride     Boolean @default(false) @map("is_manual_override")
+  temporaryDepartment  String? @map("temporary_department") // BAR, KITCHEN — override for this day only
 
   user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   shift   Shift? @relation(fields: [shiftId], references: [id])

@@ -23,13 +23,13 @@ const ScheduleCalendar = () => {
     const [departmentFilter, setDepartmentFilter] = useState('ALL');
     const [selectedSchedule, setSelectedSchedule] = useState(null);
     const [showEditModal, setShowEditModal] = useState(false);
-    const [editForm, setEditForm] = useState({ shiftId: '', isOffDay: false, kitchenStation: '' });
+    const [editForm, setEditForm] = useState({ shiftId: '', isOffDay: false, kitchenStation: '', temporaryDepartment: '' });
     const [updateLoading, setUpdateLoading] = useState(false);
     const [allShifts, setAllShifts] = useState([]);
     const [allUsers, setAllUsers] = useState([]);
     const [showAddModal, setShowAddModal] = useState(false);
     const [addTargetDate, setAddTargetDate] = useState(null);
-    const [addForm, setAddForm] = useState({ userId: '', shiftId: '', isOffDay: false, kitchenStation: '' });
+    const [addForm, setAddForm] = useState({ userId: '', shiftId: '', isOffDay: false, kitchenStation: '', temporaryDepartment: '' });
     const [addLoading, setAddLoading] = useState(false);
     const [deleteLoading, setDeleteLoading] = useState(false);
 
@@ -130,7 +130,8 @@ const ScheduleCalendar = () => {
         setEditForm({
             shiftId: schedule.shiftId || '',
             isOffDay: schedule.isOffDay,
-            kitchenStation: schedule.kitchenStation || ''
+            kitchenStation: schedule.kitchenStation || '',
+            temporaryDepartment: schedule.temporaryDepartment || '',
         });
         setShowEditModal(true);
     };
@@ -138,7 +139,7 @@ const ScheduleCalendar = () => {
     const handleAddClick = (day) => {
         const date = new Date(currentDate.getFullYear(), currentDate.getMonth(), day);
         setAddTargetDate(formatDateKey(date));
-        setAddForm({ userId: '', shiftId: '', isOffDay: false, kitchenStation: '' });
+        setAddForm({ userId: '', shiftId: '', isOffDay: false, kitchenStation: '', temporaryDepartment: '' });
         setShowAddModal(true);
     };
 
@@ -156,7 +157,8 @@ const ScheduleCalendar = () => {
                 date: addTargetDate,
                 shiftId: addForm.isOffDay ? null : parseInt(addForm.shiftId),
                 isOffDay: addForm.isOffDay,
-                kitchenStation: addForm.kitchenStation || null
+                kitchenStation: addForm.kitchenStation || null,
+                temporaryDepartment: addForm.temporaryDepartment || null,
             });
             showSuccess('Jadwal pegawai berhasil ditambahkan');
             setShowAddModal(false);
@@ -178,7 +180,8 @@ const ScheduleCalendar = () => {
             await updateSchedule(selectedSchedule.id, {
                 shiftId: editForm.isOffDay ? null : parseInt(editForm.shiftId),
                 isOffDay: editForm.isOffDay,
-                kitchenStation: editForm.kitchenStation || null
+                kitchenStation: editForm.kitchenStation || null,
+                temporaryDepartment: editForm.temporaryDepartment || null,
             });
 
             showSuccess('Jadwal berhasil diperbarui');
@@ -276,8 +279,14 @@ const ScheduleCalendar = () => {
                                             <span className="font-medium break-words leading-tight">
                                                 {schedule.user.fullName}
                                                 <span className="text-[10px] opacity-60 ml-1">
-                                                    ({schedule.user.department?.substring(0, 3)})
+                                                    ({(schedule.temporaryDepartment || schedule.user.department)?.substring(0, 3)})
                                                 </span>
+                                                {/* Temporary department badge */}
+                                                {schedule.temporaryDepartment && (
+                                                    <span className="block mt-0.5 text-[9px] font-bold text-white bg-amber-600 px-1 py-0.5 rounded w-fit">
+                                                        🔄 {schedule.temporaryDepartment}
+                                                    </span>
+                                                )}
                                                 {schedule.kitchenStation && !schedule.isOffDay && (
                                                     <span className="block mt-0.5 text-[10px] text-white/80 font-bold italic whitespace-pre-line">
                                                         {schedule.kitchenStation.split(' + ')[0]}
@@ -544,6 +553,30 @@ const ScheduleCalendar = () => {
                                         );
                                     })()}
                                 </div>
+
+                                {/* Temporary Department Override */}
+                                <div className="border-t border-dashed border-amber-300 dark:border-amber-700 pt-3">
+                                    <label className="block text-sm font-medium text-amber-700 dark:text-amber-400 mb-1">
+                                        🔄 Penugasan Departemen Sementara
+                                    </label>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                                        Hanya untuk hari ini. Departemen permanen karyawan tidak berubah.
+                                    </p>
+                                    <select
+                                        className="w-full rounded-md border-amber-300 dark:border-amber-700 dark:bg-gray-700 focus:border-amber-500 focus:ring-amber-500 bg-amber-50 dark:bg-gray-700"
+                                        value={editForm.temporaryDepartment}
+                                        onChange={(e) => setEditForm({ ...editForm, temporaryDepartment: e.target.value })}
+                                    >
+                                        <option value="">-- Ikut Departemen Permanen ({selectedSchedule?.user?.department || '–'}) --</option>
+                                        <option value="BAR">BAR (sementara)</option>
+                                        <option value="KITCHEN">KITCHEN (sementara)</option>
+                                    </select>
+                                    {editForm.temporaryDepartment && (
+                                        <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                                            ⚠️ {selectedSchedule?.user?.fullName} akan tercatat di departemen <strong>{editForm.temporaryDepartment}</strong> pada tanggal ini.
+                                        </p>
+                                    )}
+                                </div>
                             </>
                         )}
                     </div>
@@ -667,6 +700,25 @@ const ScheduleCalendar = () => {
                                             </select>
                                         );
                                     })()}
+                                </div>
+
+                                {/* Temporary Department Override for Add modal */}
+                                <div className="border-t border-dashed border-amber-300 dark:border-amber-700 pt-3">
+                                    <label className="block text-sm font-medium text-amber-700 dark:text-amber-400 mb-1">
+                                        🔄 Penugasan Departemen Sementara
+                                    </label>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                                        Hanya untuk hari ini. Departemen permanen karyawan tidak berubah.
+                                    </p>
+                                    <select
+                                        className="w-full rounded-md border-amber-300 dark:border-amber-700 dark:bg-gray-700 focus:border-amber-500 focus:ring-amber-500 bg-amber-50 dark:bg-gray-700"
+                                        value={addForm.temporaryDepartment}
+                                        onChange={(e) => setAddForm({ ...addForm, temporaryDepartment: e.target.value })}
+                                    >
+                                        <option value="">-- Ikut Departemen Permanen --</option>
+                                        <option value="BAR">BAR (sementara)</option>
+                                        <option value="KITCHEN">KITCHEN (sementara)</option>
+                                    </select>
                                 </div>
                             </>
                         )}
