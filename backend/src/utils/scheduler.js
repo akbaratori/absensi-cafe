@@ -123,11 +123,14 @@ function initScheduler() {
                 if (emp.offDay === dayOfWeek) continue;
 
                 try {
+                    // Use end-of-shift time (23:00 WITA) as clockIn for absent records
+                    // so the timestamp is meaningful, not midnight.
+                    const absentTime = new Date(`${witaDateStr}T23:00:00+08:00`);
                     await prisma.attendance.create({
                         data: {
                             userId: emp.id,
                             date: todayStart,
-                            clockIn: todayStart,
+                            clockIn: absentTime,
                             status: 'ABSENT',
                             notes: '[Tidak hadir tanpa keterangan - Auto-detected]'
                         }
@@ -183,22 +186,25 @@ function initScheduler() {
                         }
                     });
 
-                    if (schedule || !user.shiftId) {
-                        const attendance = await prisma.attendance.findFirst({
-                            where: {
-                                userId: user.id,
-                                date: { gte: todayStart, lt: todayEnd }
-                            }
-                        });
+                    // Skip if user has a schedule that says off-day today
+                    if (schedule && schedule.isOffDay) continue;
+                    // Skip if user has no schedule and no shift assigned
+                    if (!schedule && !user.shiftId) continue;
 
-                        if (!attendance) {
-                            await sendPushToUser(
-                                user.id,
-                                '\u23f0 Pengingat Shift',
-                                `Shift kamu (${user.shift?.name}) dimulai 30 menit lagi! Jangan sampai telat.`,
-                                { url: '/attendance' }
-                            );
+                    const attendance = await prisma.attendance.findFirst({
+                        where: {
+                            userId: user.id,
+                            date: { gte: todayStart, lt: todayEnd }
                         }
+                    });
+
+                    if (!attendance) {
+                        await sendPushToUser(
+                            user.id,
+                            '\u23f0 Pengingat Shift',
+                            `Shift kamu (${user.shift?.name}) dimulai 30 menit lagi! Jangan sampai telat.`,
+                            { url: '/attendance' }
+                        );
                     }
                 }
             } catch (err) {

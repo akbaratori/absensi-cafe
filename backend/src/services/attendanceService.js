@@ -204,6 +204,10 @@ class AttendanceService {
   async getToday(userId) {
     const record = await attendanceRepository.findTodayByUserId(userId);
 
+    // Fetch schedule once, reuse for both isOffDay and schedule fields
+    const scheduleService = require('./scheduleService');
+    const todaySchedule = await scheduleService.getTodaySchedule(userId);
+
     const response = {
       id: record?.id || null,
       userId,
@@ -215,19 +219,11 @@ class AttendanceService {
       canClockIn: !record,
       canClockOut: record && !record.clockOut,
       // Check dynamic schedule for off day status
-      isOffDay: await (async () => {
-        const scheduleService = require('./scheduleService');
-        const todaySchedule = await scheduleService.getTodaySchedule(userId);
-        if (todaySchedule) return todaySchedule.isOffDay;
-        // Fallback to static setting
-        return await offDayService.isOffDay(userId, new Date());
-      })(),
+      isOffDay: todaySchedule
+        ? todaySchedule.isOffDay
+        : await offDayService.isOffDay(userId, new Date()),
       // Add shift info if available
-      schedule: await (async () => {
-        const scheduleService = require('./scheduleService');
-        const todaySchedule = await scheduleService.getTodaySchedule(userId);
-        return todaySchedule ? todaySchedule.shift : record?.user.shift;
-      })()
+      schedule: todaySchedule ? todaySchedule.shift : record?.user.shift,
     };
 
     return response;

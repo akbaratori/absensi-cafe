@@ -456,7 +456,13 @@ class ScheduleService {
             });
 
             while (current <= end) {
-                const daySchedules = schedules.filter(s => new Date(s.date).getDate() === current.getDate());
+                // Compare full date (year+month+day) to avoid cross-month collisions
+                const currentDateStr = current.toISOString().split('T')[0];
+                const daySchedules = schedules.filter(s => {
+                    const sDate = new Date(s.date);
+                    const sDateStr = sDate.toISOString().split('T')[0];
+                    return sDateStr === currentDateStr;
+                });
 
                 // 1. Determine Week Key (Monday as Start) — using UTC to avoid timezone drift
                 const d = new Date(current);
@@ -876,8 +882,8 @@ class ScheduleService {
         );
 
         if (sanitationCandidates.length > 0) {
-            // Deterministic rotation based on Date
-            const sanitationIndex = (date.getDate() + date.getMonth()) % sanitationCandidates.length;
+            // Deterministic rotation based on Date — use UTC for consistency
+            const sanitationIndex = (date.getUTCDate() + date.getUTCMonth()) % sanitationCandidates.length;
             sanitationLeadUserId = sanitationCandidates[sanitationIndex].userId;
             controlRoles[sanitationLeadUserId] = 'SANITATION';
         }

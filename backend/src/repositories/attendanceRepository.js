@@ -322,21 +322,36 @@ class AttendanceRepository {
       }
     });
 
-    // Get employees on approved leave today
+    // Get employees on approved leave today (active users only)
     const onLeaveCount = await prisma.leave.count({
       where: {
         status: 'APPROVED',
         startDate: { lte: nextDate },
-        endDate: { gte: targetDate }
+        endDate: { gte: targetDate },
+        user: { isActive: true }
       }
     });
 
     // Count employees whose static offDay matches today's day of week
+    // BUT exclude those already covered by UserSchedule to avoid double-counting
     const dayOfWeek = targetDate.getDay(); // 0=Sun ... 6=Sat
+    const scheduledOffDayUserIds = await prisma.userSchedule.findMany({
+      where: {
+        date: { gte: targetDate, lt: nextDate },
+        isOffDay: true,
+        user: { isActive: true }
+      },
+      select: { userId: true }
+    });
+    const scheduledOffDayUserIdSet = new Set(scheduledOffDayUserIds.map(s => s.userId));
+
     const staticOffDayCount = await prisma.user.count({
       where: {
         isActive: true,
         offDay: dayOfWeek,
+        ...(scheduledOffDayUserIdSet.size > 0 && {
+          id: { notIn: Array.from(scheduledOffDayUserIdSet) }
+        })
       }
     });
 
