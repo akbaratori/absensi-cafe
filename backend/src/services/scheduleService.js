@@ -232,15 +232,13 @@ class ScheduleService {
         try {
             let start, end;
             if (options.startDate && options.endDate) {
-                start = new Date(options.startDate);
-                start.setHours(0, 0, 0, 0);
-                end = new Date(options.endDate);
-                end.setHours(23, 59, 59, 999);
+                // Use UTC midnight to match getTodaySchedule() lookup format
+                start = new Date(options.startDate + 'T00:00:00Z');
+                end = new Date(options.endDate + 'T23:59:59.999Z');
             } else {
-                // Fallback to monthStr
                 const [year, month] = options.month.split('-').map(Number);
-                start = new Date(year, month - 1, 1, 0, 0, 0, 0);
-                end = new Date(year, month, 0, 23, 59, 59, 999);
+                start = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0));
+                end = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
             }
 
             // Get all KITCHEN staff Sorted by ID for consistent rotation
@@ -414,14 +412,13 @@ class ScheduleService {
         try {
             let start, end;
             if (options.startDate && options.endDate) {
-                start = new Date(options.startDate);
-                start.setHours(0, 0, 0, 0);
-                end = new Date(options.endDate);
-                end.setHours(23, 59, 59, 999);
+                // Use UTC midnight to match getTodaySchedule() lookup format
+                start = new Date(options.startDate + 'T00:00:00Z');
+                end = new Date(options.endDate + 'T23:59:59.999Z');
             } else {
                 const [year, month] = options.month.split('-').map(Number);
-                start = new Date(year, month - 1, 1, 0, 0, 0, 0);
-                end = new Date(year, month, 0, 23, 59, 59, 999);
+                start = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0));
+                end = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
             }
 
             // Get all schedules
@@ -594,7 +591,8 @@ class ScheduleService {
     async upsertSingleSchedule(data) {
         const { userId, date, shiftId, isOffDay, kitchenStation, temporaryDepartment } = data;
         
-        const scheduleDate = new Date(date);
+        // Use UTC midnight to match getTodaySchedule() lookup format
+        const scheduleDate = new Date(date + 'T00:00:00Z');
 
         const upsertData = {
             shiftId: isOffDay ? null : (shiftId ? parseInt(shiftId) : null),
@@ -890,12 +888,10 @@ class ScheduleService {
             controlRoles[sanitationLeadUserId] = 'SANITATION';
         }
 
-        // 5. Update Database
-        const startOfDay = new Date(date);
-        startOfDay.setHours(0, 0, 0, 0);
-
-        const endOfDay = new Date(startOfDay);
-        endOfDay.setDate(endOfDay.getDate() + 1);
+        // 5. Update Database — use UTC midnight to match stored schedule dates
+        const dateStr = date.toISOString().split('T')[0];
+        const startOfDay = new Date(dateStr + 'T00:00:00Z');
+        const endOfDay = new Date(dateStr + 'T23:59:59.999Z');
 
         for (const assign of newAssignments) {
             await prisma.userSchedule.updateMany({
@@ -920,7 +916,8 @@ class ScheduleService {
      * Redistribute stations for a specific date (e.g., someone is Sick)
      */
     async redistributeStations(dateStr) {
-        const date = new Date(dateStr);
+        // Use UTC midnight to match stored schedule dates
+        const date = new Date(dateStr + 'T00:00:00Z');
 
         // Get all kitchen staff scheduled for WORK (not off) today
         const schedules = await prisma.userSchedule.findMany({

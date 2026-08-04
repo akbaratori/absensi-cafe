@@ -42,3 +42,7 @@ create_icons.js
 
 # Temp build logs
 frontend/build_error*.txt
+
+# Local tooling artifacts
+.agents/
+graphify-out/
