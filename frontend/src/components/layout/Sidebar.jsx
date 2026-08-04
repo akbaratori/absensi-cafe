@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { Home, Users, FileText, BarChart3, Settings, LogOut, Clock, Brain, Sparkles, Calendar, CheckSquare, DollarSign } from 'lucide-react';
+import { Home, Users, FileText, BarChart3, Settings, LogOut, Clock, Brain, Sparkles, Calendar, CheckSquare, DollarSign, Timer } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useState } from 'react';
 
@@ -26,6 +26,11 @@ const Sidebar = ({ isOpen, onClose }) => {
       name: 'Pengajuan Cuti',
       path: '/leaves',
       icon: Calendar,
+    },
+    {
+      name: 'Lembur',
+      path: '/overtime',
+      icon: Timer,
     },
   ];
 
@@ -85,6 +90,11 @@ const Sidebar = ({ isOpen, onClose }) => {
       name: 'Tukar Libur',
       path: '/admin/off-days',
       icon: Calendar,
+    },
+    {
+      name: 'Persetujuan Lembur',
+      path: '/admin/overtime',
+      icon: Timer,
     },
     {
       name: 'Pengaturan',

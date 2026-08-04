@@ -7,6 +7,7 @@ const adminRoutes = require('./admin');
 const glmRoutes = require('./glm');
 const leaveRoutes = require('./leaves'); // Import leave routes
 const publicRoutes = require('./public'); // Import public routes
+const overtimeRoutes = require('./overtime'); // Import overtime routes
 
 
 /**
@@ -43,6 +44,7 @@ router.use('/admin', adminRoutes);
 router.use('/glm', glmRoutes);
 router.use('/leaves', leaveRoutes);
 router.use('/public', publicRoutes);
+router.use('/overtime', overtimeRoutes);
 
 
 router.use('/shifts', require('./shifts'));

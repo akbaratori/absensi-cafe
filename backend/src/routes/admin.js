@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const adminController = require('../controllers/adminController');
 const offDayController = require('../controllers/offDayController');
+const overtimeController = require('../controllers/overtimeController');
 const { authenticate, authorize } = require('../middleware/auth');
 const { validate, validateQuery } = require('../utils/validator');
 const {
@@ -210,5 +211,35 @@ router.post('/holidays', adminController.createHoliday);
  * @access  Private (Admin)
  */
 router.delete('/holidays/:id', adminController.deleteHoliday);
+
+// Overtime Management Routes
+
+/**
+ * @route   GET /api/v1/admin/overtime
+ * @desc    List all overtime requests with filters
+ * @access  Private (Admin)
+ */
+router.get('/overtime', overtimeController.getAll);
+
+/**
+ * @route   PATCH /api/v1/admin/overtime/:id/approve
+ * @desc    Approve overtime request
+ * @access  Private (Admin)
+ */
+router.patch('/overtime/:id/approve', overtimeController.approve);
+
+/**
+ * @route   PATCH /api/v1/admin/overtime/:id/reject
+ * @desc    Reject overtime request
+ * @access  Private (Admin)
+ */
+router.patch('/overtime/:id/reject', overtimeController.reject);
+
+/**
+ * @route   DELETE /api/v1/admin/overtime/:id
+ * @desc    Delete overtime request
+ * @access  Private (Admin)
+ */
+router.delete('/overtime/:id', overtimeController.delete);
 
 module.exports = router;
