@@ -29,6 +29,8 @@ import OffDayApprovalPage from './pages/admin/OffDayApprovalPage';
 import ScheduleManagementPage from './pages/admin/ScheduleManagementPage';
 import PayrollPage from './pages/admin/PayrollPage';
 import JobdeskClosingPage from './pages/admin/JobdeskClosingPage';
+import OvertimePage from './pages/employee/OvertimePage';
+import OvertimeApprovalPage from './pages/admin/OvertimeApprovalPage';
 
 // Components
 
@@ -131,6 +133,15 @@ function App() {
               element={
                 <EmployeeRoute>
                   <MySchedulePage />
+                </EmployeeRoute>
+              }
+            />
+
+            <Route
+              path="/overtime"
+              element={
+                <EmployeeRoute>
+                  <OvertimePage />
                 </EmployeeRoute>
               }
             />
@@ -239,6 +250,15 @@ function App() {
               element={
                 <AdminRoute>
                   <JobdeskClosingPage />
+                </AdminRoute>
+              }
+            />
+
+            <Route
+              path="/admin/overtime"
+              element={
+                <AdminRoute>
+                  <OvertimeApprovalPage />
                 </AdminRoute>
               }
             />

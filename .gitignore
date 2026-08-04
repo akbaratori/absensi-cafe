@@ -42,3 +42,9 @@ create_icons.js
 
 # Temp build logs
 frontend/build_error*.txt
+
+# Cline / AI agent local artifacts
+.agents/
+
+# Graphify generated output
+graphify-out/

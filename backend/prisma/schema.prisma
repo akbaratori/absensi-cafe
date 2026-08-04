@@ -36,6 +36,8 @@ model User {
   OffDayRequest     OffDayRequest[]
   receivedOffSwaps  OffDayRequest[]  @relation("OffDaySwapTarget")
   pushSubscriptions PushSubscription[]
+  overtimes         Overtime[]
+  approvedOvertimes Overtime[]       @relation("OvertimeApprover")
 
   @@index([username])
   @@index([isActive])
@@ -243,4 +245,30 @@ model PublicHoliday {
 
   @@index([date])
   @@map("public_holidays")
+}
+
+model Overtime {
+  id          Int      @id @default(autoincrement())
+  userId      Int      @map("user_id")
+  date        DateTime @db.Date
+  startTime   DateTime @map("start_time")
+  endTime     DateTime @map("end_time")
+  durationHours Float   @map("duration_hours")
+  reason      String?
+  status      String   @default("PENDING") // PENDING, APPROVED, REJECTED
+  approvedById Int?    @map("approved_by_id")
+  approvedAt  DateTime? @map("approved_at")
+  notes       String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  user       User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+  approvedBy User? @relation("OvertimeApprover", fields: [approvedById], references: [id])
+
+  @@index([userId])
+  @@index([date])
+  @@index([status])
+  @@index([userId, status])
+  @@index([createdAt])
+  @@map("overtime")
 }
