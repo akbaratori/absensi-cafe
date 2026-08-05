@@ -108,7 +108,11 @@ class PayrollService {
      * Calculate payroll for all users
      */
     async calculateAllPayroll(startDate, endDate) {
+<<<<<<< HEAD
         const users = await userRepository.list({ limit: 1000, isActive: 'true' }); // Only active users
+=======
+        const users = await userRepository.list({ limit: 1000, status: 'active' }); // Only active users
+>>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
 
         // Process in parallel
         const payrolls = await Promise.all(

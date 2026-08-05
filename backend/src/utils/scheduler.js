@@ -55,7 +55,11 @@ function initScheduler() {
                     '\u26a0\ufe0f Auto Clock-Out',
                     `Kamu lupa clock-out! Sistem otomatis mencatat jam pulang setelah ${autoClockoutHours} jam.`,
                     { url: '/attendance' }
+<<<<<<< HEAD
                 ).catch(() => { });
+=======
+                ).catch(() => {});
+>>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
 
                 console.log(`[AutoClockout] Auto clocked-out user ${record.user.fullName} (record #${record.id})`);
             }
@@ -123,7 +127,22 @@ function initScheduler() {
                 if (emp.offDay === dayOfWeek) continue;
 
                 try {
+<<<<<<< HEAD
                     await sendPushToUser(emp.id, "Pengingat Absensi", "Anda belum melakukan absensi hari ini. Silakan segera absen.");
+=======
+                    // Use end-of-shift time (23:00 WITA) as clockIn for absent records
+                    // so the timestamp is meaningful, not midnight.
+                    const absentTime = new Date(`${witaDateStr}T23:00:00+08:00`);
+                    await prisma.attendance.create({
+                        data: {
+                            userId: emp.id,
+                            date: todayStart,
+                            clockIn: absentTime,
+                            status: 'ABSENT',
+                            notes: '[Tidak hadir tanpa keterangan - Auto-detected]'
+                        }
+                    });
+>>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
                     absentCount++;
                 } catch (e) {
                     if (e.code !== 'P2002') {
@@ -148,6 +167,7 @@ function initScheduler() {
     } else {
         cron.schedule('* * * * *', async () => {
             try {
+<<<<<<< HEAD
                 const now = new Date();
                 const target = new Date(now.getTime() + 30 * 60 * 1000);
                 const targetHHMM = `${String(target.getHours()).padStart(2, '0')}:${String(target.getMinutes()).padStart(2, '0')}`;
@@ -156,6 +176,17 @@ function initScheduler() {
                 todayStart.setHours(0, 0, 0, 0);
                 const todayEnd = new Date(todayStart);
                 todayEnd.setDate(todayEnd.getDate() + 1);
+=======
+                // Use WITA (UTC+8) for all time calculations to match business hours
+                const nowWITA = new Date(Date.now() + WITA_OFFSET_MS);
+                const targetWITA = new Date(nowWITA.getTime() + 30 * 60 * 1000);
+                const targetHHMM = `${String(targetWITA.getUTCHours()).padStart(2, '0')}:${String(targetWITA.getUTCMinutes()).padStart(2, '0')}`;
+
+                // Today in WITA (00:00:00+08:00 to 23:59:59+08:00)
+                const witaDateStr = nowWITA.toISOString().slice(0, 10);
+                const todayStart = new Date(`${witaDateStr}T00:00:00+08:00`);
+                const todayEnd = new Date(`${witaDateStr}T23:59:59+08:00`);
+>>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
 
                 const users = await prisma.user.findMany({
                     where: {
@@ -174,6 +205,7 @@ function initScheduler() {
                         }
                     });
 
+<<<<<<< HEAD
                     if (schedule || !user.shiftId) {
                         const attendance = await prisma.attendance.findFirst({
                             where: {
@@ -190,6 +222,27 @@ function initScheduler() {
                                 { url: '/attendance' }
                             );
                         }
+=======
+                    // Skip if user has a schedule that says off-day today
+                    if (schedule && schedule.isOffDay) continue;
+                    // Skip if user has no schedule and no shift assigned
+                    if (!schedule && !user.shiftId) continue;
+
+                    const attendance = await prisma.attendance.findFirst({
+                        where: {
+                            userId: user.id,
+                            date: { gte: todayStart, lt: todayEnd }
+                        }
+                    });
+
+                    if (!attendance) {
+                        await sendPushToUser(
+                            user.id,
+                            '\u23f0 Pengingat Shift',
+                            `Shift kamu (${user.shift?.name}) dimulai 30 menit lagi! Jangan sampai telat.`,
+                            { url: '/attendance' }
+                        );
+>>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
                     }
                 }
             } catch (err) {

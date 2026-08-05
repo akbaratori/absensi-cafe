@@ -322,21 +322,51 @@ class AttendanceRepository {
       }
     });
 
+<<<<<<< HEAD
     // Get employees on approved leave today
+=======
+    // Get employees on approved leave today (active users only)
+>>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
     const onLeaveCount = await prisma.leave.count({
       where: {
         status: 'APPROVED',
         startDate: { lte: nextDate },
+<<<<<<< HEAD
         endDate: { gte: targetDate }
+=======
+        endDate: { gte: targetDate },
+        user: { isActive: true }
+>>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
       }
     });
 
     // Count employees whose static offDay matches today's day of week
+<<<<<<< HEAD
     const dayOfWeek = targetDate.getDay(); // 0=Sun ... 6=Sat
+=======
+    // BUT exclude those already covered by UserSchedule to avoid double-counting
+    const dayOfWeek = targetDate.getDay(); // 0=Sun ... 6=Sat
+    const scheduledOffDayUserIds = await prisma.userSchedule.findMany({
+      where: {
+        date: { gte: targetDate, lt: nextDate },
+        isOffDay: true,
+        user: { isActive: true }
+      },
+      select: { userId: true }
+    });
+    const scheduledOffDayUserIdSet = new Set(scheduledOffDayUserIds.map(s => s.userId));
+
+>>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
     const staticOffDayCount = await prisma.user.count({
       where: {
         isActive: true,
         offDay: dayOfWeek,
+<<<<<<< HEAD
+=======
+        ...(scheduledOffDayUserIdSet.size > 0 && {
+          id: { notIn: Array.from(scheduledOffDayUserIdSet) }
+        })
+>>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
       }
     });
 

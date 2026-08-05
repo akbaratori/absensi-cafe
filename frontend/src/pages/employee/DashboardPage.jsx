@@ -112,7 +112,10 @@ const DashboardPage = () => {
   // Face Detection Logic
   const [model, setModel] = useState(null);
   const [faceDetected, setFaceDetected] = useState(false);
+<<<<<<< HEAD
   const [bypassFaceDetection, setBypassFaceDetection] = useState(false);
+=======
+>>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
 
   useEffect(() => {
     const loadModel = async () => {
@@ -389,7 +392,11 @@ const DashboardPage = () => {
                   variant="primary"
                   size="lg"
                   onClick={handleClockIn}
+<<<<<<< HEAD
                   disabled={!todayData?.canClockIn || actionLoading || !(faceDetected || bypassFaceDetection)}
+=======
+                  disabled={!todayData?.canClockIn || actionLoading}
+>>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
                   loading={actionLoading}
                   className="min-w-[160px]"
                 >
@@ -397,6 +404,7 @@ const DashboardPage = () => {
                   Masuk (Selfie)
                 </Button>
 
+<<<<<<< HEAD
                 <div className="mt-2 flex items-center gap-2">
                   <input
                     type="checkbox"
@@ -409,11 +417,17 @@ const DashboardPage = () => {
                   </label>
                 </div>
 
+=======
+>>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
                 <Button
                   variant={todayData?.clockOut ? 'secondary' : 'primary'}
                   size="lg"
                   onClick={handleClockOut}
+<<<<<<< HEAD
                   disabled={!todayData?.canClockOut || actionLoading || !(faceDetected || bypassFaceDetection)}
+=======
+                  disabled={!todayData?.canClockOut || actionLoading || !faceDetected}
+>>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
                   loading={actionLoading}
                   className="min-w-[160px]"
                 >
@@ -422,7 +436,11 @@ const DashboardPage = () => {
                 </Button>
               </div>
 
+<<<<<<< HEAD
               {!faceDetected && !bypassFaceDetection && (todayData?.canClockIn || todayData?.canClockOut) && !loading && (
+=======
+              {!faceDetected && (todayData?.canClockIn || todayData?.canClockOut) && !loading && (
+>>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
                 <div className="mt-2 text-center text-red-500 text-sm font-medium animate-pulse bg-red-50 dark:bg-red-900/20 p-2 rounded-lg border border-red-100 dark:border-red-800">
                   ⚠️ Wajah tidak terdeteksi dengan jelas. <br />
                   Pastikan wajah terlihat penuh, pencahayaan cukup, dan tidak tertutup tangan/masker.

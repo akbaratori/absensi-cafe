@@ -4,10 +4,11 @@ import { getAllAttendance } from '../../services/attendanceService';
 import { formatDate, formatTime, formatStatus } from '../../utils/formatters';
 import { SkeletonTable } from '../../components/shared/Loading';
 import Badge from '../../components/shared/Badge';
-import { Trash2, Trash } from 'lucide-react';
+import { Trash2, Trash, Edit2 } from 'lucide-react';
 import Modal from '../../components/shared/Modal';
 import Button from '../../components/shared/Button';
 import { deleteAttendance, deleteAllAttendance } from '../../services/adminService';
+import { updateAttendance } from '../../services/attendanceService';
 import { showSuccess, showError } from '../../hooks/useToast';
 
 const AttendanceAdminPage = () => {
@@ -31,6 +32,38 @@ const AttendanceAdminPage = () => {
     url: '',
     title: ''
   });
+  const [editModal, setEditModal] = useState({
+    isOpen: false,
+    record: null
+  });
+  const [editForm, setEditForm] = useState({
+    clockIn: '',
+    clockOut: '',
+    status: ''
+  });
+
+  const handleEdit = (record) => {
+    setEditModal({ isOpen: true, record });
+    setEditForm({
+      clockIn: record.clockIn ? record.clockIn.slice(0, 16) : '',
+      clockOut: record.clockOut ? record.clockOut.slice(0, 16) : '',
+      status: record.status || 'PRESENT'
+    });
+  };
+
+  const handleUpdate = async () => {
+    setActionLoading(true);
+    try {
+      await updateAttendance(editModal.record.id, editForm);
+      showSuccess('Absensi berhasil diperbarui');
+      setEditModal({ isOpen: false, record: null });
+      fetchAttendance();
+    } catch (err) {
+      showError(err.message || 'Gagal memperbarui absensi');
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
   const fetchAttendance = async (page = currentPage, currentFilters = filters) => {
     setLoading(true);
@@ -307,7 +340,14 @@ const AttendanceAdminPage = () => {
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400">
                     {record.totalHours || '-'}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400 flex gap-3">
+                    <button
+                      onClick={() => handleEdit(record)}
+                      className="text-gray-400 hover:text-blue-600 dark:text-gray-500 dark:hover:text-blue-400 transition-colors"
+                      title="Edit Record"
+                    >
+                      <Edit2 size={18} />
+                    </button>
                     <button
                       onClick={() => handleDeleteClick(record)}
                       className="text-gray-400 hover:text-red-600 dark:text-gray-500 dark:hover:text-red-400 transition-colors"
@@ -503,6 +543,55 @@ const AttendanceAdminPage = () => {
             </Button>
             <Button variant="danger" onClick={handleDeleteAll} loading={actionLoading}>
               Ya, Hapus Semua
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Edit Modal */}
+      <Modal
+        isOpen={editModal.isOpen}
+        onClose={() => setEditModal({ isOpen: false, record: null })}
+        title="Edit Absensi"
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Clock In</label>
+            <input
+              type="datetime-local"
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+              value={editForm.clockIn}
+              onChange={(e) => setEditForm({ ...editForm, clockIn: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Clock Out</label>
+            <input
+              type="datetime-local"
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+              value={editForm.clockOut}
+              onChange={(e) => setEditForm({ ...editForm, clockOut: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Status</label>
+            <select
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+              value={editForm.status}
+              onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}
+            >
+              <option value="PRESENT">PRESENT</option>
+              <option value="LATE">LATE</option>
+              <option value="ABSENT">ABSENT</option>
+              <option value="HALF_DAY">HALF_DAY</option>
+            </select>
+          </div>
+          <div className="flex justify-end gap-3 mt-6">
+            <Button variant="secondary" onClick={() => setEditModal({ isOpen: false, record: null })}>
+              Batal
+            </Button>
+            <Button onClick={handleUpdate} loading={actionLoading}>
+              Simpan Perubahan
             </Button>
           </div>
         </div>

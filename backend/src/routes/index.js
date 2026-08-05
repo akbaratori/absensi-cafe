@@ -44,6 +44,10 @@ router.use('/admin', adminRoutes);
 router.use('/glm', glmRoutes);
 router.use('/leaves', leaveRoutes);
 router.use('/public', publicRoutes);
+<<<<<<< HEAD
+=======
+router.use('/overtime', overtimeRoutes);
+>>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
 
 
 router.use('/shifts', require('./shifts'));
@@ -52,6 +56,9 @@ router.use('/off-days', require('./offDays'));
 router.use('/notifications', require('./notificationRoutes'));
 router.use('/schedules', require('./schedules'));
 router.use('/payroll', require('./payroll'));
+<<<<<<< HEAD
 router.use('/overtime', overtimeRoutes);
+=======
+>>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
 
 module.exports = router;

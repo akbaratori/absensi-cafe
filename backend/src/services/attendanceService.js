@@ -98,7 +98,18 @@ class AttendanceService {
 
     // Lock shift info: append shift used for this clock-in to notes for audit
     const shiftInfo = `[Shift: ${config.workStartTime}-${config.workEndTime}]`;
+<<<<<<< HEAD
     const finalNotes = notes ? `${notes} ${shiftInfo}` : shiftInfo;
+=======
+    let finalNotes = notes ? `${notes} ${shiftInfo}` : shiftInfo;
+
+    // Warn if no schedule exists for today (user clocking in without a generated schedule)
+    let noScheduleWarning = null;
+    if (!todaySchedule) {
+      noScheduleWarning = '⚠️ Tidak ada jadwal untuk hari ini. Clock-in tetap dicatat menggunakan shift default.';
+      finalNotes = `${finalNotes} | [NoSchedule]`;
+    }
+>>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
 
     const record = await attendanceRepository.create({
       userId,
@@ -112,7 +123,11 @@ class AttendanceService {
       notes: finalNotes,
     });
 
+<<<<<<< HEAD
     return record;
+=======
+    return { ...record, noScheduleWarning };
+>>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
   }
 
   /**
@@ -197,6 +212,13 @@ class AttendanceService {
   async getToday(userId) {
     const record = await attendanceRepository.findTodayByUserId(userId);
 
+<<<<<<< HEAD
+=======
+    // Fetch schedule once, reuse for both isOffDay and schedule fields
+    const scheduleService = require('./scheduleService');
+    const todaySchedule = await scheduleService.getTodaySchedule(userId);
+
+>>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
     const response = {
       id: record?.id || null,
       userId,
@@ -208,6 +230,7 @@ class AttendanceService {
       canClockIn: !record,
       canClockOut: record && !record.clockOut,
       // Check dynamic schedule for off day status
+<<<<<<< HEAD
       isOffDay: await (async () => {
         const scheduleService = require('./scheduleService');
         const todaySchedule = await scheduleService.getTodaySchedule(userId);
@@ -221,6 +244,13 @@ class AttendanceService {
         const todaySchedule = await scheduleService.getTodaySchedule(userId);
         return todaySchedule ? todaySchedule.shift : record?.user.shift;
       })()
+=======
+      isOffDay: todaySchedule
+        ? todaySchedule.isOffDay
+        : await offDayService.isOffDay(userId, new Date()),
+      // Add shift info if available
+      schedule: todaySchedule ? todaySchedule.shift : record?.user.shift,
+>>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
     };
 
     return response;

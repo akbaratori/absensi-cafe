@@ -16,6 +16,10 @@ import DashboardPage from './pages/employee/DashboardPage';
 import AttendancePage from './pages/employee/AttendancePage';
 import LeavePage from './pages/employee/LeavePage';
 import MySchedulePage from './pages/employee/MySchedulePage';
+<<<<<<< HEAD
+=======
+import OvertimePage from './pages/employee/OvertimePage';
+>>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
 import AdminDashboardPage from './pages/admin/AdminDashboardPage';
 import UsersPage from './pages/admin/UsersPage';
 import AttendanceAdminPage from './pages/admin/AttendanceAdminPage';
@@ -29,7 +33,10 @@ import OffDayApprovalPage from './pages/admin/OffDayApprovalPage';
 import ScheduleManagementPage from './pages/admin/ScheduleManagementPage';
 import PayrollPage from './pages/admin/PayrollPage';
 import JobdeskClosingPage from './pages/admin/JobdeskClosingPage';
+<<<<<<< HEAD
 import OvertimePage from './pages/employee/OvertimePage';
+=======
+>>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
 import OvertimeApprovalPage from './pages/admin/OvertimeApprovalPage';
 
 // Components
