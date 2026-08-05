@@ -1,0 +1,34 @@
+{
+  "version": 2,
+  "installCommand": "npm install && cd backend && npm install && cd ../frontend && npm install --include=dev",
+  "buildCommand": "cd frontend && npm run build && cd ../backend && npx prisma generate",
+  "outputDirectory": "frontend/dist",
+  "crons": [
+    {
+      "path": "/api/cron/daily-cleanup",
+      "schedule": "55 15 * * *"
+    }
+  ],
+  "functions": {
+    "api/index.js": {
+      "includeFiles": "backend/src/**,backend/node_modules/.prisma/**,backend/node_modules/@prisma/**,backend/node_modules/**,backend/prisma/schema.prisma,backend/package.json"
+    },
+    "api/cron/daily-cleanup.js": {
+      "includeFiles": "backend/node_modules/.prisma/**,backend/node_modules/@prisma/**,backend/node_modules/**,backend/prisma/schema.prisma"
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/api/cron/(.*)",
+      "destination": "/api/cron/$1"
+    },
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}
