@@ -1,41 +1,12 @@
 const express = require('express');
 const router = express.Router();
-
 const authRoutes = require('./auth');
 const attendanceRoutes = require('./attendance');
 const adminRoutes = require('./admin');
 const glmRoutes = require('./glm');
-const leaveRoutes = require('./leaves'); // Import leave routes
-const publicRoutes = require('./public'); // Import public routes
-const overtimeRoutes = require('./overtime'); // Import overtime routes
-
-
-/**
- * @route   GET /api/v1/health
- * @desc    Health check endpoint
- * @access  Public
- */
-router.get('/health', (req, res) => {
-  res.status(200).json({
-    success: true,
-    status: 'healthy',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-  });
-});
-
-/**
- * @route   GET /api/v1/version
- * @desc    API version info
- * @access  Public
- */
-router.get('/version', (req, res) => {
-  res.status(200).json({
-    success: true,
-    version: '1.0.0',
-    name: 'Attendance System API',
-  });
-});
+const leaveRoutes = require('./leaves');
+const publicRoutes = require('./public');
+const overtimeRoutes = require('./overtime');
 
 // Mount route modules
 router.use('/auth', authRoutes);
@@ -44,11 +15,7 @@ router.use('/admin', adminRoutes);
 router.use('/glm', glmRoutes);
 router.use('/leaves', leaveRoutes);
 router.use('/public', publicRoutes);
-<<<<<<< HEAD
-=======
 router.use('/overtime', overtimeRoutes);
->>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
-
 
 router.use('/shifts', require('./shifts'));
 router.use('/swaps', require('./swaps'));
@@ -56,9 +23,5 @@ router.use('/off-days', require('./offDays'));
 router.use('/notifications', require('./notificationRoutes'));
 router.use('/schedules', require('./schedules'));
 router.use('/payroll', require('./payroll'));
-<<<<<<< HEAD
-router.use('/overtime', overtimeRoutes);
-=======
->>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
 
 module.exports = router;
