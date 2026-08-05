@@ -14,9 +14,17 @@ class AttendanceController {
   clockIn = asyncHandler(async (req, res) => {
     const { location, notes } = req.body;
     const userId = req.user.id;
-<<<<<<< HEAD
-    // With memoryStorage, files are in memory (buffer) not saved to disk
-    const photo = req.file ? `selfie-${Date.now()}.${req.file.originalname.split('.').pop()}` : null;
+    // With memoryStorage, files are in memory (buffer) not saved to disk.
+    // Convert to base64 data URI for storage in DB (Vercel-compatible, no disk writes).
+    const photo = req.file
+      ? `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`
+      : null;
+>>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
+    // With memoryStorage, files are in memory (buffer) not saved to disk.
+    // Convert to base64 data URI for storage in DB (Vercel-compatible, no disk writes).
+    const photo = req.file
+      ? `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`
+      : null;
 =======
     // With memoryStorage, files are in memory (buffer) not saved to disk.
     // Convert to base64 data URI for storage in DB (Vercel-compatible, no disk writes).
