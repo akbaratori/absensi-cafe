@@ -68,7 +68,7 @@ class UserRepository {
         fullName: true,
         email: true,
         role: true,
-        shift: true,
+        shiftId: true,
         employeeId: true,
         isActive: true,
       },
