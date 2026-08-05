@@ -112,6 +112,7 @@ const DashboardPage = () => {
   // Face Detection Logic
   const [model, setModel] = useState(null);
   const [faceDetected, setFaceDetected] = useState(false);
+  const [bypassFaceDetection, setBypassFaceDetection] = useState(false);
 
   useEffect(() => {
     const loadModel = async () => {
@@ -388,7 +389,7 @@ const DashboardPage = () => {
                   variant="primary"
                   size="lg"
                   onClick={handleClockIn}
-                  disabled={!todayData?.canClockIn || actionLoading || !faceDetected}
+                  disabled={!todayData?.canClockIn || actionLoading || !(faceDetected || bypassFaceDetection)}
                   loading={actionLoading}
                   className="min-w-[160px]"
                 >
@@ -396,11 +397,23 @@ const DashboardPage = () => {
                   Masuk (Selfie)
                 </Button>
 
+                <div className="mt-2 flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="bypassFace"
+                    checked={bypassFaceDetection}
+                    onChange={(e) => setBypassFaceDetection(e.target.checked)}
+                  />
+                  <label htmlFor="bypassFace" className="text-sm text-gray-600 dark:text-gray-400">
+                    Aktifkan Absensi Manual (Tanpa Deteksi Wajah)
+                  </label>
+                </div>
+
                 <Button
                   variant={todayData?.clockOut ? 'secondary' : 'primary'}
                   size="lg"
                   onClick={handleClockOut}
-                  disabled={!todayData?.canClockOut || actionLoading || !faceDetected}
+                  disabled={!todayData?.canClockOut || actionLoading || !(faceDetected || bypassFaceDetection)}
                   loading={actionLoading}
                   className="min-w-[160px]"
                 >
@@ -409,7 +422,7 @@ const DashboardPage = () => {
                 </Button>
               </div>
 
-              {!faceDetected && (todayData?.canClockIn || todayData?.canClockOut) && !loading && (
+              {!faceDetected && !bypassFaceDetection && (todayData?.canClockIn || todayData?.canClockOut) && !loading && (
                 <div className="mt-2 text-center text-red-500 text-sm font-medium animate-pulse bg-red-50 dark:bg-red-900/20 p-2 rounded-lg border border-red-100 dark:border-red-800">
                   ⚠️ Wajah tidak terdeteksi dengan jelas. <br />
                   Pastikan wajah terlihat penuh, pencahayaan cukup, dan tidak tertutup tangan/masker.

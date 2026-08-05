@@ -55,7 +55,7 @@ function initScheduler() {
                     '\u26a0\ufe0f Auto Clock-Out',
                     `Kamu lupa clock-out! Sistem otomatis mencatat jam pulang setelah ${autoClockoutHours} jam.`,
                     { url: '/attendance' }
-                ).catch(() => {});
+                ).catch(() => { });
 
                 console.log(`[AutoClockout] Auto clocked-out user ${record.user.fullName} (record #${record.id})`);
             }
@@ -123,15 +123,7 @@ function initScheduler() {
                 if (emp.offDay === dayOfWeek) continue;
 
                 try {
-                    await prisma.attendance.create({
-                        data: {
-                            userId: emp.id,
-                            date: todayStart,
-                            clockIn: todayStart,
-                            status: 'ABSENT',
-                            notes: '[Tidak hadir tanpa keterangan - Auto-detected]'
-                        }
-                    });
+                    await sendPushToUser(emp.id, "Pengingat Absensi", "Anda belum melakukan absensi hari ini. Silakan segera absen.");
                     absentCount++;
                 } catch (e) {
                     if (e.code !== 'P2002') {
