@@ -12,11 +12,6 @@ const swaggerDocs = require('./utils/swagger');
 const app = express();
 
 // Trust proxy if behind load balancer
-<<<<<<< HEAD
-// Trust proxy if behind load balancer
-// Trigger restart for MySQL migration
-=======
->>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
 app.set('trust proxy', 1);
 
 // Security middleware
@@ -66,10 +61,6 @@ app.use(cors({
 }));
 
 // Body parsing middleware
-<<<<<<< HEAD
-// Body parsing middleware
-=======
->>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
