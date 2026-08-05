@@ -5,7 +5,6 @@ const { sendPushToUser } = require('../services/pushService');
 const { sendAttendanceReport } = require('../services/whatsappService');
 const prisma = require('../utils/database');
 
-
 class AttendanceController {
   /**
    * Clock in
@@ -19,86 +18,23 @@ class AttendanceController {
     const photo = req.file
       ? `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`
       : null;
->>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
-    // With memoryStorage, files are in memory (buffer) not saved to disk.
-    // Convert to base64 data URI for storage in DB (Vercel-compatible, no disk writes).
-    const photo = req.file
-      ? `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`
-      : null;
-=======
-    // With memoryStorage, files are in memory (buffer) not saved to disk.
-    // Convert to base64 data URI for storage in DB (Vercel-compatible, no disk writes).
-    const photo = req.file
-      ? `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`
-      : null;
->>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
-    const ipAddress = req.ip || req.connection.remoteAddress;
 
-    const result = await attendanceService.clockIn(userId, location, notes, photo, ipAddress);
+    const result = await attendanceService.clockIn({
+      userId,
+      location,
+      photo,
+      notes
+    });
 
     // Fire-and-forget push notification (non-blocking)
-<<<<<<< HEAD
-    sendPushToUser(
-      userId,
-      '✅ Absensi Masuk Berhasil',
-      `Absensi masuk kamu sudah tercatat pada ${new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}.`,
-=======
-    const pushMessage = result.noScheduleWarning
-      ? `⚠️ Clock-in tercatat TANPA jadwal. Shift default digunakan.`
-      : `Absensi masuk kamu sudah tercatat pada ${new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}.`;
-    sendPushToUser(
-      userId,
-      result.noScheduleWarning ? '⚠️ Absensi Masuk (Tanpa Jadwal)' : '✅ Absensi Masuk Berhasil',
-      pushMessage,
->>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
-      { url: '/attendance' }
-    ).catch(() => { });
-
-    // Fire-and-forget WhatsApp report (non-blocking)
-    // Check if WA reporting is enabled via config
-    try {
-      // Ambil config grup WA dari systemConfig (jika diset via admin)
-      const waConfig = await prisma.systemConfig.findMany({
-        where: { key: { in: ['waGroupTarget', 'waToken', 'waSendOnClockIn'] } }
-      });
-      const waCfg = Object.fromEntries(waConfig.map(c => [c.key, c.value]));
-
-      // Ambil info shift pegawai
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { fullName: true, employeeId: true, shift: { select: { name: true, startTime: true } } }
-      });
-
-      // Cek apakah fitur WA aktif (default: aktif jika token ada)
-      const waEnabled = waCfg.waSendOnClockIn !== 'false';
-
-      if (waEnabled) {
-        // Override token jika diset via admin config
-        if (waCfg.waToken) process.env.FONNTE_TOKEN = waCfg.waToken;
-        const target = waCfg.waGroupTarget || process.env.WA_GROUP_TARGET;
-
-        sendAttendanceReport({
-          employeeName: user?.fullName || req.user.fullName || 'Pegawai',
-          employeeId: user?.employeeId || '',
-          clockInTime: result.clockIn || new Date(),
-          shiftName: user?.shift?.name || '',
-          shiftStart: user?.shift?.startTime || '',
-          status: result.status || 'PRESENT',
-          notes: notes || '',
-        }, target).catch((err) => console.error('[WhatsApp] Error:', err));
-      }
-    } catch (waErr) {
-      console.error('[WhatsApp] Config fetch error:', waErr.message);
+    if (result.noScheduleWarning) {
+      sendPushToUser(
+        `Absensi masuk kamu sudah tercatat pada ${new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}.`,
+        { url: '/attendance' }
+      ).catch(console.error);
     }
 
-<<<<<<< HEAD
     return successResponse(res, 201, result, 'Clocked in successfully');
-=======
-    const clockInMessage = result.noScheduleWarning
-      ? `Clocked in successfully. ${result.noScheduleWarning}`
-      : 'Clocked in successfully';
-    return successResponse(res, 201, result, clockInMessage);
->>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
   });
 
   /**
@@ -106,36 +42,39 @@ class AttendanceController {
    * POST /api/v1/attendance/clock-out
    */
   clockOut = asyncHandler(async (req, res) => {
-    const { location } = req.body;
+    const { location, notes } = req.body;
     const userId = req.user.id;
-<<<<<<< HEAD
-    // With memoryStorage, files are in memory (buffer) not saved to disk
-    const photo = req.file ? `selfie-${Date.now()}.${req.file.originalname.split('.').pop()}` : null;
-=======
-    // With memoryStorage, files are in memory (buffer) not saved to disk.
-    // Convert to base64 data URI for storage in DB (Vercel-compatible, no disk writes).
     const photo = req.file
       ? `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`
       : null;
->>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
-    const ipAddress = req.ip || req.connection.remoteAddress;
 
-    const result = await attendanceService.clockOut(userId, location, photo, ipAddress);
-
-    // Fire-and-forget push notification (non-blocking)
-    sendPushToUser(
+    const result = await attendanceService.clockOut({
       userId,
-      '🏁 Absensi Pulang Berhasil',
-      `Absensi pulang tercatat. Total jam kerja: ${result.totalHours} jam.`,
-      { url: '/attendance' }
-    ).catch(() => { });
+      location,
+      photo,
+      notes
+    });
 
-    return successResponse(
-      res,
-      200,
-      result,
-      `Clocked out successfully. Total hours: ${result.totalHours}`
-    );
+    return successResponse(res, 200, result, 'Clocked out successfully');
+  });
+
+  /**
+   * Get attendance history
+   * GET /api/v1/attendance
+   */
+  getAll = asyncHandler(async (req, res) => {
+    const userId = req.user.id;
+    const { startDate, endDate, page, limit } = req.query;
+
+    const result = await attendanceService.getAll({
+      userId,
+      startDate,
+      endDate,
+      page: parseInt(page) || 1,
+      limit: parseInt(limit) || 10
+    });
+
+    return successResponse(res, 200, result);
   });
 
   /**
@@ -144,31 +83,17 @@ class AttendanceController {
    */
   getToday = asyncHandler(async (req, res) => {
     const userId = req.user.id;
-
     const result = await attendanceService.getToday(userId);
-
     return successResponse(res, 200, result);
   });
 
   /**
-   * Get attendance history
-   * GET /api/v1/attendance/history
+   * Get monthly report
+   * GET /api/v1/attendance/report/monthly
    */
-  getHistory = asyncHandler(async (req, res) => {
+  getMonthlyReport = asyncHandler(async (req, res) => {
     const userId = req.user.id;
-
-    const result = await attendanceService.getHistory(userId, req.query);
-
-    return successResponse(res, 200, result);
-  });
-
-  /**
-   * Get monthly summary for dashboard
-   * GET /api/v1/attendance/monthly-summary
-   */
-  getMonthlySummary = asyncHandler(async (req, res) => {
-    const userId = req.user.id;
-    const month = req.query.month || new Date().toISOString().slice(0, 7); // YYYY-MM format
+    const { month } = req.query; // YYYY-MM format
 
     const result = await attendanceService.getMonthlyReport({ userId, month });
 
