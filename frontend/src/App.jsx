@@ -11,299 +11,63 @@ import NotificationPermissionBanner from './components/NotificationPermissionBan
 // Pages
 import LoginPage from './pages/auth/LoginPage';
 import DashboardPage from './pages/employee/DashboardPage';
-
-
 import AttendancePage from './pages/employee/AttendancePage';
 import LeavePage from './pages/employee/LeavePage';
 import MySchedulePage from './pages/employee/MySchedulePage';
-<<<<<<< HEAD
-=======
 import OvertimePage from './pages/employee/OvertimePage';
->>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
 import AdminDashboardPage from './pages/admin/AdminDashboardPage';
 import UsersPage from './pages/admin/UsersPage';
 import AttendanceAdminPage from './pages/admin/AttendanceAdminPage';
 import LeaveApprovalPage from './pages/admin/LeaveApprovalPage';
-import ReportsPage from './pages/admin/ReportsPage';
-import SettingsPage from './pages/admin/SettingsPage';
-
-import ShiftManagementPage from './pages/admin/ShiftManagementPage';
-import SwapApprovalPage from './pages/admin/SwapApprovalPage';
-import OffDayApprovalPage from './pages/admin/OffDayApprovalPage';
+import OvertimeApprovalPage from './pages/admin/OvertimeApprovalPage';
 import ScheduleManagementPage from './pages/admin/ScheduleManagementPage';
 import PayrollPage from './pages/admin/PayrollPage';
 import JobdeskClosingPage from './pages/admin/JobdeskClosingPage';
-<<<<<<< HEAD
-import OvertimePage from './pages/employee/OvertimePage';
-=======
->>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
-import OvertimeApprovalPage from './pages/admin/OvertimeApprovalPage';
 
 // Components
-
 
 // Public routes (login)
 const PublicRoute = ({ children }) => {
   return <AuthLayout>{children}</AuthLayout>;
 };
 
-// Protected routes (require auth)
-const EmployeeRoute = ({ children }) => {
+const App = () => {
   return (
-    <ProtectedRoute>
-      <MainLayout>{children}</MainLayout>
-    </ProtectedRoute>
-  );
-};
-
-// Admin routes (require admin)
-const AdminRoute = ({ children }) => {
-  return (
-    <ProtectedRoute requireAdmin>
-      <MainLayout>{children}</MainLayout>
-    </ProtectedRoute>
-  );
-};
-
-function App() {
-  return (
-    <BrowserRouter>
+    <ErrorBoundary>
       <AuthProvider>
         <ThemeProvider>
-          <ErrorBoundary>
-          <Toaster
-            position="top-right"
-            toastOptions={{
-              duration: 3000,
-              style: {
-                background: '#363636',
-                color: '#fff',
-              },
-              success: {
-                duration: 3000,
-                iconTheme: {
-                  primary: '#10b981',
-                  secondary: '#fff',
-                },
-              },
-              error: {
-                duration: 5000,
-                iconTheme: {
-                  primary: '#ef4444',
-                  secondary: '#fff',
-                },
-              },
-            }}
-          />
+          <BrowserRouter>
+            <Toaster position="top-right" />
+            <NotificationPermissionBanner />
+            <Routes>
+              <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
+              
+              <Route path="/" element={<ProtectedRoute><MainLayout /></ProtectedRoute>}>
+                {/* Employee Routes */}
+                <Route index element={<DashboardPage />} />
+                <Route path="attendance" element={<AttendancePage />} />
+                <Route path="leave" element={<LeavePage />} />
+                <Route path="schedule" element={<MySchedulePage />} />
+                <Route path="overtime" element={<OvertimePage />} />
 
-          <Routes>
-            {/* Public routes */}
-            <Route
-              path="/login"
-              element={
-                <PublicRoute>
-                  <LoginPage />
-                </PublicRoute>
-              }
-            />
+                {/* Admin Routes */}
+                <Route path="admin/dashboard" element={<AdminDashboardPage />} />
+                <Route path="admin/users" element={<UsersPage />} />
+                <Route path="admin/attendance" element={<AttendanceAdminPage />} />
+                <Route path="admin/leave" element={<LeaveApprovalPage />} />
+                <Route path="admin/overtime" element={<OvertimeApprovalPage />} />
+                <Route path="admin/schedule" element={<ScheduleManagementPage />} />
+                <Route path="admin/payroll" element={<PayrollPage />} />
+                <Route path="admin/jobdesk" element={<JobdeskClosingPage />} />
+              </Route>
 
-            {/* Protected employee routes */}
-            <Route
-              path="/dashboard"
-              element={
-                <EmployeeRoute>
-                  <DashboardPage />
-                </EmployeeRoute>
-              }
-            />
-
-            <Route
-              path="/attendance"
-              element={
-                <EmployeeRoute>
-                  <AttendancePage />
-                </EmployeeRoute>
-              }
-            />
-
-            <Route
-              path="/leaves"
-              element={
-                <EmployeeRoute>
-                  <LeavePage />
-                </EmployeeRoute>
-              }
-            />
-
-            <Route
-              path="/my-schedule"
-              element={
-                <EmployeeRoute>
-                  <MySchedulePage />
-                </EmployeeRoute>
-              }
-            />
-
-            <Route
-              path="/overtime"
-              element={
-                <EmployeeRoute>
-                  <OvertimePage />
-                </EmployeeRoute>
-              }
-            />
-
-            {/* Protected admin routes */}
-            <Route
-              path="/admin/dashboard"
-              element={
-                <AdminRoute>
-                  <AdminDashboardPage />
-                </AdminRoute>
-              }
-            />
-            <Route
-              path="/admin/users"
-              element={
-                <AdminRoute>
-                  <UsersPage />
-                </AdminRoute>
-              }
-            />
-
-            <Route
-              path="/admin/attendance"
-              element={
-                <AdminRoute>
-                  <AttendanceAdminPage />
-                </AdminRoute>
-              }
-            />
-
-            <Route
-              path="/admin/leaves"
-              element={
-                <AdminRoute>
-                  <LeaveApprovalPage />
-                </AdminRoute>
-              }
-            />
-
-            <Route
-              path="/admin/reports"
-              element={
-                <AdminRoute>
-                  <ReportsPage />
-                </AdminRoute>
-              }
-            />
-
-            <Route
-              path="/admin/settings"
-              element={
-                <AdminRoute>
-                  <SettingsPage />
-                </AdminRoute>
-              }
-            />
-
-            <Route
-              path="/admin/shifts"
-              element={
-                <AdminRoute>
-                  <ShiftManagementPage />
-                </AdminRoute>
-              }
-            />
-
-            <Route
-              path="/admin/swaps"
-              element={
-                <AdminRoute>
-                  <SwapApprovalPage />
-                </AdminRoute>
-              }
-            />
-
-            <Route
-              path="/admin/off-days"
-              element={
-                <AdminRoute>
-                  <OffDayApprovalPage />
-                </AdminRoute>
-              }
-            />
-
-            <Route
-              path="/admin/schedules"
-              element={
-                <AdminRoute>
-                  <ScheduleManagementPage />
-                </AdminRoute>
-              }
-            />
-
-            <Route
-              path="/admin/payroll"
-              element={
-                <AdminRoute>
-                  <PayrollPage />
-                </AdminRoute>
-              }
-            />
-
-            <Route
-              path="/admin/jobdesk-closing"
-              element={
-                <AdminRoute>
-                  <JobdeskClosingPage />
-                </AdminRoute>
-              }
-            />
-
-            <Route
-              path="/admin/overtime"
-              element={
-                <AdminRoute>
-                  <OvertimeApprovalPage />
-                </AdminRoute>
-              }
-            />
-
-
-
-            {/* Default redirect */}
-            <Route path="/" element={<Navigate to="/dashboard" replace />} />
-
-            {/* 404 fallback */}
-            <Route
-              path="*"
-              element={
-                <div className="min-h-screen bg-stone-50 flex items-center justify-center px-4">
-                  <div className="text-center">
-                    <div className="text-6xl mb-4">☕</div>
-                    <h1 className="text-4xl font-bold text-gray-900 mb-2">404</h1>
-                    <p className="text-gray-600 mb-6">Halaman yang kamu cari tidak ditemukan</p>
-                    <button
-                      onClick={() => window.location.href = '/dashboard'}
-                      className="btn btn-primary px-6 py-3"
-                    >
-                      Kembali ke Dasbor
-                    </button>
-                  </div>
-                </div>
-              }
-            />
-          </Routes>
-
-          {/* Push notification permission banner (shows for logged-in users) */}
-          <NotificationPermissionBanner />
-
-          </ErrorBoundary>
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </BrowserRouter>
         </ThemeProvider>
       </AuthProvider>
-    </BrowserRouter>
+    </ErrorBoundary>
   );
-}
+};
 
 export default App;
