@@ -94,6 +94,7 @@ class ScheduleService {
                         gte: startDate,
                         lt: endDate
                     }
+                }
             });
             return []; // Return empty as we deleted them
         }
@@ -145,7 +146,7 @@ class ScheduleService {
 
     /**
      * Bulk generate schedule for multiple users with the same shift
-     * Use case: Ramadan - all staff same shift
+     * Use case: Ramadan - all staff same shift for a date range
      */
     async bulkGenerateSchedule(userIds, startDateStr, endDateStr, shiftId, options = {}) {
         const { keepOffDays = true } = options;
@@ -184,6 +185,7 @@ class ScheduleService {
 
                 currentDate.setUTCDate(currentDate.getUTCDate() + 1);
             }
+        }
 
         // Batch upsert in transaction
         const batchSize = 50;
@@ -356,6 +358,7 @@ class ScheduleService {
                         isOffDay: isOff,
                         isManualOverride: false
                     });
+                });
 
                 current.setDate(current.getDate() + 1);
                 current.setUTCDate(current.getUTCDate() + 1);
@@ -398,9 +401,10 @@ class ScheduleService {
 
 
         } catch (error) {
-            console.error('[ScheduleService] distributeKitchenShifts ERROR:', error);
+            console.error('[ScheduleService] assignStationsRotation ERROR:', error);
             throw error;
         }
+    }
 
     /**
      * ONLY Assign Stations (Nodes/Roles) based on existing shifts.
@@ -449,6 +453,7 @@ class ScheduleService {
                 PRIORITY_ORDER.forEach(station => {
                     stationCounts[id][station] = 0;
                 });
+            });
 
             while (current <= end) {
                 // Compare full date (year+month+day) to avoid cross-month collisions
@@ -500,6 +505,7 @@ class ScheduleService {
             console.log('[ScheduleService] assignStationsRotation ERROR:', error);
             throw error;
         }
+    }
 
     async getUserSchedule(userId, startDate, endDate) {
         return await prisma.userSchedule.findMany({
@@ -673,7 +679,8 @@ class ScheduleService {
                 if (currentOffDay !== -1 && dayOfWeek === currentOffDay) {
                     proposedOffDates.push(new Date(currentDate));
                 }
-            currentDate.setUTCDate(currentDate.getUTCDate() + 1);
+
+                currentDate.setUTCDate(currentDate.getUTCDate() + 1);
         }
 
         if (proposedOffDates.length === 0) return [];
@@ -709,6 +716,7 @@ class ScheduleService {
         });
 
         return conflictMap;
+        }
     }
 
     /**
@@ -752,6 +760,11 @@ class ScheduleService {
             console.error('[ScheduleService] getAllSchedules ERROR:', error);
             throw error;
         }
+        }
+
+    /**
+     * Assign kitchen stations for a specific date
+     */
     async assignDailyStations(date, staffIds, weeklyPicId, stationCounts = null) {
         if (!staffIds || staffIds.length === 0) return;
 
@@ -876,8 +889,6 @@ class ScheduleService {
         );
 
         if (sanitationCandidates.length > 0) {
-            // Deterministic rotation based on Date
-            const sanitationIndex = (date.getDate() + date.getMonth()) % sanitationCandidates.length;
             // Deterministic rotation based on Date — use UTC for consistency
             const sanitationIndex = (date.getUTCDate() + date.getUTCMonth()) % sanitationCandidates.length;
             sanitationLeadUserId = sanitationCandidates[sanitationIndex].userId;
@@ -885,11 +896,6 @@ class ScheduleService {
         }
 
         // 5. Update Database
-        const startOfDay = new Date(date);
-        startOfDay.setHours(0, 0, 0, 0);
-
-        const endOfDay = new Date(startOfDay);
-        endOfDay.setDate(endOfDay.getDate() + 1);
         // 5. Update Database — use UTC midnight to match stored schedule dates
         const dateStr = date.toISOString().split('T')[0];
         const startOfDay = new Date(dateStr + 'T00:00:00Z');
@@ -912,15 +918,12 @@ class ScheduleService {
                 }
             });
         }
+    }
 
     /**
      * Redistribute stations for a specific date (e.g., someone is Sick)
      */
     async redistributeStations(dateStr) {
-        // Use UTC midnight to match stored schedule dates
-        const date = new Date(dateStr + 'T00:00:00Z');
-        // Use UTC midnight to match stored schedule dates
-        const date = new Date(dateStr + 'T00:00:00Z');
         // Use UTC midnight to match stored schedule dates
         const date = new Date(dateStr + 'T00:00:00Z');
 
@@ -944,6 +947,7 @@ class ScheduleService {
 
         return { message: 'Stations redistributed successfully', count: staffIds.length };
     }
+
     /**
      * Get a summary of how many times each employee was assigned each station in a month
      * @param {string} month - Format: "YYYY-MM"
@@ -1000,6 +1004,7 @@ class ScheduleService {
 
         return Object.values(summaryMap).sort((a, b) => a.fullName.localeCompare(b.fullName));
     }
+}
 
 
 module.exports = new ScheduleService();

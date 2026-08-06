@@ -235,5 +235,6 @@ class UserRepository {
       data: { lastLoginAt: new Date() },
     });
   }
+}
 
 module.exports = new UserRepository();

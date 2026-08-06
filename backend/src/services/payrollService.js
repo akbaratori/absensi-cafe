@@ -123,5 +123,6 @@ class PayrollService {
 
         return payrolls.filter(p => p !== null);
     }
+}
 
 module.exports = new PayrollService();

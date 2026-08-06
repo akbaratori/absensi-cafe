@@ -1,10 +1,15 @@
 @echo off
+setlocal
 echo ========================================
 echo   Starting Backend Server
 echo ========================================
 echo.
 
-cd backend
+cd /d "%~dp0backend" || (
+  echo [ERROR] Folder backend tidak ditemukan.
+  pause
+  exit /b 1
+)
 
 echo Starting backend server...
 start "Backend Server" cmd /k "npm run dev"

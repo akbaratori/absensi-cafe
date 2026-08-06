@@ -105,5 +105,6 @@ class AttendanceService {
   async getAll(options) {
       return await attendanceRepository.list(options);
   }
+}
 
 module.exports = new AttendanceService();

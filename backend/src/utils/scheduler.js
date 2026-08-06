@@ -61,6 +61,7 @@ function initScheduler() {
                 } catch (e) {
                     console.error(`[Scheduler] Failed to auto-mark absent for user ${emp.id}:`, e.message);
                 }
+            }
 
             await auditService.logSystemAction(
                 'AUTO_MARK_ABSENT',
@@ -114,6 +115,7 @@ function initScheduler() {
                 } catch (e) {
                     console.error(`[Scheduler] Failed to send reminder for user ${emp.id}:`, e.message);
                 }
+            }
 
             console.log('[Scheduler] Attendance reminder completed');
         } catch (err) {
@@ -186,6 +188,7 @@ function initScheduler() {
                 } catch (err) {
                     console.error('[Scheduler] Shift reminder error:', err.message);
                 }
+            }
 
             console.log('[Scheduler] Shift reminder cron initialized');
         } catch (err) {
