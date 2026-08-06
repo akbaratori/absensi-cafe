@@ -531,12 +531,7 @@ class ScheduleService {
         const WITA_OFFSET_MS = 8 * 60 * 60 * 1000;
         const nowWITA = new Date(Date.now() + WITA_OFFSET_MS);
         const witaDateStr = nowWITA.toISOString().slice(0, 10);
-        const today = new Date(${witaDateStr}T00:00:00Z);
-        // Gunakan WITA (UTC+8) untuk menentukan "hari ini" (tanggal lokal Makassar),
-        // lalu konversi ke UTC midnight agar cocok dengan format penyimpanan di database.
-        const WITA_OFFSET_MS = 8 * 60 * 60 * 1000;
-        const nowWITA = new Date(Date.now() + WITA_OFFSET_MS);
-        const witaDateStr = nowWITA.toISOString().slice(0, 10); // "YYYY-MM-DD" dalam WITA
+        const today = new Date(`${witaDateStr}T00:00:00Z`);
         // Gunakan UTC midnight (Z) — BUKAN +08:00 — karena semua jadwal disimpan sebagai UTC midnight
         // (lihat upsertSingleSchedule: new Date(date) dan generateSchedule: new Date(startDateStr + 'T00:00:00Z'))
         const today = new Date(`${witaDateStr}T00:00:00Z`);
