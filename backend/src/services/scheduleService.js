@@ -172,12 +172,9 @@ class ScheduleService {
 
             while (currentDate <= endDate) {
                 const dayOfWeek = currentDate.getUTCDay();
-<<<<<<< HEAD
-                const isOffDay = keepOffDays && user.offDay != null && user.offDay !== -1 && dayOfWeek === user.offDay;
                 // Robust offDay validation: handle null, undefined, and string values from DB
                 const userOffDay = user.offDay != null ? Number(user.offDay) : null;
                 const isOffDay = keepOffDays && userOffDay !== null && userOffDay !== -1 && dayOfWeek === userOffDay;
->>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
 
                 allSchedules.push({
                     userId: user.id,
