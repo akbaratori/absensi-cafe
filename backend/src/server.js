@@ -2,12 +2,6 @@ const app = require('./app');
 const config = require('./config');
 const prisma = require('./utils/database');
 const { initScheduler } = require('./utils/scheduler');
-<<<<<<< HEAD
-require('fs').writeFileSync('server_started.txt', `Started at ${new Date().toISOString()}`);
-
-
-=======
->>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
 
 // Start server
 const server = app.listen(config.port, async () => {
@@ -63,15 +57,9 @@ const gracefulShutdown = async (signal) => {
   }, 10000);
 };
 
-<<<<<<< HEAD
 // Handle shutdown signals
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-=======
-// Handle shutdown signals (only register once — database.js already handles SIGINT/SIGTERM for prisma disconnect)
 process.once('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.once('SIGINT', () => gracefulShutdown('SIGINT'));
->>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
 
 // Handle uncaught exceptions
 process.on('uncaughtException', (error) => {
