@@ -237,14 +237,6 @@ class ScheduleService {
                 end = new Date(options.endDate);
                 end.setHours(23, 59, 59, 999);
             } else {
-                // Fallback to monthStr
-                const [year, month] = options.month.split('-').map(Number);
-                start = new Date(year, month - 1, 1, 0, 0, 0, 0);
-                end = new Date(year, month, 0, 23, 59, 59, 999);
-                // Use UTC midnight to match getTodaySchedule() lookup format
-                start = new Date(options.startDate + 'T00:00:00Z');
-                end = new Date(options.endDate + 'T23:59:59.999Z');
-            } else {
                 const [year, month] = options.month.split('-').map(Number);
                 start = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0));
                 end = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
@@ -426,13 +418,6 @@ class ScheduleService {
                 start.setHours(0, 0, 0, 0);
                 end = new Date(options.endDate);
                 end.setHours(23, 59, 59, 999);
-            } else {
-                const [year, month] = options.month.split('-').map(Number);
-                start = new Date(year, month - 1, 1, 0, 0, 0, 0);
-                end = new Date(year, month, 0, 23, 59, 59, 999);
-                // Use UTC midnight to match getTodaySchedule() lookup format
-                start = new Date(options.startDate + 'T00:00:00Z');
-                end = new Date(options.endDate + 'T23:59:59.999Z');
             } else {
                 const [year, month] = options.month.split('-').map(Number);
                 start = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0));
