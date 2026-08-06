@@ -456,14 +456,6 @@ class ScheduleService {
             });
 
             while (current <= end) {
-                const daySchedules = schedules.filter(s => new Date(s.date).getDate() === current.getDate());
-
-                // 1. Determine Week Key (Monday as Start)
-                // Get Monday of this week
-                const d = new Date(current);
-                const day = d.getDay();
-                const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Adjust when day is Sunday
-                const monday = new Date(d.setDate(diff));
                 // Compare full date (year+month+day) to avoid cross-month collisions
                 const currentDateStr = current.toISOString().split('T')[0];
                 const daySchedules = schedules.filter(s => {
