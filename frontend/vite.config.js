@@ -15,6 +15,7 @@ export default defineConfig({
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
+  },
   build: {
     // Enable source maps for production debugging (optional)
     sourcemap: false,
@@ -43,6 +44,7 @@ export default defineConfig({
         entryFileNames: "assets/js/[name]-[hash].js",
         assetFileNames: "assets/[ext]/[name]-[hash].[ext]",
       },
+    },
 
     // Chunk size warnings
     chunkSizeWarningLimit: 1000,
@@ -66,4 +68,6 @@ export default defineConfig({
         target: "http://localhost:3000",
         changeOrigin: true,
       },
+    },
+  },
 });
