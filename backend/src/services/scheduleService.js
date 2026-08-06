@@ -526,14 +526,11 @@ class ScheduleService {
     }
 
     async getTodaySchedule(userId) {
-        // Gunakan WITA (UTC+8) untuk menentukan "hari ini",
-        // agar jadwal yang tersimpan di database (dengan timezone WITA) cocok.
+        // Gunakan WITA (UTC+8) untuk menentukan "hari ini" (tanggal lokal Makassar),
+        // lalu lookup ke database dengan UTC midnight agar cocok dengan format penyimpanan jadwal.
         const WITA_OFFSET_MS = 8 * 60 * 60 * 1000;
         const nowWITA = new Date(Date.now() + WITA_OFFSET_MS);
         const witaDateStr = nowWITA.toISOString().slice(0, 10);
-        const today = new Date(`${witaDateStr}T00:00:00Z`);
-        // Gunakan UTC midnight (Z) — BUKAN +08:00 — karena semua jadwal disimpan sebagai UTC midnight
-        // (lihat upsertSingleSchedule: new Date(date) dan generateSchedule: new Date(startDateStr + 'T00:00:00Z'))
         const today = new Date(`${witaDateStr}T00:00:00Z`);
 
         return await prisma.userSchedule.findUnique({
@@ -596,7 +593,6 @@ class ScheduleService {
     async upsertSingleSchedule(data) {
         const { userId, date, shiftId, isOffDay, kitchenStation, temporaryDepartment } = data;
         
-        const scheduleDate = new Date(date);
         // Use UTC midnight to match getTodaySchedule() lookup format
         const scheduleDate = new Date(date + 'T00:00:00Z');
 
