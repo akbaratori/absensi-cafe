@@ -843,10 +843,6 @@ class ScheduleService {
 
         // A. PIC Stok Mingguan (Rules: Only Mondays, Fixed User) — using UTC
         const isMonday = date.getUTCDay() === 1;
-        // A. PIC Stok Mingguan (Rules: Only Mondays, Fixed User) — using UTC
-        const isMonday = date.getUTCDay() === 1;
-        // A. PIC Stok Mingguan (Rules: Only Mondays, Fixed User) — using UTC
-        const isMonday = date.getUTCDay() === 1;
         let picStokUserId = null;
         if (isMonday && weeklyPicId && staffIds.includes(weeklyPicId)) {
             picStokUserId = weeklyPicId;
