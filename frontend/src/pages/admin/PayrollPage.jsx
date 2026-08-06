@@ -46,6 +46,7 @@ const PayrollPage = () => {
                         Hitung perkiraan gaji karyawan berdasarkan jam kerja
                     </p>
                 </div>
+            </div>
 
             <Card className="p-4">
                 <form onSubmit={handleSearch} className="flex flex-col md:flex-row gap-4 items-end">

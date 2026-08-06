@@ -33,6 +33,7 @@ export async function registerServiceWorker() {
         console.error('[Push] Service Worker registration failed:', error);
         return null;
     }
+}
 
 /**
  * Check if push notifications are supported and permission is granted
@@ -96,6 +97,7 @@ export async function subscribeToPush() {
         console.error('[Push] Subscribe error:', error);
         return false;
     }
+}
 
 /**
  * Unsubscribe from push notifications (call on logout).
@@ -121,6 +123,7 @@ export async function unsubscribeFromPush() {
     } catch (error) {
         console.error('[Push] Unsubscribe error:', error);
     }
+}
 
 /**
  * Check if user has already subscribed (client-side cache check)

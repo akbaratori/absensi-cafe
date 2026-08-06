@@ -83,10 +83,12 @@ const LatePenaltyWidget = ({ compact = false }) => {
                         </p>
                         {!isGood && (
                             <p className="text-xs text-gray-400 mt-0.5">
-                                15–30 mnt: {formatRp(data.penaltyLow)} · &gt;30 mnt: {formatRp(data.penaltyHigh)}
+                                15–30 mnt: {formatRp(data.penaltyLow)} · {'>'}30 mnt: {formatRp(data.penaltyHigh)}
                             </p>
                         )}
                     </div>
+                </div>
+            </div>
         );
     }
 
@@ -119,15 +121,17 @@ const LatePenaltyWidget = ({ compact = false }) => {
                             </button>
                         </div>
                         <p className="text-xs text-gray-500 dark:text-gray-400">
-                            15–30 mnt: {formatRp(data.penaltyLow)}&nbsp;·&nbsp;&gt;30 mnt: {formatRp(data.penaltyHigh)}
+                            15–30 mnt: {formatRp(data.penaltyLow)}&nbsp;·&nbsp;{'>'}30 mnt: {formatRp(data.penaltyHigh)}
                         </p>
                     </div>
+                </div>
                 <div className="text-right ml-4">
                     <p className={`text-xl font-bold ${isGood ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
                         {isGood ? 'Rp 0' : formatRp(data.totalDeduction)}
                     </p>
                     <p className="text-xs text-gray-500">{data.lateCount}x terlambat</p>
                 </div>
+            </div>
 
             {/* Detail toggle */}
             {!isGood && (
@@ -161,6 +165,7 @@ const LatePenaltyWidget = ({ compact = false }) => {
                                             </p>
                                             <p className="text-xs text-gray-500">Masuk jam {formatTime(r.clockIn)}</p>
                                         </div>
+                                    </div>
                                     <span className="text-sm font-semibold text-red-600 dark:text-red-400">
                                         -{formatRp(r.penalty)}
                                     </span>
@@ -170,6 +175,7 @@ const LatePenaltyWidget = ({ compact = false }) => {
                                 <span className="text-sm font-bold text-gray-700 dark:text-gray-300">Total Potongan</span>
                                 <span className="text-sm font-bold text-red-600 dark:text-red-400">{formatRp(data.totalDeduction)}</span>
                             </div>
+                        </div>
                     )}
                 </>
             )}

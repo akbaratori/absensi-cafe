@@ -130,13 +130,15 @@ const MyClosingJobdeskWidget = () => {
 
     if (todayData.isOff) {
         return (
-            <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4 mb-4">
+            <div className="bg-gray-50 dark:bg-gray-800 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-4 mb-4">
                 <div className="flex items-center gap-2">
                     <span>🧹</span>
                     <div>
                         <p className="font-semibold text-sm text-gray-800 dark:text-gray-200">Jobdesk Closing — {fmtToday}</p>
                         <p className="text-xs text-gray-500">Kamu libur hari ini — tidak ada tugas closing 🎉</p>
                     </div>
+                </div>
+            </div>
         );
     }
 
@@ -149,6 +151,8 @@ const MyClosingJobdeskWidget = () => {
                         <p className="font-semibold text-sm text-gray-800 dark:text-gray-200">Jobdesk Closing — {fmtToday}</p>
                         <p className="text-xs text-gray-500">Kamu <strong>bebas / helper</strong> hari ini — bantu posisi lain jika dibutuhkan 👋</p>
                     </div>
+                </div>
+            </div>
         );
     }
 
@@ -173,6 +177,7 @@ const MyClosingJobdeskWidget = () => {
                 </div>
                 <span className="text-4xl opacity-30">{todayData.job.icon}</span>
             </div>
+        </div>
     );
 };
 

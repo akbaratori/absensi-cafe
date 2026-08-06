@@ -32,8 +32,11 @@ export default {
           800: '#873e22',
           900: '#6e341e',
         },
+      },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
       },
+    },
+  },
   plugins: [],
 }

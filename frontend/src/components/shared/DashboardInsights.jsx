@@ -30,6 +30,7 @@ const DashboardInsights = ({ stats }) => {
                 message: `Perhatian, hanya ${Math.round(attendanceRate)}% karyawan yang hadir saat ini.`,
             });
         }
+    }
 
     // Rule 2: Lateness
     if (late > 0) {
@@ -85,6 +86,7 @@ const DashboardInsights = ({ stats }) => {
                             <p className={`text-sm font-semibold ${getTextColor(insight.type)}`}>{insight.title}</p>
                             <p className="text-xs text-gray-600 dark:text-gray-300 mt-1">{insight.message}</p>
                         </div>
+                    </div>
                 ))}
             </div>
         </Card>

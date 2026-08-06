@@ -242,6 +242,7 @@ const UserModal = ({ isOpen, onClose, user = null, onSuccess }) => {
                             <option value="KITCHEN">Kitchen</option>
                         </select>
                     </div>
+                </div>
 
                 <div className="grid grid-cols-2 gap-4">
                     <div>
@@ -265,6 +266,7 @@ const UserModal = ({ isOpen, onClose, user = null, onSuccess }) => {
                             Digunakan jika belum ada jadwal bulanan.
                         </p>
                     </div>
+                </div>
 
                 <div className="grid grid-cols-2 gap-4">
                     <div>

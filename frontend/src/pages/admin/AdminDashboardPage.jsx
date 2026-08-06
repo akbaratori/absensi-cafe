@@ -91,6 +91,7 @@ const AdminDashboardPage = () => {
                             <div className={`p-3 rounded-full ${stat.bg}`}>
                                 <stat.icon className={`w-6 h-6 ${stat.color}`} />
                             </div>
+                        </div>
                     </Card>
                 ))}
             </div>
@@ -141,6 +142,7 @@ const AdminDashboardPage = () => {
                 <div className="lg:col-span-1">
                     <DashboardInsights stats={stats} />
                 </div>
+            </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Recent Activity */}
@@ -175,6 +177,7 @@ const AdminDashboardPage = () => {
                                                 </span>
                                             )}
                                         </div>
+                                    </div>
                                 ))
                             ) : (
                                 <div className="p-4 text-center text-gray-500">Belum ada aktivitas hari ini</div>
@@ -187,6 +190,8 @@ const AdminDashboardPage = () => {
                         </div>
                     </Card>
                 </div>
+            </div>
+        </div>
     );
 };
 

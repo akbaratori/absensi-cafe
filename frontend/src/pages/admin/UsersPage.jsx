@@ -135,6 +135,7 @@ const UsersPage = () => {
                         <div className="text-sm font-medium text-gray-900 dark:text-white">{user.fullName}</div>
                         <div className="text-sm text-gray-600 dark:text-gray-400">{user.username}</div>
                       </div>
+                    </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex flex-col gap-1">
@@ -204,6 +205,7 @@ const UsersPage = () => {
                   <div className="font-medium text-gray-900 dark:text-white">{user.fullName}</div>
                   <div className="text-xs text-gray-500 dark:text-gray-400">{user.username}</div>
                 </div>
+              </div>
 
               <div className="flex flex-wrap gap-2 text-xs">
                 <span className="px-2 py-1 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
@@ -229,6 +231,7 @@ const UsersPage = () => {
                 </button>
                 <button onClick={() => handleDeleteUser(user)} className="text-sm text-red-600">Delete</button>
               </div>
+            </div>
           ))}
         </div>
 

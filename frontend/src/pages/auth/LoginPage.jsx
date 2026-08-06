@@ -114,6 +114,7 @@ const LoginPage = () => {
               Lupa password?
             </a>
           </div>
+        </div>
 
         <Button
           type="submit"

@@ -340,6 +340,7 @@ const MySchedulePage = () => {
                         Hari Ini
                     </button>
                 </div>
+            </div>
 
             {/* Jobdesk Closing Ramadhan — hanya muncul jika user ada di tim closing */}
             <MyClosingJobdeskWidget />
@@ -378,6 +379,7 @@ const MySchedulePage = () => {
                                                 <div className="bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1">
                                                     <Coffee className="w-3 h-3" /> LIBUR
                                                 </div>
+                                            </div>
                                         ) : schedule.shift ? (
                                             <div className="space-y-1.5">
                                                 {/* Shift Badge */}
@@ -514,8 +516,11 @@ const MySchedulePage = () => {
                                             <span className="text-gray-400 italic text-sm mt-1 block">Tidak ada jadwal</span>
                                         )}
                                     </div>
+                                </div>
+                            </div>
                         )
                     })}
+                </div>
                 </div>
             </Card>
 
@@ -550,6 +555,7 @@ const MySchedulePage = () => {
                                     </div>
                                 ))}
                             </div>
+                        </div>
 
                         {/* 0.5 Sanitation Section */}
                         <div className="bg-teal-50 dark:bg-teal-900/10 p-5 rounded-lg border border-teal-100 dark:border-teal-800">
@@ -571,6 +577,7 @@ const MySchedulePage = () => {
                                     </div>
                                 ))}
                             </div>
+                        </div>
 
                         {/* 0.7 PIC Section - NEW */}
                         <div className="bg-indigo-50 dark:bg-indigo-900/10 p-5 rounded-lg border border-indigo-100 dark:border-indigo-800">
@@ -592,6 +599,7 @@ const MySchedulePage = () => {
                                     </div>
                                 ))}
                             </div>
+                        </div>
 
                         {/* 1. Main Roles Grid */}
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -633,10 +641,13 @@ const MySchedulePage = () => {
                                                     {guide.donts.map((t, i) => <li key={i}>{t}</li>)}
                                                 </ul>
                                             </div>
+                                        </div>
 
                                         <div className="mt-2 pt-2 border-t border-gray-100 dark:border-gray-700 text-center italic font-medium text-gray-500">
                                             " {guide.quote} "
                                         </div>
+                                    </div>
+                                </div>
                             ))}
                         </div>
 
@@ -683,12 +694,15 @@ const MySchedulePage = () => {
                                     </div>
                                 ))}
                             </div>
+                        </div>
+                    </div>
                 )}
             </div>
 
             <div className="flex gap-4 text-sm text-gray-600 dark:text-gray-400 px-2 justify-center sm:justify-start">
                 <span className="text-xs italic text-gray-400">* Klik "Tampilkan" di atas untuk melihat pedoman lengkap.</span>
             </div>
+        </div>
     );
 };
 

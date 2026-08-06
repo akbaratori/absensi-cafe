@@ -47,7 +47,6 @@ const ScheduleCalendar = () => {
         }).catch((err) => { console.error('[ScheduleCalendar] Failed to fetch users:', err); });
     }, []);
 
-    // Helper to format date as YYYY-MM-DD in local time
     const formatDateKey = (date) => {
         const year = date.getFullYear();
         const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -58,18 +57,12 @@ const ScheduleCalendar = () => {
     const fetchSchedules = async () => {
         setLoading(true);
         try {
-            // Get first and last day of current month
             const year = currentDate.getFullYear();
             const month = currentDate.getMonth();
-
             const startDate = formatDateKey(new Date(year, month, 1));
             const endDate = formatDateKey(new Date(year, month + 1, 0));
 
-            const response = await getAllSchedules({
-                startDate,
-                endDate,
-                department: departmentFilter
-            });
+            const response = await getAllSchedules({ startDate, endDate, department: departmentFilter });
             setSchedules(response.data.data);
         } catch (error) {
             console.error('Failed to fetch schedules:', error);
@@ -78,50 +71,33 @@ const ScheduleCalendar = () => {
         }
     };
 
-    const nextMonth = () => {
-        setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
-    };
-
-    const prevMonth = () => {
-        setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
-    };
+    const nextMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
+    const prevMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
 
     const isToday = (date) => {
         const today = new Date();
-        return date.getDate() === today.getDate() &&
-            date.getMonth() === today.getMonth() &&
-            date.getFullYear() === today.getFullYear();
+        return date.getDate() === today.getDate() && date.getMonth() === today.getMonth() && date.getFullYear() === today.getFullYear();
     };
 
-
-
-    // Helper to group schedules by date
     const getSchedulesForDate = (day) => {
         const dateKey = formatDateKey(new Date(currentDate.getFullYear(), currentDate.getMonth(), day));
         return schedules.filter(s => s.date.startsWith(dateKey));
     };
 
-    /**
-     * Build a map of station → staff name for a given date,
-     * excluding a specific userId (so the current user's own station stays selectable).
-     */
     const getStationAssignments = (dateKey, excludeUserId) => {
-        const map = {}; // { 'A - Main Cook': 'Indy', ... }
+        const map = {};
         schedules
             .filter(s => s.date.startsWith(dateKey) && !s.isOffDay && s.kitchenStation)
             .forEach(s => {
-                if (s.userId !== excludeUserId) {
-                    map[s.kitchenStation] = s.user.fullName;
-                }
+                if (s.userId !== excludeUserId) map[s.kitchenStation] = s.user.fullName;
             });
         return map;
     };
 
     const getShiftColor = (shiftId) => {
-        if (!shiftId) return 'bg-gray-100 text-gray-500 border-gray-200 dark:bg-[#1a1d24] dark:text-gray-400 dark:border-gray-700 font-bold'; // Off
-        if (shiftId === 1) return 'bg-blue-50 text-blue-900 border-blue-200 dark:bg-[#1d3257] dark:text-blue-100 dark:border-[#2a4575]'; // Shift 1 - Pagi (Brighter Royal Navy)
-        if (shiftId === 2) return 'bg-orange-50 text-orange-900 border-orange-200 dark:bg-[#4a2e16] dark:text-orange-100 dark:border-[#6b4221]'; // Shift 2 - Siang (Brighter Burnt Orange)
-        // All other shifts (Ramadhan, etc) — solid indigo
+        if (!shiftId) return 'bg-gray-100 text-gray-500 border-gray-200 dark:bg-[#1a1d24] dark:text-gray-400 dark:border-gray-700 font-bold';
+        if (shiftId === 1) return 'bg-blue-50 text-blue-900 border-blue-200 dark:bg-[#1d3257] dark:text-blue-100 dark:border-[#2a4575]';
+        if (shiftId === 2) return 'bg-orange-50 text-orange-900 border-orange-200 dark:bg-[#4a2e16] dark:text-orange-100 dark:border-[#6b4221]';
         return 'bg-indigo-50 text-indigo-900 border-indigo-200 dark:bg-[#2c266b] dark:text-indigo-100 dark:border-[#423c9b]';
     };
 
@@ -146,10 +122,7 @@ const ScheduleCalendar = () => {
     const handleAddSchedule = async (e) => {
         e.preventDefault();
         if (!addForm.userId || !addTargetDate) return;
-        if (!addForm.isOffDay && !addForm.shiftId) {
-            showError('Pilih shift terlebih dahulu');
-            return;
-        }
+        if (!addForm.isOffDay && !addForm.shiftId) { showError('Pilih shift terlebih dahulu'); return; }
         setAddLoading(true);
         try {
             await upsertSingleSchedule({
@@ -165,7 +138,6 @@ const ScheduleCalendar = () => {
             fetchSchedules();
         } catch (error) {
             showError('Gagal menambahkan jadwal');
-            console.error(error);
         } finally {
             setAddLoading(false);
         }
@@ -174,7 +146,6 @@ const ScheduleCalendar = () => {
     const handleUpdateSchedule = async (e) => {
         e.preventDefault();
         if (!selectedSchedule) return;
-
         setUpdateLoading(true);
         try {
             await updateSchedule(selectedSchedule.id, {
@@ -183,13 +154,11 @@ const ScheduleCalendar = () => {
                 kitchenStation: editForm.kitchenStation || null,
                 temporaryDepartment: editForm.temporaryDepartment || null,
             });
-
             showSuccess('Jadwal berhasil diperbarui');
             setShowEditModal(false);
             fetchSchedules();
         } catch (error) {
             showError('Gagal memperbarui jadwal');
-            console.error(error);
         } finally {
             setUpdateLoading(false);
         }
@@ -197,9 +166,7 @@ const ScheduleCalendar = () => {
 
     const handleDeleteSchedule = async () => {
         if (!selectedSchedule) return;
-        const confirmMsg = `Hapus jadwal ${selectedSchedule.user.fullName} pada tanggal ${new Date(selectedSchedule.date).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}?`;
-        if (!window.confirm(confirmMsg)) return;
-
+        if (!window.confirm(`Hapus jadwal ${selectedSchedule.user.fullName}?`)) return;
         setDeleteLoading(true);
         try {
             await deleteSchedule(selectedSchedule.id);
@@ -208,138 +175,62 @@ const ScheduleCalendar = () => {
             fetchSchedules();
         } catch (error) {
             showError('Gagal menghapus jadwal');
-            console.error(error);
         } finally {
             setDeleteLoading(false);
         }
     };
 
-    // Render calendar grid
     const renderCalendar = () => {
         const year = currentDate.getFullYear();
         const month = currentDate.getMonth();
         const daysInMonth = new Date(year, month + 1, 0).getDate();
-        // Monday-first: Sun=0→6, Mon=1→0, Tue=2→1, ..., Sat=6→5
-        const rawFirstDay = new Date(year, month, 1).getDay();
-        const firstDayOfMonth = (rawFirstDay + 6) % 7;
-
+        const firstDayOfMonth = (new Date(year, month, 1).getDay() + 6) % 7;
         const blanks = Array(firstDayOfMonth).fill(null);
         const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
-
         const allSlots = [...blanks, ...days];
 
         return (
             <div className="grid grid-cols-7 gap-px bg-gray-200 dark:bg-gray-700 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
                 {['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'].map(day => (
-                    <div key={day} className="bg-gray-50 dark:bg-gray-800 p-2 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                        {day}
-                    </div>
+                    <div key={day} className="bg-gray-50 dark:bg-gray-800 p-2 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">{day}</div>
                 ))}
-
                 {allSlots.map((day, index) => {
                     if (!day) return <div key={`blank-${index}`} className="bg-white dark:bg-gray-900 min-h-[120px]" />;
-
                     const daysSchedules = getSchedulesForDate(day);
                     const isCurrentDay = isToday(new Date(year, month, day));
 
                     return (
                         <div key={day} className={`group relative bg-white dark:bg-gray-900 min-h-[120px] p-2 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors ${isCurrentDay ? 'ring-2 ring-inset ring-primary-500' : ''}`}>
                             <div className="flex justify-between items-start mb-2">
-                                <span className={`text-sm font-medium ${isCurrentDay ? 'text-primary-600 dark:text-primary-400' : 'text-gray-900 dark:text-gray-100'}`}>
-                                    {day}
-                                </span>
+                                <span className={`text-sm font-medium ${isCurrentDay ? 'text-primary-600 dark:text-primary-400' : 'text-gray-900 dark:text-gray-100'}`}>{day}</span>
                                 <div className="flex items-center gap-1">
                                     <span className="text-xs text-gray-400">{daysSchedules.length} Staf</span>
-                                    <button
-                                        onClick={() => handleAddClick(day)}
-                                        className="opacity-0 group-hover:opacity-100 transition-opacity w-5 h-5 flex items-center justify-center rounded-full bg-primary-500 hover:bg-primary-600 text-white ml-1"
-                                        title="Tambah jadwal pegawai"
-                                    >
-                                        <Plus className="w-3 h-3" />
-                                    </button>
+                                    <button onClick={() => handleAddClick(day)} className="opacity-0 group-hover:opacity-100 transition-opacity w-5 h-5 flex items-center justify-center rounded-full bg-primary-500 hover:bg-primary-600 text-white ml-1" title="Tambah jadwal pegawai"><Plus className="w-3 h-3" /></button>
                                 </div>
-
+                            </div>
                             <div className="space-y-1">
-                                {daysSchedules
-                                    .sort((a, b) => {
-                                        // Sort by Shift ID (1=Morning, 2=Afternoon, others/null last)
-                                        const shiftA = a.shiftId || 99;
-                                        const shiftB = b.shiftId || 99;
-                                        return shiftA - shiftB;
-                                    })
-                                    .map((schedule) => (
-                                        <div
-                                            key={schedule.id}
-                                            className={`text-xs p-1 rounded border mb-1 flex items-center gap-1 cursor-pointer hover:opacity-80 transition-opacity ${getShiftColor(schedule.shiftId)}`}
-                                            title={`${schedule.user.fullName} - ${schedule.isOffDay ? 'OFF' : schedule.shift?.name} (Klik untuk edit)`}
-                                            onClick={() => handleScheduleClick(schedule)}
-                                        >
-                                            <div className="w-1.5 h-1.5 rounded-full bg-current opacity-50 flex-shrink-0" />
-                                            <span className="font-medium break-words leading-tight">
-                                                {schedule.user.fullName}
-                                                <span className="text-[10px] opacity-60 ml-1">
-                                                    ({(schedule.temporaryDepartment || schedule.user.department)?.substring(0, 3)})
-                                                </span>
-                                                {/* Temporary department badge */}
-                                                {schedule.temporaryDepartment && (
-                                                    <span className="block mt-0.5 text-[9px] font-bold text-white bg-amber-600 px-1 py-0.5 rounded w-fit">
-                                                        🔄 {schedule.temporaryDepartment}
-                                                    </span>
-                                                )}
-                                                {schedule.kitchenStation && !schedule.isOffDay && (
-                                                    <span className="block mt-0.5 text-[10px] text-white/80 font-bold italic whitespace-pre-line">
-                                                        {schedule.kitchenStation.split(' + ')[0]}
-                                                        {/* LOCKED SLOT INDICATOR for Role C (Admin View) */}
-                                                        {schedule.kitchenStation.startsWith('C') && (
-                                                            <span className="block mt-0.5 text-[8px] font-extrabold text-red-200 bg-red-700 px-1 rounded border border-red-600 w-fit">
-                                                                LOCK 14:00
-                                                            </span>
-                                                        )}
-                                                    </span>
-                                                )}
-
-                                                {/* Control Badge (Strict: Max 1) */}
-                                                {!schedule.isOffDay && (
-                                                    schedule.isInventoryController ? (
-                                                        <span className="block mt-0.5 text-[9px] font-bold text-white bg-green-600 px-1 py-0.5 rounded w-fit">
-                                                            [PIC STOK]
-                                                        </span>
-                                                    ) : schedule.isShiftPic ? (
-                                                        <span className="block mt-0.5 text-[9px] font-bold text-white bg-blue-600 px-1 py-0.5 rounded w-fit">
-                                                            [SHIFT PIC]
-                                                        </span>
-                                                    ) : schedule.isSanitationLead ? (
-                                                        <span className="block mt-0.5 text-[9px] font-bold text-white bg-teal-600 px-1 py-0.5 rounded w-fit">
-                                                            [SANITATION {schedule.shiftId === 1 ? 'OPEN' : 'CLOSE'} - PRIORITY]
-                                                        </span>
-                                                    ) : null
-                                                )}
-
-                                                {/* Dishwasher Badge for Role D & E (Admin View) */}
-                                                {!schedule.isOffDay && schedule.kitchenStation && (schedule.kitchenStation.startsWith('D') || schedule.kitchenStation.startsWith('E')) && (
-                                                    <span className="block mt-0.5 text-[9px] font-bold text-white bg-gray-600 px-1 py-0.5 rounded border border-gray-500 w-fit">
-                                                        [DISHWASHER]
-                                                    </span>
-                                                )}
-
-
-                                            </span>
-
-                                            {schedule.isOffDay ? (
-                                                <span className="opacity-75 text-[10px] uppercase font-bold ml-auto">OFF</span>
-                                            ) : (
-                                                <span className="opacity-75 text-[10px] ml-auto">
-                                                    {schedule.shiftId === 1 ? 'Pagi' : 'Siang'}
+                                {daysSchedules.sort((a, b) => (a.shiftId || 99) - (b.shiftId || 99)).map((schedule) => (
+                                    <div key={schedule.id} className={`text-xs p-1 rounded border mb-1 flex items-center gap-1 cursor-pointer hover:opacity-80 transition-opacity ${getShiftColor(schedule.shiftId)}`} title={`${schedule.user.fullName} - ${schedule.isOffDay ? 'OFF' : schedule.shift?.name} (Klik untuk edit)`} onClick={() => handleScheduleClick(schedule)}>
+                                        <div className="w-1.5 h-1.5 rounded-full bg-current opacity-50 flex-shrink-0" />
+                                        <span className="font-medium break-words leading-tight">
+                                            {schedule.user.fullName}
+                                            <span className="text-[10px] opacity-60 ml-1">({(schedule.temporaryDepartment || schedule.user.department)?.substring(0, 3)})</span>
+                                            {schedule.temporaryDepartment && (<span className="block mt-0.5 text-[9px] font-bold text-white bg-amber-600 px-1 py-0.5 rounded w-fit">🔄 {schedule.temporaryDepartment}</span>)}
+                                            {schedule.kitchenStation && !schedule.isOffDay && (
+                                                <span className="block mt-0.5 text-[10px] text-white/80 font-bold italic whitespace-pre-line">
+                                                    {schedule.kitchenStation.split(' + ')[0]}
+                                                    {schedule.kitchenStation.startsWith('C') && (<span className="block mt-0.5 text-[8px] font-extrabold text-red-200 bg-red-700 px-1 rounded border border-red-600 w-fit">LOCK 14:00</span>)}
                                                 </span>
                                             )}
-                                        </div>
-                                    ))}
-                                {daysSchedules.length === 0 && (
-                                    <div className="text-xs text-center text-gray-300 dark:text-gray-600 py-4 italic">
-                                        Kosong
+                                            {!schedule.isOffDay && (schedule.isInventoryController ? (<span className="block mt-0.5 text-[9px] font-bold text-white bg-green-600 px-1 py-0.5 rounded w-fit">[PIC STOK]</span>) : schedule.isShiftPic ? (<span className="block mt-0.5 text-[9px] font-bold text-white bg-blue-600 px-1 py-0.5 rounded w-fit">[SHIFT PIC]</span>) : schedule.isSanitationLead ? (<span className="block mt-0.5 text-[9px] font-bold text-white bg-teal-600 px-1 py-0.5 rounded w-fit">[SANITATION {schedule.shiftId === 1 ? 'OPEN' : 'CLOSE'} - PRIORITY]</span>) : null)}
+                                            {!schedule.isOffDay && schedule.kitchenStation && (schedule.kitchenStation.startsWith('D') || schedule.kitchenStation.startsWith('E')) && (<span className="block mt-0.5 text-[9px] font-bold text-white bg-gray-600 px-1 py-0.5 rounded border border-gray-500 w-fit">[DISHWASHER]</span>)}
+                                        </span>
+                                        {schedule.isOffDay ? (<span className="opacity-75 text-[10px] uppercase font-bold ml-auto">OFF</span>) : (<span className="opacity-75 text-[10px] ml-auto">{schedule.shiftId === 1 ? 'Pagi' : 'Siang'}</span>)}
                                     </div>
-                                )}
+                                ))}
+                                {daysSchedules.length === 0 && (<div className="text-xs text-center text-gray-300 dark:text-gray-600 py-4 italic">Kosong</div>)}
                             </div>
+                        </div>
                     );
                 })}
             </div>
@@ -350,362 +241,173 @@ const ScheduleCalendar = () => {
 
     return (
         <div className="space-y-4">
-            {/* Area specifically for Image Export */}
             <div id="print-area-calendar" className="space-y-4 bg-white dark:bg-gray-800 p-2 rounded-lg">
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-100 dark:border-gray-700">
                     <div className="flex items-center gap-4">
                         <div className="flex items-center bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
-                            <button onClick={prevMonth} className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 transition-colors">
-                                <ChevronLeft className="w-5 h-5" />
-                            </button>
-                            <span className="px-4 font-bold text-xl text-gray-900 dark:text-white min-w-[180px] text-center">
-                                {monthNames[currentDate.getMonth()]} {currentDate.getFullYear()}
-                            </span>
-                            <button onClick={nextMonth} className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 transition-colors">
-                                <ChevronRight className="w-5 h-5" />
-                            </button>
+                            <button onClick={prevMonth} className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 transition-colors"><ChevronLeft className="w-5 h-5" /></button>
+                            <span className="px-4 font-bold text-xl text-gray-900 dark:text-white min-w-[180px] text-center">{monthNames[currentDate.getMonth()]} {currentDate.getFullYear()}</span>
+                            <button onClick={nextMonth} className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 transition-colors"><ChevronRight className="w-5 h-5" /></button>
                         </div>
-
+                    </div>
                     <div className="flex items-center gap-2">
                         <Filter className="w-4 h-4 text-gray-400" />
-                        <select
-                            className="text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded-md focus:ring-primary-500 focus:border-primary-500"
-                            value={departmentFilter}
-                            onChange={(e) => setDepartmentFilter(e.target.value)}
-                        >
+                        <select className="text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded-md focus:ring-primary-500 focus:border-primary-500" value={departmentFilter} onChange={(e) => setDepartmentFilter(e.target.value)}>
                             <option value="ALL">Semua Departemen</option>
                             <option value="BAR">Bar</option>
                             <option value="KITCHEN">Kitchen</option>
                         </select>
                     </div>
-
-                {/* Legend */}
+                </div>
                 <div className="flex flex-wrap gap-4 text-xs px-2">
-                    <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded bg-blue-200 dark:bg-[#1d3257] border border-blue-400 dark:border-[#2a4575]"></div>
-                        <span className="text-gray-600 dark:text-gray-400">Shift Pagi</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded bg-orange-200 dark:bg-[#4a2e16] border border-orange-400 dark:border-[#6b4221]"></div>
-                        <span className="text-gray-600 dark:text-gray-400">Shift Siang</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded bg-indigo-200 dark:bg-[#2c266b] border border-indigo-400 dark:border-[#423c9b]"></div>
-                        <span className="text-gray-600 dark:text-gray-400">Shift Lainnya</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded bg-gray-200 dark:bg-[#1a1d24] border border-gray-400 dark:border-gray-700"></div>
-                        <span className="text-gray-600 dark:text-gray-400">Libur (OFF)</span>
-                    </div>
-
-                {/* Calendar Grid */}
-                {loading ? (
-                    <div className="h-96 flex items-center justify-center bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
-                    </div>
-                ) : (
-                    renderCalendar()
-                )}
+                    <div className="flex items-center gap-2"><div className="w-3 h-3 rounded bg-blue-200 dark:bg-[#1d3257] border border-blue-400 dark:border-[#2a4575]"></div><span className="text-gray-600 dark:text-gray-400">Shift Pagi</span></div>
+                    <div className="flex items-center gap-2"><div className="w-3 h-3 rounded bg-orange-200 dark:bg-[#4a2e16] border border-orange-400 dark:border-[#6b4221]"></div><span className="text-gray-600 dark:text-gray-400">Shift Siang</span></div>
+                    <div className="flex items-center gap-2"><div className="w-3 h-3 rounded bg-indigo-200 dark:bg-[#2c266b] border border-indigo-400 dark:border-[#423c9b]"></div><span className="text-gray-600 dark:text-gray-400">Shift Lainnya</span></div>
+                    <div className="flex items-center gap-2"><div className="w-3 h-3 rounded bg-gray-200 dark:bg-[#1a1d24] border border-gray-400 dark:border-gray-700"></div><span className="text-gray-600 dark:text-gray-400">Libur (OFF)</span></div>
+                </div>
+                {loading ? (<div className="h-96 flex items-center justify-center bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div></div>) : (renderCalendar())}
             </div>
 
-            {/* Navigation Controls (Outside Print Area to avoid clutter) */}
             <div className="flex justify-between px-4">
-                <Button variant="outline" size="sm" onClick={prevMonth}>
-                    <ChevronLeft className="w-4 h-4 mr-1" /> Bulan Sebelumnya
-                </Button>
-                <Button variant="outline" size="sm" onClick={nextMonth}>
-                    Bulan Berikutnya <ChevronRight className="w-4 h-4 ml-1" />
-                </Button>
+                <Button variant="outline" size="sm" onClick={prevMonth}><ChevronLeft className="w-4 h-4 mr-1" /> Bulan Sebelumnya</Button>
+                <Button variant="outline" size="sm" onClick={nextMonth}>Bulan Berikutnya <ChevronRight className="w-4 h-4 ml-1" /></Button>
             </div>
 
-            {/* Monthly Shift Summary */}
             <Card>
                 <div className="p-4">
                     <h3 className="text-lg font-semibold text-gray-800 dark:text-white mb-4">Ringkasan Shift Bulanan</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         {Object.values(schedules.reduce((acc, curr) => {
-                            if (!acc[curr.userId]) {
-                                acc[curr.userId] = {
-                                    id: curr.userId,
-                                    name: curr.user.fullName,
-                                    department: curr.user.department,
-                                    shift1: 0,
-                                    shift2: 0,
-                                    off: 0
-                                };
-                            }
-                            if (curr.isOffDay) {
-                                acc[curr.userId].off++;
-                            } else if (curr.shiftId === 1) {
-                                acc[curr.userId].shift1++;
-                            } else if (curr.shiftId === 2) {
-                                acc[curr.userId].shift2++;
-                            }
+                            if (!acc[curr.userId]) acc[curr.userId] = { id: curr.userId, name: curr.user.fullName, department: curr.user.department, shift1: 0, shift2: 0, off: 0 };
+                            if (curr.isOffDay) acc[curr.userId].off++;
+                            else if (curr.shiftId === 1) acc[curr.userId].shift1++;
+                            else if (curr.shiftId === 2) acc[curr.userId].shift2++;
                             return acc;
                         }, {})).sort((a, b) => a.department.localeCompare(b.department) || a.name.localeCompare(b.name)).map(stat => (
                             <div key={stat.id} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/30 rounded-lg border border-gray-100 dark:border-gray-700">
-                                <div>
-                                    <p className="font-medium text-sm text-gray-900 dark:text-white">{stat.name}</p>
-                                    <span className="text-xs text-gray-500">{stat.department}</span>
-                                </div>
+                                <div><p className="font-medium text-sm text-gray-900 dark:text-white">{stat.name}</p><span className="text-xs text-gray-500">{stat.department}</span></div>
                                 <div className="flex gap-2 text-xs font-medium">
-                                    <div className="flex flex-col items-center p-1 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded min-w-[3rem]">
-                                        <span>Pagi</span>
-                                        <span className="text-sm font-bold">{stat.shift1}</span>
-                                    </div>
-                                    <div className="flex flex-col items-center p-1 bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-300 rounded min-w-[3rem]">
-                                        <span>Siang</span>
-                                        <span className="text-sm font-bold">{stat.shift2}</span>
-                                    </div>
-                                    <div className="flex flex-col items-center p-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded min-w-[3rem]">
-                                        <span>OFF</span>
-                                        <span className="text-sm font-bold">{stat.off}</span>
-                                    </div>
+                                    <div className="flex flex-col items-center p-1 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded min-w-[3rem]"><span>Pagi</span><span className="text-sm font-bold">{stat.shift1}</span></div>
+                                    <div className="flex flex-col items-center p-1 bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-300 rounded min-w-[3rem]"><span>Siang</span><span className="text-sm font-bold">{stat.shift2}</span></div>
+                                    <div className="flex flex-col items-center p-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded min-w-[3rem]"><span>OFF</span><span className="text-sm font-bold">{stat.off}</span></div>
+                                </div>
+                            </div>
                         ))}
                     </div>
+                </div>
             </Card>
 
-            {/* Edit Schedule Modal */}
-            <Modal
-                isOpen={showEditModal}
-                onClose={() => setShowEditModal(false)}
-                title="Edit Jadwal Pegawai"
-            >
+            <Modal isOpen={showEditModal} onClose={() => setShowEditModal(false)} title="Edit Jadwal Pegawai">
                 <form onSubmit={handleUpdateSchedule} className="space-y-4">
                     {selectedSchedule && (
                         <div className="mb-4 p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-100 dark:border-gray-700">
                             <p className="text-sm text-gray-600 dark:text-gray-400">Pegawai</p>
                             <p className="font-medium text-gray-900 dark:text-white">{selectedSchedule.user.fullName}</p>
                             <p className="text-sm text-gray-600 dark:text-gray-400 mt-2">Tanggal</p>
-                            <p className="font-medium text-gray-900 dark:text-white">
-                                {new Date(selectedSchedule.date).toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-                            </p>
+                            <p className="font-medium text-gray-900 dark:text-white">{new Date(selectedSchedule.date).toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
                         </div>
                     )}
-
                     <div className="space-y-3">
                         <div className="flex items-center">
-                            <input
-                                type="checkbox"
-                                id="isOffDay"
-                                className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
-                                checked={editForm.isOffDay}
-                                onChange={(e) => setEditForm({ ...editForm, isOffDay: e.target.checked })}
-                            />
-                            <label htmlFor="isOffDay" className="ml-2 block text-sm font-medium text-gray-900 dark:text-gray-300">
-                                Set sebagai Libur (OFF)
-                            </label>
+                            <input type="checkbox" id="isOffDay" className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded" checked={editForm.isOffDay} onChange={(e) => setEditForm({ ...editForm, isOffDay: e.target.checked })} />
+                            <label htmlFor="isOffDay" className="ml-2 block text-sm font-medium text-gray-900 dark:text-gray-300">Set sebagai Libur (OFF)</label>
                         </div>
-
                         {!editForm.isOffDay && (
                             <>
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                        Pilih Shift
-                                    </label>
-                                    <select
-                                        className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 focus:border-primary-500 focus:ring-primary-500"
-                                        value={editForm.shiftId}
-                                        onChange={(e) => setEditForm({ ...editForm, shiftId: e.target.value })}
-                                        required={!editForm.isOffDay}
-                                    >
+                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Pilih Shift</label>
+                                    <select className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 focus:border-primary-500 focus:ring-primary-500" value={editForm.shiftId} onChange={(e) => setEditForm({ ...editForm, shiftId: e.target.value })} required={!editForm.isOffDay}>
                                         <option value="">Pilih Shift</option>
-                                        {allShifts.map(s => (
-                                            <option key={s.id} value={s.id}>
-                                                {s.name} ({s.startTime} - {s.endTime})
-                                            </option>
-                                        ))}
+                                        {allShifts.map(s => (<option key={s.id} value={s.id}>{s.name} ({s.startTime} - {s.endTime})</option>))}
                                     </select>
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                        Jobdesk / Stasiun Dapur <span className="text-gray-400 font-normal">(opsional)</span>
-                                    </label>
+                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Jobdesk / Stasiun Dapur <span className="text-gray-400 font-normal">(opsional)</span></label>
                                     {(() => {
                                         const dateKey = selectedSchedule?.date?.substring(0, 10) || '';
                                         const taken = getStationAssignments(dateKey, selectedSchedule?.userId);
                                         const isKitchen = selectedSchedule?.user?.department === 'KITCHEN';
-                                        
                                         return (
-                                            <select
-                                                className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 focus:border-primary-500 focus:ring-primary-500"
-                                                value={editForm.kitchenStation}
-                                                onChange={(e) => setEditForm({ ...editForm, kitchenStation: e.target.value })}
-                                            >
+                                            <select className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 focus:border-primary-500 focus:ring-primary-500" value={editForm.kitchenStation} onChange={(e) => setEditForm({ ...editForm, kitchenStation: e.target.value })}>
                                                 <option value="">-- Tidak Ada / Hapus Jobdesk --</option>
                                                 {KITCHEN_STATIONS.filter(s => isKitchen || s.startsWith('D') || s.startsWith('E')).map(s => {
                                                     const assignedTo = taken[s];
-                                                    return (
-                                                        <option key={s} value={s} disabled={!!assignedTo}>
-                                                            {s}{assignedTo ? ` — ${assignedTo}` : ''}
-                                                        </option>
-                                                    );
+                                                    return (<option key={s} value={s} disabled={!!assignedTo}>{s}{assignedTo ? ` — ${assignedTo}` : ''}</option>);
                                                 })}
                                             </select>
                                         );
                                     })()}
                                 </div>
-
-                                {/* Temporary Department Override */}
                                 <div className="border-t border-dashed border-amber-300 dark:border-amber-700 pt-3">
-                                    <label className="block text-sm font-medium text-amber-700 dark:text-amber-400 mb-1">
-                                        🔄 Penugasan Departemen Sementara
-                                    </label>
-                                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
-                                        Hanya untuk hari ini. Departemen permanen karyawan tidak berubah.
-                                    </p>
-                                    <select
-                                        className="w-full rounded-md border-amber-300 dark:border-amber-700 dark:bg-gray-700 focus:border-amber-500 focus:ring-amber-500 bg-amber-50 dark:bg-gray-700"
-                                        value={editForm.temporaryDepartment}
-                                        onChange={(e) => setEditForm({ ...editForm, temporaryDepartment: e.target.value })}
-                                    >
+                                    <label className="block text-sm font-medium text-amber-700 dark:text-amber-400 mb-1">🔄 Penugasan Departemen Sementara</label>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Hanya untuk hari ini. Departemen permanen karyawan tidak berubah.</p>
+                                    <select className="w-full rounded-md border-amber-300 dark:border-amber-700 dark:bg-gray-700 focus:border-amber-500 focus:ring-amber-500 bg-amber-50 dark:bg-gray-700" value={editForm.temporaryDepartment} onChange={(e) => setEditForm({ ...editForm, temporaryDepartment: e.target.value })}>
                                         <option value="">-- Ikut Departemen Permanen ({selectedSchedule?.user?.department || '–'}) --</option>
                                         <option value="BAR">BAR (sementara)</option>
                                         <option value="KITCHEN">KITCHEN (sementara)</option>
                                     </select>
-                                    {editForm.temporaryDepartment && (
-                                        <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                                            ⚠️ {selectedSchedule?.user?.fullName} akan tercatat di departemen <strong>{editForm.temporaryDepartment}</strong> pada tanggal ini.
-                                        </p>
-                                    )}
+                                    {editForm.temporaryDepartment && (<p className="text-xs text-amber-600 dark:text-amber-400 mt-1">⚠️ {selectedSchedule?.user?.fullName} akan tercatat di departemen <strong>{editForm.temporaryDepartment}</strong> pada tanggal ini.</p>)}
                                 </div>
                             </>
                         )}
                     </div>
-
                     <div className="pt-4 flex justify-between items-center">
-                        <Button
-                            variant="danger"
-                            type="button"
-                            onClick={handleDeleteSchedule}
-                            loading={deleteLoading}
-                            className="flex items-center gap-1"
-                        >
-                            <Trash2 className="w-4 h-4" />
-                            Hapus
-                        </Button>
-                        <div className="flex gap-3">
-                            <Button variant="outline" type="button" onClick={() => setShowEditModal(false)}>
-                                Batal
-                            </Button>
-                            <Button type="submit" loading={updateLoading}>
-                                Simpan Perubahan
-                            </Button>
-                        </div>
+                        <Button variant="danger" type="button" onClick={handleDeleteSchedule} loading={deleteLoading} className="flex items-center gap-1"><Trash2 className="w-4 h-4" /> Hapus</Button>
+                        <div className="flex gap-3"><Button variant="outline" type="button" onClick={() => setShowEditModal(false)}>Batal</Button><Button type="submit" loading={updateLoading}>Simpan Perubahan</Button></div>
+                    </div>
                 </form>
             </Modal>
 
-            {/* Add Schedule Modal */}
-            <Modal
-                isOpen={showAddModal}
-                onClose={() => setShowAddModal(false)}
-                title="Tambah Jadwal Pegawai"
-            >
+            <Modal isOpen={showAddModal} onClose={() => setShowAddModal(false)} title="Tambah Jadwal Pegawai">
                 <form onSubmit={handleAddSchedule} className="space-y-4">
                     {addTargetDate && (
                         <div className="p-3 bg-primary-50 dark:bg-primary-900/20 rounded-lg border border-primary-100 dark:border-primary-800">
                             <p className="text-xs text-primary-600 dark:text-primary-400 font-medium">Tanggal</p>
-                            <p className="font-semibold text-primary-800 dark:text-primary-200">
-                                {new Date(addTargetDate + 'T00:00:00').toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-                            </p>
+                            <p className="font-semibold text-primary-800 dark:text-primary-200">{new Date(addTargetDate + 'T00:00:00').toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
                         </div>
                     )}
-
                     <div className="space-y-3">
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                Pilih Pegawai <span className="text-red-500">*</span>
-                            </label>
-                            <select
-                                className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 focus:border-primary-500 focus:ring-primary-500"
-                                value={addForm.userId}
-                                onChange={(e) => setAddForm({ ...addForm, userId: e.target.value })}
-                                required
-                            >
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Pilih Pegawai <span className="text-red-500">*</span></label>
+                            <select className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 focus:border-primary-500 focus:ring-primary-500" value={addForm.userId} onChange={(e) => setAddForm({ ...addForm, userId: e.target.value })} required>
                                 <option value="">-- Pilih Pegawai --</option>
-                                {allUsers.map(u => (
-                                    <option key={u.id} value={u.id}>
-                                        {u.fullName} ({u.department})
-                                    </option>
-                                ))}
+                                {allUsers.map(u => (<option key={u.id} value={u.id}>{u.fullName} ({u.department})</option>))}
                             </select>
                         </div>
-
                         <div className="flex items-center">
-                            <input
-                                type="checkbox"
-                                id="addIsOffDay"
-                                className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
-                                checked={addForm.isOffDay}
-                                onChange={(e) => setAddForm({ ...addForm, isOffDay: e.target.checked })}
-                            />
-                            <label htmlFor="addIsOffDay" className="ml-2 block text-sm font-medium text-gray-900 dark:text-gray-300">
-                                Set sebagai Libur (OFF)
-                            </label>
+                            <input type="checkbox" id="addIsOffDay" className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded" checked={addForm.isOffDay} onChange={(e) => setAddForm({ ...addForm, isOffDay: e.target.checked })} />
+                            <label htmlFor="addIsOffDay" className="ml-2 block text-sm font-medium text-gray-900 dark:text-gray-300">Set sebagai Libur (OFF)</label>
                         </div>
-
                         {!addForm.isOffDay && (
                             <>
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                        Pilih Shift <span className="text-red-500">*</span>
-                                    </label>
-                                    <select
-                                        className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 focus:border-primary-500 focus:ring-primary-500"
-                                        value={addForm.shiftId}
-                                        onChange={(e) => setAddForm({ ...addForm, shiftId: e.target.value })}
-                                        required={!addForm.isOffDay}
-                                    >
+                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Pilih Shift <span className="text-red-500">*</span></label>
+                                    <select className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 focus:border-primary-500 focus:ring-primary-500" value={addForm.shiftId} onChange={(e) => setAddForm({ ...addForm, shiftId: e.target.value })} required={!addForm.isOffDay}>
                                         <option value="">Pilih Shift</option>
-                                        {allShifts.map(s => (
-                                            <option key={s.id} value={s.id}>
-                                                {s.name} ({s.startTime} - {s.endTime})
-                                            </option>
-                                        ))}
+                                        {allShifts.map(s => (<option key={s.id} value={s.id}>{s.name} ({s.startTime} - {s.endTime})</option>))}
                                     </select>
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                        Jobdesk / Stasiun Dapur <span className="text-gray-400 font-normal">(opsional)</span>
-                                    </label>
+                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Jobdesk / Stasiun Dapur <span className="text-gray-400 font-normal">(opsional)</span></label>
                                     {(() => {
                                         const taken = addTargetDate ? getStationAssignments(addTargetDate, addForm.userId) : {};
                                         const selectedUser = allUsers.find(u => u.id === parseInt(addForm.userId));
                                         const isKitchen = selectedUser?.department === 'KITCHEN';
-                                        
                                         return (
-                                            <select
-                                                className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 focus:border-primary-500 focus:ring-primary-500"
-                                                value={addForm.kitchenStation}
-                                                onChange={(e) => setAddForm({ ...addForm, kitchenStation: e.target.value })}
-                                            >
+                                            <select className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 focus:border-primary-500 focus:ring-primary-500" value={addForm.kitchenStation} onChange={(e) => setAddForm({ ...addForm, kitchenStation: e.target.value })}>
                                                 <option value="">-- Tidak Ada --</option>
                                                 {KITCHEN_STATIONS.filter(s => isKitchen || s.startsWith('D') || s.startsWith('E')).map(s => {
                                                     const assignedTo = taken[s];
-                                                    return (
-                                                        <option key={s} value={s} disabled={!!assignedTo}>
-                                                            {s}{assignedTo ? ` — ${assignedTo}` : ''}
-                                                        </option>
-                                                    );
+                                                    return (<option key={s} value={s} disabled={!!assignedTo}>{s}{assignedTo ? ` — ${assignedTo}` : ''}</option>);
                                                 })}
                                             </select>
                                         );
                                     })()}
                                 </div>
-
-                                {/* Temporary Department Override for Add modal */}
                                 <div className="border-t border-dashed border-amber-300 dark:border-amber-700 pt-3">
-                                    <label className="block text-sm font-medium text-amber-700 dark:text-amber-400 mb-1">
-                                        🔄 Penugasan Departemen Sementara
-                                    </label>
-                                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
-                                        Hanya untuk hari ini. Departemen permanen karyawan tidak berubah.
-                                    </p>
-                                    <select
-                                        className="w-full rounded-md border-amber-300 dark:border-amber-700 dark:bg-gray-700 focus:border-amber-500 focus:ring-amber-500 bg-amber-50 dark:bg-gray-700"
-                                        value={addForm.temporaryDepartment}
-                                        onChange={(e) => setAddForm({ ...addForm, temporaryDepartment: e.target.value })}
-                                    >
+                                    <label className="block text-sm font-medium text-amber-700 dark:text-amber-400 mb-1">🔄 Penugasan Departemen Sementara</label>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Hanya untuk hari ini. Departemen permanen karyawan tidak berubah.</p>
+                                    <select className="w-full rounded-md border-amber-300 dark:border-amber-700 dark:bg-gray-700 focus:border-amber-500 focus:ring-amber-500 bg-amber-50 dark:bg-gray-700" value={addForm.temporaryDepartment} onChange={(e) => setAddForm({ ...addForm, temporaryDepartment: e.target.value })}>
                                         <option value="">-- Ikut Departemen Permanen --</option>
                                         <option value="BAR">BAR (sementara)</option>
                                         <option value="KITCHEN">KITCHEN (sementara)</option>
@@ -714,14 +416,9 @@ const ScheduleCalendar = () => {
                             </>
                         )}
                     </div>
-
                     <div className="pt-4 flex justify-end gap-3">
-                        <Button variant="outline" type="button" onClick={() => setShowAddModal(false)}>
-                            Batal
-                        </Button>
-                        <Button type="submit" loading={addLoading}>
-                            Tambah Jadwal
-                        </Button>
+                        <Button variant="outline" type="button" onClick={() => setShowAddModal(false)}>Batal</Button>
+                        <Button type="submit" loading={addLoading}>Tambah Jadwal</Button>
                     </div>
                 </form>
             </Modal>

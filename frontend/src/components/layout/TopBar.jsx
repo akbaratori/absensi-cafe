@@ -85,6 +85,7 @@ const TopBar = ({ onMenuClick }) => {
                 className="pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent w-64 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 transition-colors"
               />
             </div>
+          </div>
 
           {/* Right: Notifications + User menu */}
           <div className="flex items-center gap-4">
@@ -152,10 +153,12 @@ const TopBar = ({ onMenuClick }) => {
                                 <div className="w-2 h-2 rounded-full bg-blue-500 mt-1.5 flex-shrink-0" />
                               )}
                             </div>
+                          </div>
                         ))}
                       </div>
                     )}
                   </div>
+                </div>
               )}
             </div>
 
@@ -202,6 +205,8 @@ const TopBar = ({ onMenuClick }) => {
                 </>
               )}
             </div>
+          </div>
+        </div>
       </header>
 
       <ChangePasswordModal

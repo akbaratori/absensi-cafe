@@ -67,6 +67,7 @@ const DashboardPage = () => {
               <Button onClick={handleClockOut} loading={actionLoading} variant="secondary">Clock Out</Button>
             )}
           </div>
+        </div>
         
         {todayData && (
           <div className="mt-4">

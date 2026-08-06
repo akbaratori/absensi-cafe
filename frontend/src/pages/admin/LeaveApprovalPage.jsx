@@ -236,10 +236,11 @@ const LeaveApprovalPage = () => {
                                         <Trash2 size={18} />
                                     </button>
                                 </div>
+                            </div>
                         ))
                     )}
                 </div>
-            </Card >
+            </Card>
 
             <Modal
                 isOpen={confirmationModal.isOpen}
@@ -271,8 +272,9 @@ const LeaveApprovalPage = () => {
                             {confirmationModal.status === 'DELETE' ? 'Delete' : `Confirm ${confirmationModal.status === 'APPROVED' ? 'Approval' : 'Rejection'}`}
                         </Button>
                     </div>
+                </div>
             </Modal>
-        </div >
+        </div>
     );
 };
 
