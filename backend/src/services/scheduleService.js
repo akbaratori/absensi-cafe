@@ -232,7 +232,6 @@ class ScheduleService {
         try {
             let start, end;
             if (options.startDate && options.endDate) {
-<<<<<<< HEAD
                 start = new Date(options.startDate);
                 start.setHours(0, 0, 0, 0);
                 end = new Date(options.endDate);
@@ -249,7 +248,6 @@ class ScheduleService {
                 const [year, month] = options.month.split('-').map(Number);
                 start = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0));
                 end = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
->>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
             }
 
             // Get all KITCHEN staff Sorted by ID for consistent rotation
@@ -370,10 +368,8 @@ class ScheduleService {
                     });
                 });
 
-<<<<<<< HEAD
                 current.setDate(current.getDate() + 1);
                 current.setUTCDate(current.getUTCDate() + 1);
->>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
             }
 
             // Log fairness summary
@@ -426,7 +422,6 @@ class ScheduleService {
         try {
             let start, end;
             if (options.startDate && options.endDate) {
-<<<<<<< HEAD
                 start = new Date(options.startDate);
                 start.setHours(0, 0, 0, 0);
                 end = new Date(options.endDate);
@@ -442,7 +437,6 @@ class ScheduleService {
                 const [year, month] = options.month.split('-').map(Number);
                 start = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0));
                 end = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
->>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
             }
 
             // Get all schedules
@@ -477,7 +471,6 @@ class ScheduleService {
             });
 
             while (current <= end) {
-<<<<<<< HEAD
                 const daySchedules = schedules.filter(s => new Date(s.date).getDate() === current.getDate());
 
                 // 1. Determine Week Key (Monday as Start)
@@ -499,7 +492,6 @@ class ScheduleService {
                 const day = d.getUTCDay();
                 const diff = d.getUTCDate() - day + (day === 0 ? -6 : 1); // Adjust when day is Sunday
                 const monday = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), diff));
->>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
                 const weekKey = monday.toISOString().split('T')[0];
 
                 // 2. Determine PIC for this week
@@ -517,10 +509,8 @@ class ScheduleService {
                 // 3. Assign Daily Stations
                 await this.assignDailyStations(current, allStaffIds, weeklyPicId, stationCounts);
 
-<<<<<<< HEAD
                 current.setDate(current.getDate() + 1);
                 current.setUTCDate(current.getUTCDate() + 1);
->>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
             }
 
             // CLEANUP: Ensure NO OFF DAYS have stations (Clean up artifacts)
@@ -559,7 +549,6 @@ class ScheduleService {
     }
 
     async getTodaySchedule(userId) {
-<<<<<<< HEAD
         // Gunakan WITA (UTC+8) untuk menentukan "hari ini",
         // agar jadwal yang tersimpan di database (dengan timezone WITA) cocok.
         const WITA_OFFSET_MS = 8 * 60 * 60 * 1000;
@@ -574,7 +563,6 @@ class ScheduleService {
         // Gunakan UTC midnight (Z) — BUKAN +08:00 — karena semua jadwal disimpan sebagai UTC midnight
         // (lihat upsertSingleSchedule: new Date(date) dan generateSchedule: new Date(startDateStr + 'T00:00:00Z'))
         const today = new Date(`${witaDateStr}T00:00:00Z`);
->>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
 
         return await prisma.userSchedule.findUnique({
             where: {
@@ -636,11 +624,9 @@ class ScheduleService {
     async upsertSingleSchedule(data) {
         const { userId, date, shiftId, isOffDay, kitchenStation, temporaryDepartment } = data;
         
-<<<<<<< HEAD
         const scheduleDate = new Date(date);
         // Use UTC midnight to match getTodaySchedule() lookup format
         const scheduleDate = new Date(date + 'T00:00:00Z');
->>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
 
         const upsertData = {
             shiftId: isOffDay ? null : (shiftId ? parseInt(shiftId) : null),
@@ -889,12 +875,10 @@ class ScheduleService {
 
         // A. PIC Stok Mingguan (Rules: Only Mondays, Fixed User) — using UTC
         const isMonday = date.getUTCDay() === 1;
->>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
         // A. PIC Stok Mingguan (Rules: Only Mondays, Fixed User) — using UTC
         const isMonday = date.getUTCDay() === 1;
         // A. PIC Stok Mingguan (Rules: Only Mondays, Fixed User) — using UTC
         const isMonday = date.getUTCDay() === 1;
->>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
         let picStokUserId = null;
         if (isMonday && weeklyPicId && staffIds.includes(weeklyPicId)) {
             picStokUserId = weeklyPicId;
@@ -936,17 +920,14 @@ class ScheduleService {
         );
 
         if (sanitationCandidates.length > 0) {
-<<<<<<< HEAD
             // Deterministic rotation based on Date
             const sanitationIndex = (date.getDate() + date.getMonth()) % sanitationCandidates.length;
             // Deterministic rotation based on Date — use UTC for consistency
             const sanitationIndex = (date.getUTCDate() + date.getUTCMonth()) % sanitationCandidates.length;
->>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
             sanitationLeadUserId = sanitationCandidates[sanitationIndex].userId;
             controlRoles[sanitationLeadUserId] = 'SANITATION';
         }
 
-<<<<<<< HEAD
         // 5. Update Database
         const startOfDay = new Date(date);
         startOfDay.setHours(0, 0, 0, 0);
@@ -957,7 +938,6 @@ class ScheduleService {
         const dateStr = date.toISOString().split('T')[0];
         const startOfDay = new Date(dateStr + 'T00:00:00Z');
         const endOfDay = new Date(dateStr + 'T23:59:59.999Z');
->>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
 
         for (const assign of newAssignments) {
             await prisma.userSchedule.updateMany({
@@ -984,12 +964,10 @@ class ScheduleService {
     async redistributeStations(dateStr) {
         // Use UTC midnight to match stored schedule dates
         const date = new Date(dateStr + 'T00:00:00Z');
->>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
         // Use UTC midnight to match stored schedule dates
         const date = new Date(dateStr + 'T00:00:00Z');
         // Use UTC midnight to match stored schedule dates
         const date = new Date(dateStr + 'T00:00:00Z');
->>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
 
         // Get all kitchen staff scheduled for WORK (not off) today
         const schedules = await prisma.userSchedule.findMany({
@@ -1070,7 +1048,5 @@ class ScheduleService {
 }
 
 
-<<<<<<< HEAD
 module.exports = new ScheduleService();
 module.exports = new ScheduleService();
->>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
