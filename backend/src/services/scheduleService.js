@@ -174,7 +174,6 @@ class ScheduleService {
                 const dayOfWeek = currentDate.getUTCDay();
 <<<<<<< HEAD
                 const isOffDay = keepOffDays && user.offDay != null && user.offDay !== -1 && dayOfWeek === user.offDay;
-=======
                 // Robust offDay validation: handle null, undefined, and string values from DB
                 const userOffDay = user.offDay != null ? Number(user.offDay) : null;
                 const isOffDay = keepOffDays && userOffDay !== null && userOffDay !== -1 && dayOfWeek === userOffDay;
@@ -246,7 +245,6 @@ class ScheduleService {
                 const [year, month] = options.month.split('-').map(Number);
                 start = new Date(year, month - 1, 1, 0, 0, 0, 0);
                 end = new Date(year, month, 0, 23, 59, 59, 999);
-=======
                 // Use UTC midnight to match getTodaySchedule() lookup format
                 start = new Date(options.startDate + 'T00:00:00Z');
                 end = new Date(options.endDate + 'T23:59:59.999Z');
@@ -377,7 +375,6 @@ class ScheduleService {
 
 <<<<<<< HEAD
                 current.setDate(current.getDate() + 1);
-=======
                 current.setUTCDate(current.getUTCDate() + 1);
 >>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
             }
@@ -441,7 +438,6 @@ class ScheduleService {
                 const [year, month] = options.month.split('-').map(Number);
                 start = new Date(year, month - 1, 1, 0, 0, 0, 0);
                 end = new Date(year, month, 0, 23, 59, 59, 999);
-=======
                 // Use UTC midnight to match getTodaySchedule() lookup format
                 start = new Date(options.startDate + 'T00:00:00Z');
                 end = new Date(options.endDate + 'T23:59:59.999Z');
@@ -493,7 +489,6 @@ class ScheduleService {
                 const day = d.getDay();
                 const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Adjust when day is Sunday
                 const monday = new Date(d.setDate(diff));
-=======
                 // Compare full date (year+month+day) to avoid cross-month collisions
                 const currentDateStr = current.toISOString().split('T')[0];
                 const daySchedules = schedules.filter(s => {
@@ -527,7 +522,6 @@ class ScheduleService {
 
 <<<<<<< HEAD
                 current.setDate(current.getDate() + 1);
-=======
                 current.setUTCDate(current.getUTCDate() + 1);
 >>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
             }
@@ -575,7 +569,6 @@ class ScheduleService {
         const nowWITA = new Date(Date.now() + WITA_OFFSET_MS);
         const witaDateStr = nowWITA.toISOString().slice(0, 10); // "YYYY-MM-DD" dalam WITA
         const today = new Date(`${witaDateStr}T00:00:00+08:00`);
-=======
         // Gunakan WITA (UTC+8) untuk menentukan "hari ini" (tanggal lokal Makassar),
         // lalu konversi ke UTC midnight agar cocok dengan format penyimpanan di database.
         const WITA_OFFSET_MS = 8 * 60 * 60 * 1000;
@@ -648,7 +641,6 @@ class ScheduleService {
         
 <<<<<<< HEAD
         const scheduleDate = new Date(date);
-=======
         // Use UTC midnight to match getTodaySchedule() lookup format
         const scheduleDate = new Date(date + 'T00:00:00Z');
 >>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
@@ -898,10 +890,11 @@ class ScheduleService {
 
         let controlRoles = {}; // userId -> 'PIC_STOK' | 'SHIFT_PIC' | 'SANITATION'
 
-<<<<<<< HEAD
-        // A. PIC Stok Mingguan (Rules: Only Mondays, Fixed User)
-        const isMonday = date.getDay() === 1;
-=======
+        // A. PIC Stok Mingguan (Rules: Only Mondays, Fixed User) — using UTC
+        const isMonday = date.getUTCDay() === 1;
+>>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
+        // A. PIC Stok Mingguan (Rules: Only Mondays, Fixed User) — using UTC
+        const isMonday = date.getUTCDay() === 1;
         // A. PIC Stok Mingguan (Rules: Only Mondays, Fixed User) — using UTC
         const isMonday = date.getUTCDay() === 1;
 >>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
@@ -949,7 +942,6 @@ class ScheduleService {
 <<<<<<< HEAD
             // Deterministic rotation based on Date
             const sanitationIndex = (date.getDate() + date.getMonth()) % sanitationCandidates.length;
-=======
             // Deterministic rotation based on Date — use UTC for consistency
             const sanitationIndex = (date.getUTCDate() + date.getUTCMonth()) % sanitationCandidates.length;
 >>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
@@ -964,7 +956,6 @@ class ScheduleService {
 
         const endOfDay = new Date(startOfDay);
         endOfDay.setDate(endOfDay.getDate() + 1);
-=======
         // 5. Update Database — use UTC midnight to match stored schedule dates
         const dateStr = date.toISOString().split('T')[0];
         const startOfDay = new Date(dateStr + 'T00:00:00Z');
@@ -994,9 +985,11 @@ class ScheduleService {
      * Redistribute stations for a specific date (e.g., someone is Sick)
      */
     async redistributeStations(dateStr) {
-<<<<<<< HEAD
-        const date = new Date(dateStr);
-=======
+        // Use UTC midnight to match stored schedule dates
+        const date = new Date(dateStr + 'T00:00:00Z');
+>>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
+        // Use UTC midnight to match stored schedule dates
+        const date = new Date(dateStr + 'T00:00:00Z');
         // Use UTC midnight to match stored schedule dates
         const date = new Date(dateStr + 'T00:00:00Z');
 >>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
@@ -1082,6 +1075,5 @@ class ScheduleService {
 
 <<<<<<< HEAD
 module.exports = new ScheduleService();
-=======
 module.exports = new ScheduleService();
 >>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395

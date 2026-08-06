@@ -7,131 +7,45 @@ const auditService = require('../services/auditService');
 const WITA_OFFSET_MS = 8 * 60 * 60 * 1000;
 
 /**
- * Initialize all cron jobs for scheduled push notifications and auto clock-out
+ * Initialize all cron jobs for scheduled push notifications
  */
 function initScheduler() {
-    // AUTO CLOCK-OUT: Every 15 minutes, find records without clockOut that exceed max hours
-    cron.schedule('*/15 * * * *', async () => {
+    // Daily absent auto-marking at 23:05 WITA
+    cron.schedule('5 23 * * *', async () => {
         try {
-            let autoClockoutHours = 10;
-            try {
-                const cfg = await prisma.systemConfig.findUnique({ where: { key: 'autoClockoutHours' } });
-                if (cfg) autoClockoutHours = parseInt(cfg.value, 10) || 10;
-            } catch (e) { /* use default */ }
+            console.log('[Scheduler] Running daily absent auto-marking...');
 
-            const thresholdTime = new Date(Date.now() - autoClockoutHours * 60 * 60 * 1000);
-
-            const staleRecords = await prisma.attendance.findMany({
-                where: {
-                    clockOut: null,
-                    clockIn: { lt: thresholdTime },
-                },
-                include: {
-                    user: { select: { id: true, fullName: true, shiftId: true } }
-                }
-            });
-
-            if (staleRecords.length === 0) return;
-
-            console.log(`[AutoClockout] Found ${staleRecords.length} stale attendance records`);
-
-            for (const record of staleRecords) {
-                const autoClockOut = new Date(record.clockIn.getTime() + autoClockoutHours * 60 * 60 * 1000);
-
-                await prisma.attendance.update({
-                    where: { id: record.id },
-                    data: {
-                        clockOut: autoClockOut,
-                        notes: record.notes
-                            ? `${record.notes} | [Auto clock-out oleh sistem]`
-                            : '[Auto clock-out oleh sistem]',
-                    },
-                });
-
-                await auditService.logAutoClockout(record.id, record.userId, autoClockOut);
-
-                await sendPushToUser(
-                    record.userId,
-                    '\u26a0\ufe0f Auto Clock-Out',
-                    `Kamu lupa clock-out! Sistem otomatis mencatat jam pulang setelah ${autoClockoutHours} jam.`,
-                    { url: '/attendance' }
-<<<<<<< HEAD
-                ).catch(() => { });
-=======
-                ).catch(() => {});
->>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
-
-                console.log(`[AutoClockout] Auto clocked-out user ${record.user.fullName} (record #${record.id})`);
-            }
-        } catch (err) {
-            console.error('[AutoClockout] Cron error:', err.message);
-        }
-    });
-
-    console.log('[Scheduler] Auto clock-out cron initialized');
-
-    // ABSENT DETECTION: Every day at 23:50 WITA (15:50 UTC)
-    cron.schedule('50 15 * * *', async () => {
-        try {
-            const nowWITA = new Date(Date.now() + WITA_OFFSET_MS);
-            const witaDateStr = nowWITA.toISOString().slice(0, 10);
+            const now = new Date();
+            const witaNow = new Date(now.getTime() + WITA_OFFSET_MS);
+            const witaDateStr = witaNow.toISOString().slice(0, 10);
             const todayStart = new Date(`${witaDateStr}T00:00:00+08:00`);
-            const todayEnd = new Date(`${witaDateStr}T23:59:59+08:00`);
-
-            // Check if today is a public holiday
-            const isPublicHoliday = await prisma.publicHoliday.findFirst({
-                where: { date: { gte: todayStart, lte: todayEnd } }
-            });
-            if (isPublicHoliday) {
-                console.log(`[AbsentDetection] Skipped — today is a public holiday: ${isPublicHoliday.name}`);
-                return;
-            }
+            const todayEnd = new Date(`${witaDateStr}T23:59:59.999+08:00`);
 
             const employees = await prisma.user.findMany({
-                where: { isActive: true, role: 'EMPLOYEE' },
-                select: { id: true, fullName: true, offDay: true }
-            });
-
-            const attendanceToday = await prisma.attendance.findMany({
-                where: { date: { gte: todayStart, lte: todayEnd } },
-                select: { userId: true }
-            });
-            const clockedInUserIds = new Set(attendanceToday.map(a => a.userId));
-
-            const approvedLeaves = await prisma.leave.findMany({
-                where: {
-                    status: 'APPROVED',
-                    startDate: { lte: todayEnd },
-                    endDate: { gte: todayStart }
+                where: { isActive: true },
+                select: {
+                    id: true,
+                    fullName: true,
+                    shiftId: true,
+                    shift: true,
                 },
-                select: { userId: true }
             });
-            const onLeaveUserIds = new Set(approvedLeaves.map(l => l.userId));
 
-            const schedules = await prisma.userSchedule.findMany({
-                where: {
-                    date: { gte: todayStart, lte: todayEnd },
-                    isOffDay: true
-                },
-                select: { userId: true }
-            });
-            const offDayUserIds = new Set(schedules.map(s => s.userId));
-
-            const dayOfWeek = nowWITA.getDay();
             let absentCount = 0;
 
             for (const emp of employees) {
-                if (clockedInUserIds.has(emp.id)) continue;
-                if (onLeaveUserIds.has(emp.id)) continue;
-                if (offDayUserIds.has(emp.id)) continue;
-                if (emp.offDay === dayOfWeek) continue;
-
                 try {
-<<<<<<< HEAD
-                    await sendPushToUser(emp.id, "Pengingat Absensi", "Anda belum melakukan absensi hari ini. Silakan segera absen.");
-=======
-                    // Use end-of-shift time (23:00 WITA) as clockIn for absent records
-                    // so the timestamp is meaningful, not midnight.
+                    const attendance = await prisma.attendance.findFirst({
+                        where: {
+                            userId: emp.id,
+                            date: { gte: todayStart, lt: todayEnd },
+                        },
+                    });
+
+                    if (attendance) {
+                        continue;
+                    }
+
                     const absentTime = new Date(`${witaDateStr}T23:00:00+08:00`);
                     await prisma.attendance.create({
                         data: {
@@ -139,119 +53,150 @@ function initScheduler() {
                             date: todayStart,
                             clockIn: absentTime,
                             status: 'ABSENT',
-                            notes: '[Tidak hadir tanpa keterangan - Auto-detected]'
-                        }
+                            notes: '[Tidak hadir tanpa keterangan - Auto-detected]',
+                        },
                     });
->>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
+
                     absentCount++;
                 } catch (e) {
-                    if (e.code !== 'P2002') {
-                        console.error(`[AbsentDetection] Error for user ${emp.id}:`, e.message);
-                    }
+                    console.error(`[Scheduler] Failed to auto-mark absent for user ${emp.id}:`, e.message);
                 }
             }
 
-            if (absentCount > 0) {
-                console.log(`[AbsentDetection] Created ${absentCount} ABSENT records for ${witaDateStr}`);
-            }
+            await auditService.logSystemAction(
+                'AUTO_MARK_ABSENT',
+                { date: witaDateStr, absentCount },
+                { source: 'scheduler' }
+            );
+
+            console.log(`[Scheduler] Daily absent auto-marking completed. ${absentCount} employee(s) marked absent.`);
         } catch (err) {
-            console.error('[AbsentDetection] Cron error:', err.message);
+            console.error('[Scheduler] Daily absent auto-marking error:', err.message);
         }
+    }, {
+        timezone: 'Asia/Makassar',
     });
 
-    console.log('[Scheduler] Absent detection cron initialized');
+    // Daily attendance reminder at 10:00 WITA
+    cron.schedule('0 10 * * *', async () => {
+        try {
+            console.log('[Scheduler] Running attendance reminder...');
 
-    // SHIFT REMINDER: Every minute check if any shift starts in 30 minutes
-    if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
-        console.log('[Scheduler] VAPID keys not set - shift reminder push disabled');
-    } else {
-        cron.schedule('* * * * *', async () => {
-            try {
-<<<<<<< HEAD
-                const now = new Date();
-                const target = new Date(now.getTime() + 30 * 60 * 1000);
-                const targetHHMM = `${String(target.getHours()).padStart(2, '0')}:${String(target.getMinutes()).padStart(2, '0')}`;
+            const now = new Date();
+            const witaNow = new Date(now.getTime() + WITA_OFFSET_MS);
+            const witaDateStr = witaNow.toISOString().slice(0, 10);
+            const todayStart = new Date(`${witaDateStr}T00:00:00+08:00`);
+            const todayEnd = new Date(`${witaDateStr}T23:59:59.999+08:00`);
 
-                const todayStart = new Date(now);
-                todayStart.setHours(0, 0, 0, 0);
-                const todayEnd = new Date(todayStart);
-                todayEnd.setDate(todayEnd.getDate() + 1);
-=======
-                // Use WITA (UTC+8) for all time calculations to match business hours
-                const nowWITA = new Date(Date.now() + WITA_OFFSET_MS);
-                const targetWITA = new Date(nowWITA.getTime() + 30 * 60 * 1000);
-                const targetHHMM = `${String(targetWITA.getUTCHours()).padStart(2, '0')}:${String(targetWITA.getUTCMinutes()).padStart(2, '0')}`;
+            const employees = await prisma.user.findMany({
+                where: { isActive: true },
+                select: {
+                    id: true,
+                    fullName: true,
+                },
+            });
 
-                // Today in WITA (00:00:00+08:00 to 23:59:59+08:00)
-                const witaDateStr = nowWITA.toISOString().slice(0, 10);
-                const todayStart = new Date(`${witaDateStr}T00:00:00+08:00`);
-                const todayEnd = new Date(`${witaDateStr}T23:59:59+08:00`);
->>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
+            for (const emp of employees) {
+                try {
+                    const attendance = await prisma.attendance.findFirst({
+                        where: {
+                            userId: emp.id,
+                            date: { gte: todayStart, lt: todayEnd },
+                        },
+                    });
 
-                const users = await prisma.user.findMany({
-                    where: {
-                        isActive: true,
-                        shift: { startTime: targetHHMM }
-                    },
-                    include: { shift: true }
-                });
+                    if (!attendance) {
+                        await sendPushToUser(
+                            emp.id,
+                            'Pengingat Absensi',
+                            'Anda belum melakukan absensi hari ini. Silakan segera absen.'
+                        );
+                    }
+                } catch (e) {
+                    console.error(`[Scheduler] Failed to send reminder for user ${emp.id}:`, e.message);
+                }
+            }
 
-                for (const user of users) {
+            console.log('[Scheduler] Attendance reminder completed');
+        } catch (err) {
+            console.error('[Scheduler] Attendance reminder error:', err.message);
+        }
+    }, {
+        timezone: 'Asia/Makassar',
+    });
+
+    // Shift reminder every 5 minutes
+    cron.schedule('*/5 * * * *', async () => {
+        try {
+            const now = new Date();
+            const nowWita = new Date(now.getTime() + WITA_OFFSET_MS);
+            const witaDateStr = nowWita.toISOString().slice(0, 10);
+            const todayStart = new Date(`${witaDateStr}T00:00:00+08:00`);
+            const todayEnd = new Date(`${witaDateStr}T23:59:59.999+08:00`);
+
+            const users = await prisma.user.findMany({
+                where: {
+                    isActive: true,
+                },
+                include: {
+                    shift: true,
+                },
+            });
+
+            for (const user of users) {
+                try {
                     const schedule = await prisma.userSchedule.findFirst({
                         where: {
                             userId: user.id,
-                            date: { gte: todayStart, lt: todayEnd },
-                            isOffDay: false
-                        }
+                            date: todayStart,
+                        },
+                        include: {
+                            shift: true,
+                        },
                     });
 
-<<<<<<< HEAD
-                    if (schedule || !user.shiftId) {
-                        const attendance = await prisma.attendance.findFirst({
-                            where: {
-                                userId: user.id,
-                                date: { gte: todayStart, lt: todayEnd }
-                            }
-                        });
-
-                        if (!attendance) {
-                            await sendPushToUser(
-                                user.id,
-                                '\u23f0 Pengingat Shift',
-                                `Shift kamu (${user.shift?.name}) dimulai 30 menit lagi! Jangan sampai telat.`,
-                                { url: '/attendance' }
-                            );
-                        }
-=======
-                    // Skip if user has a schedule that says off-day today
                     if (schedule && schedule.isOffDay) continue;
-                    // Skip if user has no schedule and no shift assigned
                     if (!schedule && !user.shiftId) continue;
+
+                    const shift = schedule?.shift || user.shift;
+                    if (!shift || !shift.startTime) continue;
+
+                    const [hour, minute] = shift.startTime.split(':').map(Number);
+                    const shiftStart = new Date(`${witaDateStr}T00:00:00+08:00`);
+                    shiftStart.setHours(hour, minute, 0, 0);
+
+                    const diffMs = shiftStart.getTime() - nowWita.getTime();
+                    const diffMinutes = Math.round(diffMs / 60000);
+
+                    if (diffMinutes < 25 || diffMinutes > 35) continue;
 
                     const attendance = await prisma.attendance.findFirst({
                         where: {
                             userId: user.id,
-                            date: { gte: todayStart, lt: todayEnd }
-                        }
+                            date: { gte: todayStart, lt: todayEnd },
+                        },
                     });
 
                     if (!attendance) {
                         await sendPushToUser(
                             user.id,
-                            '\u23f0 Pengingat Shift',
-                            `Shift kamu (${user.shift?.name}) dimulai 30 menit lagi! Jangan sampai telat.`,
+                            '⏰ Pengingat Shift',
+                            `Shift kamu (${shift.name}) dimulai 30 menit lagi! Jangan sampai telat.`,
                             { url: '/attendance' }
                         );
->>>>>>> 09b38336db8f0696b9cfc032bf4b7a5f2c46b395
                     }
+                } catch (err) {
+                    console.error('[Scheduler] Shift reminder error:', err.message);
                 }
-            } catch (err) {
-                console.error('[Scheduler] Shift reminder error:', err.message);
             }
-        });
 
-        console.log('[Scheduler] Shift reminder cron initialized');
-    }
+            console.log('[Scheduler] Shift reminder cron initialized');
+        } catch (err) {
+            console.error('[Scheduler] Shift reminder cron failed:', err.message);
+        }
+    }, {
+        timezone: 'Asia/Makassar',
+    });
 }
 
 module.exports = { initScheduler };
