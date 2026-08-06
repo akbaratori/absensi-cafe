@@ -28,6 +28,5 @@ async function check() {
     } finally {
         await prisma.$disconnect();
     }
-}
 
 check();

@@ -56,7 +56,6 @@ const ScheduleManagementPage = () => {
 
         try {
             // 1. Check for conflicts first
-            // 1. Check for conflicts first
             const response = await checkConflicts({
                 ...formData,
                 userId: parseInt(formData.userId),
@@ -208,7 +207,6 @@ const ScheduleManagementPage = () => {
                         Generate Jadwal
                     </Button>
                 </div>
-            </div>
 
             <ClosingSetupPanel />
 
@@ -273,7 +271,6 @@ const ScheduleManagementPage = () => {
                                 required
                             />
                         </div>
-                    </div>
 
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -415,7 +412,6 @@ const ScheduleManagementPage = () => {
                                     min={kitchenStartDate}
                                 />
                             </div>
-                        </div>
                     )}
 
                     <div className="pt-4 flex flex-col gap-3">
@@ -462,7 +458,6 @@ const ScheduleManagementPage = () => {
                             Acak Ulang Hari Ini
                         </Button>
                     </div>
-                </div>
 
 
             </Modal>
@@ -501,7 +496,6 @@ const ScheduleManagementPage = () => {
                             Ya, Lanjutkan
                         </Button>
                     </div>
-                </div>
             </Modal>
         </div >
     );

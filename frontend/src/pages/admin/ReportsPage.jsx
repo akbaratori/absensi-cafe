@@ -80,7 +80,6 @@ const ReportsPage = () => {
             user: response.data.user // Add user info to each record for table rendering
           }));
         }
-      }
       setReportData(response.data);
     } catch (error) {
       console.error('Failed to fetch report:', error);
@@ -145,7 +144,6 @@ const ReportsPage = () => {
             Export CSV
           </Button>
         </div>
-      </div>
 
       {/* Report Type & Filters */}
       <Card>
@@ -174,7 +172,6 @@ const ReportsPage = () => {
                   Monthly
                 </button>
               </div>
-            </div>
 
             {/* Right: Date & Employee Filters */}
             <div className="flex flex-col md:flex-row gap-4 items-end md:items-center">
@@ -215,9 +212,6 @@ const ReportsPage = () => {
                   />
                 )}
               </div>
-            </div>
-          </div>
-        </div>
       </Card>
 
       {/* Summary Stats */}

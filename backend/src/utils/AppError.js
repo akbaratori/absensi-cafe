@@ -10,7 +10,6 @@ class AppError extends Error {
 
     Error.captureStackTrace(this, this.constructor);
   }
-}
 
 /**
  * Predefined error instances

@@ -21,6 +21,5 @@ async function checkDates() {
     } finally {
         await prisma.$disconnect();
     }
-}
 
 checkDates();

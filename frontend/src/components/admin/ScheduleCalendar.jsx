@@ -258,7 +258,6 @@ const ScheduleCalendar = () => {
                                         <Plus className="w-3 h-3" />
                                     </button>
                                 </div>
-                            </div>
 
                             <div className="space-y-1">
                                 {daysSchedules
@@ -341,7 +340,6 @@ const ScheduleCalendar = () => {
                                     </div>
                                 )}
                             </div>
-                        </div>
                     );
                 })}
             </div>
@@ -367,7 +365,6 @@ const ScheduleCalendar = () => {
                                 <ChevronRight className="w-5 h-5" />
                             </button>
                         </div>
-                    </div>
 
                     <div className="flex items-center gap-2">
                         <Filter className="w-4 h-4 text-gray-400" />
@@ -381,7 +378,6 @@ const ScheduleCalendar = () => {
                             <option value="KITCHEN">Kitchen</option>
                         </select>
                     </div>
-                </div>
 
                 {/* Legend */}
                 <div className="flex flex-wrap gap-4 text-xs px-2">
@@ -401,7 +397,6 @@ const ScheduleCalendar = () => {
                         <div className="w-3 h-3 rounded bg-gray-200 dark:bg-[#1a1d24] border border-gray-400 dark:border-gray-700"></div>
                         <span className="text-gray-600 dark:text-gray-400">Libur (OFF)</span>
                     </div>
-                </div>
 
                 {/* Calendar Grid */}
                 {loading ? (
@@ -466,11 +461,8 @@ const ScheduleCalendar = () => {
                                         <span>OFF</span>
                                         <span className="text-sm font-bold">{stat.off}</span>
                                     </div>
-                                </div>
-                            </div>
                         ))}
                     </div>
-                </div>
             </Card>
 
             {/* Edit Schedule Modal */}
@@ -600,7 +592,6 @@ const ScheduleCalendar = () => {
                                 Simpan Perubahan
                             </Button>
                         </div>
-                    </div>
                 </form>
             </Modal>
 

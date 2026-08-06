@@ -224,6 +224,5 @@ class OvertimeService {
       updatedAt: record.updatedAt.toISOString(),
     };
   }
-}
 
 module.exports = new OvertimeService();

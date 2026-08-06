@@ -39,7 +39,6 @@ class GLMService {
       console.error('GLM API Error:', error.response?.data || error.message);
       throw new Error('Failed to get response from GLM API');
     }
-  }
 
   /**
    * Chatbot for attendance system queries
@@ -136,7 +135,6 @@ Jawab dalam format JSON:
         warnings: stats.late > 5 ? ["Tingkat keterlambatan cukup tinggi hari ini"] : []
       };
     }
-  }
 
   calculateBasicStats(data) {
     if (!data || !Array.isArray(data)) return { total: 0, present: 0, late: 0 };
@@ -204,7 +202,5 @@ Gunakan bahasa Indonesia yang formal dan profesional. Format output sebagai JSON
       console.error('Report Generation Error:', error);
       throw error;
     }
-  }
-}
 
 module.exports = new GLMService();

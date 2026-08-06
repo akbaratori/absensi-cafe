@@ -97,9 +97,6 @@ async function main() {
           } else {
             console.log('\nDibatalkan.');
           }
-        }
-      }
-    }
 
   } catch (error) {
     console.error('Error:', error.message);

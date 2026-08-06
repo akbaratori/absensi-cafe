@@ -175,7 +175,6 @@ const BulkSchedulePanel = ({ onComplete }) => {
                             className="block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                         />
                     </div>
-                </div>
 
                 {/* Keep Off Days */}
                 <div className="flex items-center gap-2">
@@ -223,7 +222,6 @@ const BulkSchedulePanel = ({ onComplete }) => {
                             </label>
                         ))}
                     </div>
-                </div>
 
                 {/* Result */}
                 {result && (
@@ -247,7 +245,6 @@ const BulkSchedulePanel = ({ onComplete }) => {
                     🌙 Generate Jadwal Massal
                 </Button>
             </div>
-        </div>
     );
 };
 

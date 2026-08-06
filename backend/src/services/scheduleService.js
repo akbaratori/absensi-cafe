@@ -94,7 +94,6 @@ class ScheduleService {
                         gte: startDate,
                         lt: endDate
                     }
-                }
             });
             return []; // Return empty as we deleted them
         }
@@ -185,7 +184,6 @@ class ScheduleService {
 
                 currentDate.setUTCDate(currentDate.getUTCDate() + 1);
             }
-        }
 
         // Batch upsert in transaction
         const batchSize = 50;
@@ -358,7 +356,6 @@ class ScheduleService {
                         isOffDay: isOff,
                         isManualOverride: false
                     });
-                });
 
                 current.setDate(current.getDate() + 1);
                 current.setUTCDate(current.getUTCDate() + 1);
@@ -404,7 +401,6 @@ class ScheduleService {
             console.error('[ScheduleService] distributeKitchenShifts ERROR:', error);
             throw error;
         }
-    }
 
     /**
      * ONLY Assign Stations (Nodes/Roles) based on existing shifts.
@@ -453,7 +449,6 @@ class ScheduleService {
                 PRIORITY_ORDER.forEach(station => {
                     stationCounts[id][station] = 0;
                 });
-            });
 
             while (current <= end) {
                 // Compare full date (year+month+day) to avoid cross-month collisions
@@ -505,7 +500,6 @@ class ScheduleService {
             console.log('[ScheduleService] assignStationsRotation ERROR:', error);
             throw error;
         }
-    }
 
     async getUserSchedule(userId, startDate, endDate) {
         return await prisma.userSchedule.findMany({
@@ -679,7 +673,6 @@ class ScheduleService {
                 if (currentOffDay !== -1 && dayOfWeek === currentOffDay) {
                     proposedOffDates.push(new Date(currentDate));
                 }
-            }
             currentDate.setUTCDate(currentDate.getUTCDate() + 1);
         }
 
@@ -759,7 +752,6 @@ class ScheduleService {
             console.error('[ScheduleService] getAllSchedules ERROR:', error);
             throw error;
         }
-    }
     async assignDailyStations(date, staffIds, weeklyPicId, stationCounts = null) {
         if (!staffIds || staffIds.length === 0) return;
 
@@ -920,7 +912,6 @@ class ScheduleService {
                 }
             });
         }
-    }
 
     /**
      * Redistribute stations for a specific date (e.g., someone is Sick)
@@ -1009,8 +1000,6 @@ class ScheduleService {
 
         return Object.values(summaryMap).sort((a, b) => a.fullName.localeCompare(b.fullName));
     }
-}
 
 
-module.exports = new ScheduleService();
 module.exports = new ScheduleService();

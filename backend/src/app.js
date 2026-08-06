@@ -57,7 +57,6 @@ app.use(cors({
       }
       callback(new Error('Not allowed by CORS'));
     }
-  }
 }));
 
 // Body parsing middleware
@@ -84,7 +83,6 @@ const limiter = rateLimit({
       code: 'RATE_LIMIT_EXCEEDED',
       message: 'Too many requests. Please try again later.',
     },
-  },
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -102,7 +100,6 @@ const authLimiter = rateLimit({
       code: 'RATE_LIMIT_EXCEEDED',
       message: 'Too many login attempts. Please try again later.',
     },
-  },
 });
 
 app.use('/api/v1/auth/login', authLimiter);
@@ -118,7 +115,6 @@ const adminLimiter = rateLimit({
       code: 'RATE_LIMIT_EXCEEDED',
       message: 'Too many admin requests. Please try again later.',
     },
-  },
 });
 
 app.use('/api/v1/admin', adminLimiter);
@@ -134,7 +130,6 @@ app.get('/', (req, res) => {
     version: '1.0.0',
     documentation: '/api-docs',
   });
-});
 
 // Swagger Documentation
 swaggerDocs(app, config.port);

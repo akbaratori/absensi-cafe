@@ -236,7 +236,6 @@ const ClosingSetupPanel = () => {
                         <p className="font-semibold text-sm">Jobdesk Closing Ramadhan</p>
                         <p className="text-xs text-white/60">Otomatis menyesuaikan dengan jadwal libur</p>
                     </div>
-                </div>
                 <button onClick={() => setIsOpen(false)} className="text-white/70 hover:text-white text-lg">✕</button>
             </div>
 
@@ -273,7 +272,6 @@ const ClosingSetupPanel = () => {
                             </div>
                         ))}
                     </div>
-                </div>
 
                 {/* Dates */}
                 <div className="grid grid-cols-2 gap-3">
@@ -287,7 +285,6 @@ const ClosingSetupPanel = () => {
                         <input type="date" value={endDate} onChange={e => { setEndDate(e.target.value); setSaved(false); }}
                             className="w-full px-3 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm" />
                     </div>
-                </div>
 
                 <button onClick={handleSave}
                     className="w-full py-2 bg-gradient-to-r from-slate-700 to-gray-700 hover:from-slate-800 hover:to-gray-800 text-white font-semibold rounded-lg text-sm transition-all"
@@ -328,7 +325,6 @@ const ClosingSetupPanel = () => {
                                 </div>
                             ))}
                         </div>
-                    </div>
                 )}
 
                 {saved && !todayAssignments && startDate && endDate && (
@@ -375,7 +371,6 @@ const ClosingSetupPanel = () => {
                     </div>
                 )}
             </div>
-        </div>
     );
 };
 

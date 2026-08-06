@@ -68,7 +68,6 @@ const ClosingTodayWidget = () => {
                         <p className="font-semibold text-sm">Jobdesk Closing Hari Ini</p>
                         <p className="text-xs text-white/70">{fmtToday}</p>
                     </div>
-                </div>
                 <a
                     href="/admin/jobdesk-closing"
                     className="text-xs text-white/80 hover:text-white underline"
@@ -100,8 +99,6 @@ const ClosingTodayWidget = () => {
                         </div>
                     ))}
                 </div>
-            </div>
-        </div>
     );
 };
 

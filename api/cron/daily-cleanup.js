@@ -58,7 +58,6 @@ module.exports = async function handler(req, res) {
       } catch (e) {
         results.errors.push(`clockout:${record.id}:${e.message}`);
       }
-    }
 
     // ===== 2. ABSENT DETECTION =====
     const nowWITA = new Date(Date.now() + WITA_OFFSET_MS);
@@ -119,8 +118,6 @@ module.exports = async function handler(req, res) {
           if (e.code !== 'P2002') {
             results.errors.push(`absent:${emp.id}:${e.message}`);
           }
-        }
-      }
     } else {
       results.skippedHoliday = isPublicHoliday.name;
     }

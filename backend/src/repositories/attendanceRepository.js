@@ -43,8 +43,6 @@ class AttendanceRepository {
             shift: true,
             shiftId: true,
           },
-        },
-      },
     });
   }
 
@@ -74,6 +72,5 @@ class AttendanceRepository {
         orderBy: { date: 'desc' }
     });
   }
-}
 
 module.exports = new AttendanceRepository();

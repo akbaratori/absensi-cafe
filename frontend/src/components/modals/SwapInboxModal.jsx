@@ -132,7 +132,6 @@ const SwapInboxModal = ({ onClose }) => {
                                                 <XCircle className="w-4 h-4 mr-1" /> Tolak
                                             </Button>
                                         </div>
-                                    </div>
                                 ))}
                             </div>
                         ) : (
@@ -168,7 +167,6 @@ const SwapInboxModal = ({ onClose }) => {
                                             <div className="text-xs text-gray-500">
                                                 {swap.reason}
                                             </div>
-                                        </div>
                                         <div>
                                             <span className={`px-2 py-1 rounded-full text-xs font-medium border
                                                 ${swap.status === 'APPROVED' ? 'bg-green-100 text-green-800 border-green-200' : ''}
@@ -179,7 +177,6 @@ const SwapInboxModal = ({ onClose }) => {
                                                 {swap.status.replace('_', ' ')}
                                             </span>
                                         </div>
-                                    </div>
                                 ))}
                             </div>
                         ) : (
@@ -190,8 +187,6 @@ const SwapInboxModal = ({ onClose }) => {
                     </div>
 
                 </div>
-            </div>
-        </div>
     );
 };
 

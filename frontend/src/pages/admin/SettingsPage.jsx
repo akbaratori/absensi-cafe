@@ -146,8 +146,6 @@ const SettingsPage = () => {
                     Default time when work day ends
                   </p>
                 </div>
-              </div>
-            </div>
           </Card>
 
           {/* Location Settings */}
@@ -202,13 +200,11 @@ const SettingsPage = () => {
                     Maximum distance allowed for employees to clock in
                   </p>
                 </div>
-              </div>
               <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-md border border-blue-200 dark:border-blue-800">
                 <p className="text-sm text-blue-800 dark:text-blue-300">
                   <strong>Tip:</strong> Get coordinates from Google Maps (right-click a location).
                 </p>
               </div>
-            </div>
             <div className="px-6 pb-6 pt-0">
               <div className="mt-4 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
                 <h4 className="text-sm font-medium text-gray-900 dark:text-white mb-2 flex items-center gap-2">
@@ -224,7 +220,6 @@ const SettingsPage = () => {
                     <span className="block text-gray-500 dark:text-gray-400">Current Longitude</span>
                     <span className="font-mono text-gray-900 dark:text-white">{settings.cafeLongitude || 'Not Set'}</span>
                   </div>
-                </div>
                 {settings.cafeLatitude && settings.cafeLongitude && (
                   <div className="mt-3 text-right">
                     <a
@@ -238,7 +233,6 @@ const SettingsPage = () => {
                   </div>
                 )}
               </div>
-            </div>
           </Card>
 
           {/* Late Policy Settings */}
@@ -274,7 +268,6 @@ const SettingsPage = () => {
                   employees will be marked "Present" until 08:15. After 08:15, they will be marked "Late".
                 </p>
               </div>
-            </div>
           </Card>
 
           {/* Auto-Clockout Settings */}
@@ -310,7 +303,6 @@ const SettingsPage = () => {
                   employees forget to clock out at the end of their shift.
                 </p>
               </div>
-            </div>
           </Card>
 
           {/* Actions */}
@@ -332,7 +324,6 @@ const SettingsPage = () => {
               Save Settings
             </Button>
           </div>
-        </div>
       </form>
     </div>
   );

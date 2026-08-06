@@ -34,6 +34,5 @@ async function testGenerate() {
     } finally {
         await prisma.$disconnect();
     }
-}
 
 testGenerate();

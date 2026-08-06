@@ -35,6 +35,5 @@ async function test() {
     } finally {
         await prisma.$disconnect();
     }
-}
 
 test();

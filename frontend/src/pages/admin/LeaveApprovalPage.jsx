@@ -236,7 +236,6 @@ const LeaveApprovalPage = () => {
                                         <Trash2 size={18} />
                                     </button>
                                 </div>
-                            </div>
                         ))
                     )}
                 </div>
@@ -272,7 +271,6 @@ const LeaveApprovalPage = () => {
                             {confirmationModal.status === 'DELETE' ? 'Delete' : `Confirm ${confirmationModal.status === 'APPROVED' ? 'Approval' : 'Rejection'}`}
                         </Button>
                     </div>
-                </div>
             </Modal>
         </div >
     );

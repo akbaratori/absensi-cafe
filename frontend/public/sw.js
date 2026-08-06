@@ -20,7 +20,6 @@ self.addEventListener('push', (event) => {
         } catch (e) {
             data.body = event.data.text();
         }
-    }
 
     const options = {
         body: data.body,
@@ -59,7 +58,6 @@ self.addEventListener('notificationclick', (event) => {
                     if ('navigate' in client) client.navigate(urlToOpen);
                     return;
                 }
-            }
             // Otherwise open a new window
             if (clients.openWindow) {
                 return clients.openWindow(urlToOpen);

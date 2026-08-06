@@ -104,7 +104,6 @@ const OvertimePage = () => {
                             <p className="text-sm text-gray-500 dark:text-gray-400">Total Jam Lembur (Bulan Ini)</p>
                             <p className="text-2xl font-bold text-gray-900 dark:text-white">{summary.totalHours} jam</p>
                         </div>
-                    </div>
                 </Card>
                 <Card>
                     <div className="flex items-center gap-4">
@@ -115,7 +114,6 @@ const OvertimePage = () => {
                             <p className="text-sm text-gray-500 dark:text-gray-400">Pengajuan Disetujui (Bulan Ini)</p>
                             <p className="text-2xl font-bold text-gray-900 dark:text-white">{summary.totalRequests} pengajuan</p>
                         </div>
-                    </div>
                 </Card>
             </div>
 
@@ -226,7 +224,6 @@ const OvertimePage = () => {
                                         />
                                         {errors.endTime && <p className="mt-1 text-sm text-red-600">{errors.endTime.message}</p>}
                                     </div>
-                                </div>
 
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -250,8 +247,6 @@ const OvertimePage = () => {
                                 </div>
                             </form>
                         </div>
-                    </div>
-                </div>
             )}
         </div>
     );

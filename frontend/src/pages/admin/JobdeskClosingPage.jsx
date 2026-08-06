@@ -119,7 +119,6 @@ const JobdeskClosingPage = () => {
                     if (!map[person]) map[person] = {};
                     map[person][job.id] = (map[person][job.id] || 0) + 1;
                 });
-            });
             return map;
         })()
         : null;
@@ -161,7 +160,6 @@ const JobdeskClosingPage = () => {
                                 </button>
                             ))}
                         </div>
-                    </div>
 
                     {/* Names */}
                     <div>
@@ -189,7 +187,6 @@ const JobdeskClosingPage = () => {
                                 </div>
                             ))}
                         </div>
-                    </div>
 
                     {/* Date Range */}
                     <div className="grid grid-cols-2 gap-4">
@@ -215,7 +212,6 @@ const JobdeskClosingPage = () => {
                                 className="w-full px-3 py-2 rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm"
                             />
                         </div>
-                    </div>
 
                     <button
                         onClick={handleGenerate}
@@ -257,7 +253,6 @@ const JobdeskClosingPage = () => {
                         </div>
                     ))}
                 </div>
-            </div>
 
             {/* Results */}
             {generated && (
@@ -288,7 +283,6 @@ const JobdeskClosingPage = () => {
                                     Semua Hari
                                 </button>
                             </div>
-                        </div>
 
                         {viewMode === 'today' && (
                             <div>
@@ -412,7 +406,6 @@ const JobdeskClosingPage = () => {
                                         </tbody>
                                     </table>
                                 </div>
-                            </div>
                         </Card>
                     )}
                 </>

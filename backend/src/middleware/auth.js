@@ -66,7 +66,6 @@ const authorize = (...roles) => {
 
     next();
   };
-};
 
 /**
  * Optional authentication - attaches user if token exists, but doesn't require it
@@ -93,7 +92,6 @@ const optionalAuth = async (req, res, next) => {
       if (user && user.isActive) {
         req.user = user;
       }
-    }
 
     next();
   } catch (error) {

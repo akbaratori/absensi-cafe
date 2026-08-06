@@ -47,7 +47,6 @@ const SkeletonCard = () => {
         <div className="h-3 bg-gray-200 rounded w-1/2 mb-2" />
         <div className="h-3 bg-gray-200 rounded w-2/3" />
       </div>
-    </div>
   );
 };
 
@@ -64,10 +63,8 @@ const SkeletonTable = ({ rows = 5 }) => {
               <div className="h-3 bg-gray-200 rounded w-1/3" />
               <div className="h-3 bg-gray-200 rounded w-2/3" />
             </div>
-          </div>
         ))}
       </div>
-    </div>
   );
 };
 

@@ -67,6 +67,5 @@ class ConfigRepository {
       where: { key },
     });
   }
-}
 
 module.exports = new ConfigRepository();

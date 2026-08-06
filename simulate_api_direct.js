@@ -40,7 +40,6 @@ const req = http.request(options, (res) => {
         }
         console.log('---------------------------------------------------');
     });
-});
 
 req.on('error', (e) => {
     console.error(`[Simulation] Request Error: ${e.message}`);

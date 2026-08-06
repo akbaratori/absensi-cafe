@@ -46,6 +46,5 @@ class NotificationService {
             data: { isRead: true }
         });
     }
-}
 
 module.exports = new NotificationService();

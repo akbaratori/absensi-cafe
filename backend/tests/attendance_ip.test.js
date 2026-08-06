@@ -68,4 +68,3 @@ describe('Attendance IP Logging', () => {
         console.log('Full Attendance Record:', attendance);
         expect(attendance.clockInIp).toBeTruthy(); // Should not be null
     });
-});

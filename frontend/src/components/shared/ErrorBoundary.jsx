@@ -38,13 +38,10 @@ class ErrorBoundary extends Component {
                 Ke Dasbor
               </button>
             </div>
-          </div>
-        </div>
       );
     }
 
     return this.props.children;
   }
-}
 
 export default ErrorBoundary;

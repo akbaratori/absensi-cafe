@@ -103,7 +103,6 @@ const ChangePasswordModal = ({ isOpen, onClose }) => {
                                                 {showPassword.old ? <EyeOff size={18} /> : <Eye size={18} />}
                                             </button>
                                         </div>
-                                    </div>
 
                                     {/* New Password */}
                                     <div className="relative">
@@ -128,7 +127,6 @@ const ChangePasswordModal = ({ isOpen, onClose }) => {
                                                 {showPassword.new ? <EyeOff size={18} /> : <Eye size={18} />}
                                             </button>
                                         </div>
-                                    </div>
 
                                     {/* Confirm Password */}
                                     <div className="relative">
@@ -153,7 +151,6 @@ const ChangePasswordModal = ({ isOpen, onClose }) => {
                                                 {showPassword.confirm ? <EyeOff size={18} /> : <Eye size={18} />}
                                             </button>
                                         </div>
-                                    </div>
 
                                     <div className="mt-5 sm:flex sm:flex-row-reverse gap-2">
                                         <Button
@@ -174,11 +171,6 @@ const ChangePasswordModal = ({ isOpen, onClose }) => {
                                     </div>
                                 </form>
                             </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
     );
 };
 

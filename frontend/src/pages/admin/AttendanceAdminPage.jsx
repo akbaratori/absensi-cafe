@@ -107,7 +107,6 @@ const AttendanceAdminPage = () => {
     setFilters(newFilters);
     setCurrentPage(1);
     fetchAttendance(1, newFilters);
-    fetchAttendance(1, newFilters);
   };
 
   const handleDeleteClick = (record) => {
@@ -241,7 +240,6 @@ const AttendanceAdminPage = () => {
               Clear Filters
             </button>
           </div>
-        </div>
       </Card>
 
       {/* Attendance Table */}
@@ -387,7 +385,6 @@ const AttendanceAdminPage = () => {
                     <Trash2 size={16} />
                   </button>
                 </div>
-              </div>
 
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div className="bg-gray-50 dark:bg-gray-700/50 p-2 rounded">
@@ -403,7 +400,6 @@ const AttendanceAdminPage = () => {
                       </button>
                     )}
                   </div>
-                </div>
                 <div className="bg-gray-50 dark:bg-gray-700/50 p-2 rounded">
                   <p className="text-gray-500 dark:text-gray-400 text-xs mb-1">Pulang</p>
                   <div className="flex justify-between items-center">
@@ -425,9 +421,6 @@ const AttendanceAdminPage = () => {
                       </button>
                     )}
                   </div>
-                </div>
-              </div>
-            </div>
           ))}
         </div>
 
@@ -460,7 +453,6 @@ const AttendanceAdminPage = () => {
                 Next
               </button>
             </div>
-          </div>
         )}
       </Card>
 
@@ -492,7 +484,6 @@ const AttendanceAdminPage = () => {
               Delete Record
             </Button>
           </div>
-        </div>
       </Modal>
 
 
@@ -545,7 +536,6 @@ const AttendanceAdminPage = () => {
               Ya, Hapus Semua
             </Button>
           </div>
-        </div>
       </Modal>
 
       {/* Edit Modal */}
@@ -594,7 +584,6 @@ const AttendanceAdminPage = () => {
               Simpan Perubahan
             </Button>
           </div>
-        </div>
       </Modal>
     </div >
   );

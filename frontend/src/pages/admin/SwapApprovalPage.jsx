@@ -85,7 +85,6 @@ const SwapApprovalPage = () => {
                         Semua Riwayat
                     </button>
                 </div>
-            </div>
 
             <Card>
                 {/* Desktop View (Table) */}
@@ -219,7 +218,6 @@ const SwapApprovalPage = () => {
                                             </div>
                                         )}
                                     </div>
-                                </div>
 
                                 <div className="grid grid-cols-2 gap-2 text-sm bg-gray-50 dark:bg-gray-700/50 p-3 rounded-lg">
                                     <div>
@@ -234,8 +232,6 @@ const SwapApprovalPage = () => {
                                         <p className="text-xs text-gray-500">Alasan</p>
                                         <p className="italic text-gray-700 dark:text-gray-300">{swap.reason}</p>
                                     </div>
-                                </div>
-                            </div>
                         ))
                     )}
                 </div>

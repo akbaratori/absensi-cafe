@@ -22,8 +22,6 @@ async function debugConflicts() {
                         fullName: true,
                         department: true
                     }
-                }
-            }
         });
 
         console.log(`Found ${schedules.length} OFF schedules in Feb 2026.`);
@@ -45,6 +43,5 @@ async function debugConflicts() {
     } finally {
         await prisma.$disconnect();
     }
-}
 
 debugConflicts();

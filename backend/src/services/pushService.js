@@ -66,14 +66,12 @@ async function sendPushToUser(userId, title, body, data = {}) {
                 } else {
                     console.error(`[Push] Error sending to user ${userId}:`, err.message);
                 }
-            }
         });
 
         await Promise.all(sendPromises);
     } catch (error) {
         console.error('[Push] sendPushToUser error:', error.message);
     }
-}
 
 /**
  * Send a push notification to ALL active users
@@ -110,7 +108,6 @@ async function sendPushToAll(title, body, data = {}) {
                 if (err.statusCode === 410 || err.statusCode === 404) {
                     await prisma.pushSubscription.delete({ where: { id: sub.id } });
                 }
-            }
         });
 
         await Promise.all(sendPromises);
@@ -118,6 +115,5 @@ async function sendPushToAll(title, body, data = {}) {
     } catch (error) {
         console.error('[Push] sendPushToAll error:', error.message);
     }
-}
 
 module.exports = { sendPushToUser, sendPushToAll };

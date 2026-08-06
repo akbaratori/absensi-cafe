@@ -287,7 +287,5 @@ class SwapService {
             // User is Target, and Approved, they now follow Requester's shift rules.
             return swap.requester.shift;
         }
-    }
-}
 
 module.exports = new SwapService();

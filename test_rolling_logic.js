@@ -24,7 +24,5 @@ function simulateRolling(days, staffCount) {
         if (i === 0 || (dayOfMonth - 1) % 7 === 0) {
             console.log(`Day ${dayOfMonth} (Week ${weekIndex}): Shift 1 = [${s1_users.join(', ')}]`);
         }
-    }
-}
 
 simulateRolling(31, 5);

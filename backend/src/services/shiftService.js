@@ -37,6 +37,5 @@ class ShiftService {
 
         return await shiftRepository.delete(id);
     }
-}
 
 module.exports = new ShiftService();

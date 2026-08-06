@@ -24,7 +24,6 @@ describe('Auth Endpoints', () => {
                 employeeId: 'TEST001'
             }
         });
-    });
 
     afterAll(async () => {
         // Cleanup
@@ -82,8 +81,6 @@ describe('Auth Endpoints', () => {
             expect(res.statusCode).toBeOneOf([400, 401]);
             expect(res.body.success).toBe(false);
         });
-    });
-});
 
 // Helper for 'toBeOneOf' matchers if not present
 expect.extend({

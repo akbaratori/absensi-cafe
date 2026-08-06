@@ -37,6 +37,5 @@ class ShiftRepository {
             where: { id: parseInt(id) },
         });
     }
-}
 
 module.exports = new ShiftRepository();

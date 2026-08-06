@@ -171,8 +171,6 @@ const AttendancePage = () => {
                   <p className="text-gray-500 dark:text-gray-400 text-xs mb-1">Pulang</p>
                   <p className="font-medium text-gray-900 dark:text-white">{record.clockOut ? formatTime(record.clockOut) : '-'}</p>
                 </div>
-              </div>
-            </div>
           ))}
         </div>
 
@@ -204,7 +202,6 @@ const AttendancePage = () => {
                 Selanjutnya
               </button>
             </div>
-          </div>
         )}
       </Card>
     </div>

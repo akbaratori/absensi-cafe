@@ -211,8 +211,6 @@ const Sidebar = ({ isOpen, onClose }) => {
                 <LogOut className="w-5 h-5" />
               </button>
             </div>
-          </div>
-        </div>
       </aside>
     </>
   );

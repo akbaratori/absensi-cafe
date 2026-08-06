@@ -120,7 +120,6 @@ const ChatbotWidget = () => {
                 <X size={18} />
               </button>
             </div>
-          </div>
 
           {!isMinimized && (
             <>
@@ -144,7 +143,6 @@ const ChatbotWidget = () => {
                         {message.content}
                       </p>
                     </div>
-                  </div>
                 ))}
                 {isLoading && (
                   <div className="flex justify-start">
@@ -154,8 +152,6 @@ const ChatbotWidget = () => {
                         <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-100"></div>
                         <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-200"></div>
                       </div>
-                    </div>
-                  </div>
                 )}
                 <div ref={messagesEndRef} />
               </div>
@@ -175,7 +171,6 @@ const ChatbotWidget = () => {
                       </button>
                     ))}
                   </div>
-                </div>
               )}
 
               {/* Input */}
@@ -198,7 +193,6 @@ const ChatbotWidget = () => {
                     <Send size={18} />
                   </button>
                 </div>
-              </div>
             </>
           )}
         </div>

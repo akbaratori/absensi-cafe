@@ -70,7 +70,6 @@ class AuthService {
     } catch (err) {
       throw err;
     }
-  }
 
   /**
    * Record a failed login attempt, lock account after MAX_ATTEMPTS
@@ -116,7 +115,6 @@ class AuthService {
     } catch (error) {
       throw ErrorCodes.AUTH_ERRORS.INVALID_TOKEN;
     }
-  }
 
   /**
    * Hash password
@@ -169,7 +167,6 @@ class AuthService {
       console.error('[AuthService] Error fetching colleagues:', error);
       throw error;
     }
-  }
 
   /**
    * Change Password
@@ -197,7 +194,6 @@ class AuthService {
 
     return { message: 'Password berhasil diubah' };
   }
-}
 
 
 

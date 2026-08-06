@@ -47,7 +47,6 @@ const LeavePage = () => {
             setShowModal(false);
             reset();
             fetchLeaves();
-            fetchLeaves();
             showSuccess('Leave request submitted successfully');
         } catch (error) {
             const message = error.response?.data?.error?.message || error.message || 'Failed to submit leave request';
@@ -167,7 +166,6 @@ const LeavePage = () => {
                                         className="w-full rounded-lg border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                                     />
                                 </div>
-                            </div>
 
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Reason</label>
@@ -196,7 +194,6 @@ const LeavePage = () => {
                             </div>
                         </form>
                     </div>
-                </div>
             )}
         </div>
     );

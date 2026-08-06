@@ -152,7 +152,6 @@ async function distributeKitchenShiftsWithoutApi(monthStr) {
     } finally {
         await prisma.$disconnect();
     }
-}
 
 // Run for Feb 2026
 distributeKitchenShiftsWithoutApi('2026-02');

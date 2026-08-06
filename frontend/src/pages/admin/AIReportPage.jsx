@@ -12,7 +12,6 @@ const AIReportPage = () => {
           Fitur ini sedang dinonaktifkan sementara untuk pemeliharaan.
         </p>
       </div>
-    </div>
   );
 };
 

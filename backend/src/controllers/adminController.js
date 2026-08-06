@@ -95,7 +95,6 @@ class AdminController {
           const num = parseInt(match[0], 10);
           if (num > maxNum) maxNum = num;
         }
-      }
     });
 
     const nextNum = maxNum + 1;
@@ -238,7 +237,6 @@ class AdminController {
       pendingLeaves,
       recentActivity: recentActivity.records,
     });
-  });
 
   /**
    * Broadcast push notification to all users

@@ -9,7 +9,6 @@ const prismaClientOptions = {
     db: {
       url: process.env.DATABASE_URL,
     },
-  },
   // Enable query logging in development only
   log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
 };

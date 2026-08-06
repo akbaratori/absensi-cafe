@@ -137,8 +137,6 @@ const MyClosingJobdeskWidget = () => {
                         <p className="font-semibold text-sm text-gray-800 dark:text-gray-200">Jobdesk Closing — {fmtToday}</p>
                         <p className="text-xs text-gray-500">Kamu libur hari ini — tidak ada tugas closing 🎉</p>
                     </div>
-                </div>
-            </div>
         );
     }
 
@@ -151,8 +149,6 @@ const MyClosingJobdeskWidget = () => {
                         <p className="font-semibold text-sm text-gray-800 dark:text-gray-200">Jobdesk Closing — {fmtToday}</p>
                         <p className="text-xs text-gray-500">Kamu <strong>bebas / helper</strong> hari ini — bantu posisi lain jika dibutuhkan 👋</p>
                     </div>
-                </div>
-            </div>
         );
     }
 
@@ -177,7 +173,6 @@ const MyClosingJobdeskWidget = () => {
                 </div>
                 <span className="text-4xl opacity-30">{todayData.job.icon}</span>
             </div>
-        </div>
     );
 };
 

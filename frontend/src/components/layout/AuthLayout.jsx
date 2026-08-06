@@ -20,14 +20,12 @@ const AuthLayout = ({ children }) => {
                 />
               </svg>
             </div>
-          </div>
           <h1 className="text-xl font-bold text-gray-900 dark:text-white">☕ Absensi Cafe</h1>
         </div>
 
         {/* Content */}
         {children}
       </div>
-    </div>
   );
 };
 

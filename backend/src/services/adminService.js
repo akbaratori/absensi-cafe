@@ -31,7 +31,6 @@ class AdminService {
       if (userWithEmail) {
         throw ErrorCodes.USER_ERRORS.DUPLICATE_EMAIL;
       }
-    }
 
     // Hash password
     const passwordHash = await authService.hashPassword(data.password);
@@ -76,7 +75,6 @@ class AdminService {
       if (existingUser) {
         throw ErrorCodes.USER_ERRORS.DUPLICATE_USERNAME;
       }
-    }
 
     // Sanitize email
     const email = data.email === '' ? null : data.email;
@@ -92,7 +90,6 @@ class AdminService {
       if (userWithEmail) {
         throw ErrorCodes.USER_ERRORS.DUPLICATE_EMAIL;
       }
-    }
 
     // Sanitize employeeId
     const employeeId = data.employeeId === '' ? null : data.employeeId;
@@ -130,7 +127,6 @@ class AdminService {
       }
       throw error;
     }
-  }
 
   /**
    * Delete user (Hard Delete)
@@ -216,6 +212,5 @@ class AdminService {
 
     return afterConfig;
   }
-}
 
 module.exports = new AdminService();

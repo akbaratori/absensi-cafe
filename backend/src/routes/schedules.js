@@ -66,4 +66,3 @@ router.get('/', authorize('ADMIN', 'EMPLOYEE'), scheduleController.getAllSchedul
 router.get('/:userId', authorize('ADMIN', 'EMPLOYEE'), scheduleController.getUserSchedule);
 
 module.exports = router;
-

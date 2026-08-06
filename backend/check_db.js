@@ -10,7 +10,6 @@ async function checkSchedules() {
                     orderBy: { date: 'desc' },
                     take: 5
                 }
-            }
         });
 
         console.log('--- RECENT USERS & SCHEDULES ---');
@@ -29,6 +28,5 @@ async function checkSchedules() {
     } finally {
         await prisma.$disconnect();
     }
-}
 
 checkSchedules();

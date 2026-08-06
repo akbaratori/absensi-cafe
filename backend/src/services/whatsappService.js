@@ -68,7 +68,6 @@ const sendMessage = async (target, message) => {
           resolve({ success: false, raw: data });
         }
       });
-    });
 
     req.on('error', (err) => {
       console.error('[WhatsApp] Request error:', err.message);

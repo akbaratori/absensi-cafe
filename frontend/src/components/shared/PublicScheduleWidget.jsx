@@ -73,7 +73,6 @@ const PublicScheduleWidget = () => {
                         Besok
                     </button>
                 </div>
-            </div>
 
             <div className="flex-1 overflow-y-auto pr-2 space-y-4 custom-scrollbar">
                 {loading ? (
@@ -122,15 +121,12 @@ const PublicScheduleWidget = () => {
                                                     {emp.department}
                                                 </p>
                                             </div>
-                                        </div>
                                     ))}
                                 </div>
-                            </div>
                         );
                     })
                 )}
             </div>
-        </div>
     );
 };
 
