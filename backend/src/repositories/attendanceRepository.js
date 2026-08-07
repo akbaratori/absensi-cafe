@@ -75,14 +75,54 @@ class AttendanceRepository {
   }
 
   /**
-   * List attendance records with pagination/filters (Placeholder)
+   * List attendance records with pagination/filters
+   * options: { userId, startDate, endDate, status, page, limit }
    */
   async list(options = {}) {
-    // Basic implementation for stability
-    return await prisma.attendance.findMany({
-        take: 20,
-        orderBy: { date: 'desc' }
-    });
+    const {
+      userId,
+      startDate,
+      endDate,
+      status,
+      page = 1,
+      limit = 20,
+    } = options;
+
+    const where = {};
+    if (userId) where.userId = userId;
+    if (status) where.status = status;
+    if (startDate || endDate) {
+      where.date = {};
+      if (startDate) {
+        const s = new Date(startDate);
+        s.setHours(0, 0, 0, 0);
+        where.date.gte = s;
+      }
+      if (endDate) {
+        const e = new Date(endDate);
+        e.setHours(23, 59, 59, 999);
+        where.date.lte = e;
+      }
+    }
+
+    const skip = (Math.max(1, Number(page)) - 1) * Number(limit);
+
+    const [records, total] = await Promise.all([
+      prisma.attendance.findMany({
+        where,
+        include: {
+          user: {
+            select: { id: true, fullName: true, shift: true, shiftId: true },
+          },
+        },
+        orderBy: { date: 'desc' },
+        skip,
+        take: Number(limit),
+      }),
+      prisma.attendance.count({ where }),
+    ]);
+
+    return { records, total };
   }
 }
 

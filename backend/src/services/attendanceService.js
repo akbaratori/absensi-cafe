@@ -118,7 +118,7 @@ class AttendanceService {
       endDate: end.toISOString()
     });
 
-    const rows = Array.isArray(result) ? result : result && result.data ? result.data : [];
+    const rows = Array.isArray(result) ? result : (result && result.records) ? result.records : [];
     let totalMinutes = 0;
     const statusCounts = {};
     for (const record of rows) {
