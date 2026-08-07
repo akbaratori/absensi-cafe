@@ -15,7 +15,7 @@ class AttendanceController {
     const { location, notes } = req.body;
     const userId = req.user.id;
     // With memoryStorage, files are in memory (buffer) not saved to disk
-    const photo = req.file ? `selfie-${Date.now()}.${req.file.originalname.split('.').pop()}` : null;
+    const photo = req.file ? req.file.buffer.toString('base64') : null;
     const ipAddress = req.ip || req.connection.remoteAddress;
 
     const result = await attendanceService.clockIn(userId, location, notes, photo, ipAddress);
@@ -76,7 +76,7 @@ class AttendanceController {
     const { location } = req.body;
     const userId = req.user.id;
     // With memoryStorage, files are in memory (buffer) not saved to disk
-    const photo = req.file ? `selfie-${Date.now()}.${req.file.originalname.split('.').pop()}` : null;
+    const photo = req.file ? req.file.buffer.toString('base64') : null;
     const ipAddress = req.ip || req.connection.remoteAddress;
 
     const result = await attendanceService.clockOut(userId, location, photo, ipAddress);

@@ -348,15 +348,16 @@ class AttendanceService {
   async getAll(options) {
     const result = await attendanceRepository.findAll(options);
 
-    // Format records
+    // Format records — replace Base64 photos with API endpoint URLs to avoid large payloads
+    const apiBase = process.env.API_BASE_URL || '';
     const formattedRecords = result.records.map((record) => ({
       id: record.id,
       user: record.user,
       date: record.date.toISOString().split('T')[0],
       clockIn: record.clockIn.toISOString(),
       clockOut: record.clockOut ? record.clockOut.toISOString() : null,
-      clockInPhoto: record.clockInPhoto,
-      clockOutPhoto: record.clockOutPhoto,
+      clockInPhoto: record.clockInPhoto ? `${apiBase}/api/v1/attendance/photo/${record.id}/in` : null,
+      clockOutPhoto: record.clockOutPhoto ? `${apiBase}/api/v1/attendance/photo/${record.id}/out` : null,
       status: formatStatus(record.status),
       totalHours: record.clockOut
         ? calculateTotalHours(record.clockIn, record.clockOut)

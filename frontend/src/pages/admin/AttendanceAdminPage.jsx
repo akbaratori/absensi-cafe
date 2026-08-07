@@ -125,12 +125,17 @@ const AttendanceAdminPage = () => {
     return <SkeletonTable rows={10} />;
   }
 
-  // Helper to ensure full URL — uses Vite proxy for /uploads
+  // Helper to ensure full photo URL
+  // clockInPhoto/clockOutPhoto now come as API endpoint paths (e.g. /api/v1/attendance/photo/123/in)
+  // or as absolute URLs from API_BASE_URL env var
   const getFullImageUrl = (path) => {
     if (!path) return '';
     if (path.startsWith('http')) return path;
-    // Path is relative (e.g. /uploads/photo.jpg), Vite proxy forwards to backend at 127.0.0.1:3100
-    return path;
+    // In development, Vite proxy at localhost:5173 handles the request
+    // In production (Vercel), path is already absolute from API_BASE_URL or relative to same origin
+    if (path.startsWith('/api/')) return path;
+    // Legacy fallback for old /uploads/ paths (provide dummy placeholder)
+    return 'https://placehold.co/600x400?text=Photo+Not+Available';
   };
 
 

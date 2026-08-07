@@ -121,6 +121,58 @@ router.get('/my-penalty', authenticate, authorize('EMPLOYEE', 'ADMIN'), asyncHan
   });
 }));
 
+router.get('/photo/:id/:type', authenticate, authorize('EMPLOYEE', 'ADMIN'), asyncHandler(async (req, res) => {
+  const { id, type } = req.params;
+  const field = type === 'in' ? 'clockInPhoto' : 'clockOutPhoto';
+
+  const record = await prisma.attendance.findUnique({
+    where: { id: parseInt(id) },
+    select: { [field]: true },
+  });
+
+  if (!record || !record[field]) {
+    return res.status(404).json({ success: false, message: 'Photo not found' });
+  }
+
+  const base64 = record[field];
+  const img = Buffer.from(base64, 'base64');
+
+  // Detect MIME type from base64 magic bytes
+  let contentType = 'image/jpeg'; // default
+  if (base64.startsWith('iVBORw0KGgo')) {
+    contentType = 'image/png';
+  } else if (base64.startsWith('/9j/')) {
+    contentType = 'image/jpeg';
+  } else if (base64.startsWith('R0lGOD')) {
+    contentType = 'image/gif';
+  } else if (base64.startsWith('UklGR')) {
+    contentType = 'image/webp';
+  }
+
+  res.writeHead(200, {
+    'Content-Type': contentType,
+    'Content-Length': img.length,
+    'Cache-Control': 'public, max-age=31536000',
+  });
+  res.end(img);
+}));
+
+router.get('/photo/:id/data/:type', authenticate, authorize('EMPLOYEE', 'ADMIN'), asyncHandler(async (req, res) => {
+  const { id, type } = req.params;
+  const field = type === 'in' ? 'clockInPhoto' : 'clockOutPhoto';
+
+  const record = await prisma.attendance.findUnique({
+    where: { id: parseInt(id) },
+    select: { [field]: true },
+  });
+
+  if (!record || !record[field]) {
+    return res.status(404).json({ success: false, message: 'Photo not found' });
+  }
+
+  return successResponse(res, 200, { base64: record[field] });
+}));
+
 router.get('/:id', authenticate, authorize('EMPLOYEE', 'ADMIN'), attendanceController.getById);
 
 module.exports = router;
