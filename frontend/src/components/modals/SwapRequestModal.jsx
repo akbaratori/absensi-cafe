@@ -153,6 +153,7 @@ const SwapRequestModal = ({ onClose, onSuccess }) => {
                     </div>
                 </form>
             </div>
+        </div>
     );
 };
 

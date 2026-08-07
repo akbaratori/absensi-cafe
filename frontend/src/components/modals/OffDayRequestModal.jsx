@@ -58,6 +58,7 @@ const OffDayRequestModal = ({ onClose, onSuccess }) => {
         } else {
           newValidation.offDate = { isValid: true, message: `✅ Valid: Hari ${getDayNameFromDate(formData.offDate)} (Hari Kerja)` };
         }
+      }
 
       // Validate Work Date (Tanggal Pengganti)
       if (!formData.workDate) {
@@ -75,6 +76,7 @@ const OffDayRequestModal = ({ onClose, onSuccess }) => {
         } else {
           newValidation.workDate = { isValid: true, message: `✅ Valid: Hari ${getDayNameFromDate(formData.workDate)} (Hari Libur)` };
         }
+      }
 
       setValidation(newValidation);
     };
@@ -128,6 +130,7 @@ const OffDayRequestModal = ({ onClose, onSuccess }) => {
       workDay: workDayExample.toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" }),
       offDay: offDayExample.toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" }),
     };
+  };
 
   const examples = getExampleDates();
 
