@@ -26,6 +26,7 @@ class LeaveService {
                     gte: startDate,
                     lte: endDate
                 }
+            }
         });
 
         // Calculate total days
@@ -103,6 +104,8 @@ class LeaveService {
                     error.isOperational = true;
                     throw error;
                 }
+            }
+        }
 
 
         // Check for overlapping leaves
@@ -170,6 +173,8 @@ class LeaveService {
                         employeeId: true,
                         role: true,
                     },
+                },
+            },
             orderBy: { createdAt: 'desc' },
         });
     }
@@ -204,6 +209,8 @@ class LeaveService {
                         id: true,
                         fullName: true,
                     }
+                }
+            }
         });
     }
 
@@ -233,5 +240,6 @@ class LeaveService {
             where: { status: 'PENDING' },
         });
     }
+}
 
 module.exports = new LeaveService();

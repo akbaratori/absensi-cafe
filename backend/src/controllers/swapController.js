@@ -8,6 +8,7 @@ exports.createRequest = asyncHandler(async (req, res) => {
         status: 'success',
         data: { swap }
     });
+});
 
 exports.getMySwaps = asyncHandler(async (req, res) => {
     const swaps = await swapService.getUserSwaps(req.user.id);
@@ -15,6 +16,7 @@ exports.getMySwaps = asyncHandler(async (req, res) => {
         status: 'success',
         data: { swaps }
     });
+});
 
 exports.getAllSwaps = asyncHandler(async (req, res) => {
     const swaps = await swapService.getAllSwaps(req.query);
@@ -22,6 +24,7 @@ exports.getAllSwaps = asyncHandler(async (req, res) => {
         status: 'success',
         data: { swaps }
     });
+});
 
 exports.approveByUser = asyncHandler(async (req, res) => {
     const { id } = req.params;
@@ -31,6 +34,7 @@ exports.approveByUser = asyncHandler(async (req, res) => {
         status: 'success',
         data: { swap }
     });
+});
 
 exports.approveByAdmin = asyncHandler(async (req, res) => {
     const { id } = req.params;
@@ -40,6 +44,7 @@ exports.approveByAdmin = asyncHandler(async (req, res) => {
         status: 'success',
         data: { swap }
     });
+});
 
 exports.rejectRequest = asyncHandler(async (req, res) => {
     const { id } = req.params;
@@ -51,3 +56,4 @@ exports.rejectRequest = asyncHandler(async (req, res) => {
         status: 'success',
         data: { swap }
     });
+});

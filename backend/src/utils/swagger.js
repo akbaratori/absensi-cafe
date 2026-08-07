@@ -11,6 +11,7 @@ const options = {
             contact: {
                 name: 'Developer',
             },
+        },
         servers: [
             {
                 url: 'http://localhost:3000/api/v1',
@@ -24,6 +25,8 @@ const options = {
                     scheme: 'bearer',
                     bearerFormat: 'JWT',
                 },
+            },
+        },
         security: [
             {
                 bearerAuth: [],

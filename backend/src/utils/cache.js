@@ -68,6 +68,8 @@ class Cache {
       if (regex.test(key)) {
         this.cache.delete(key);
       }
+    }
+  }
 
   /**
    * Clean up expired entries
@@ -78,6 +80,9 @@ class Cache {
       if (now > item.expiry) {
         this.cache.delete(key);
       }
+    }
+  }
+}
 
 // Create cache instances for different data types
 const configCache = new Cache(600); // 10 minutes for config

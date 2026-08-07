@@ -78,12 +78,44 @@ class AttendanceController {
   });
 
   /**
+   * Get attendance history
+   * GET /api/v1/attendance/history
+   */
+  getHistory = asyncHandler(async (req, res) => {
+    const userId = req.user.id;
+    const { startDate, endDate, page, limit } = req.query;
+
+    const result = await attendanceService.getAll({
+      userId,
+      startDate,
+      endDate,
+      page: parseInt(page) || 1,
+      limit: parseInt(limit) || 10
+    });
+
+    return successResponse(res, 200, result);
+  });
+
+  /**
    * Get today's attendance
    * GET /api/v1/attendance/today
    */
   getToday = asyncHandler(async (req, res) => {
     const userId = req.user.id;
     const result = await attendanceService.getToday(userId);
+    return successResponse(res, 200, result);
+  });
+
+  /**
+   * Get monthly summary
+   * GET /api/v1/attendance/monthly-summary
+   */
+  getMonthlySummary = asyncHandler(async (req, res) => {
+    const userId = req.user.id;
+    const { month } = req.query; // YYYY-MM format
+
+    const result = await attendanceService.getMonthlySummary(userId, month);
+
     return successResponse(res, 200, result);
   });
 

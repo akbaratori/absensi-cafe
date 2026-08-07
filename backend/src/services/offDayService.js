@@ -252,5 +252,6 @@ class OffDayService {
         // Default Fallback
         return dayOfWeek === defaultOffDay;
     }
+}
 
 module.exports = new OffDayService();

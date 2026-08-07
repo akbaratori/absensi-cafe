@@ -65,6 +65,16 @@ class AttendanceRepository {
   }
 
   /**
+   * Find a single attendance record by id
+   */
+  async findById(id) {
+    return await prisma.attendance.findUnique({
+      where: { id },
+      include: { user: true },
+    });
+  }
+
+  /**
    * List attendance records with pagination/filters (Placeholder)
    */
   async list(options = {}) {

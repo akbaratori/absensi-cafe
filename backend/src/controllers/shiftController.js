@@ -9,6 +9,7 @@ class ShiftController {
         } catch (error) {
             return errorResponse(res, 500, error.message);
         }
+    }
 
     async create(req, res) {
         try {
@@ -17,6 +18,7 @@ class ShiftController {
         } catch (error) {
             return errorResponse(res, 400, error.message);
         }
+    }
 
     async update(req, res) {
         try {
@@ -25,6 +27,7 @@ class ShiftController {
         } catch (error) {
             return errorResponse(res, 400, error.message);
         }
+    }
 
     async delete(req, res) {
         try {
@@ -33,5 +36,7 @@ class ShiftController {
         } catch (error) {
             return errorResponse(res, 400, error.message);
         }
+    }
+}
 
 module.exports = new ShiftController();

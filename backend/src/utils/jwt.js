@@ -49,6 +49,7 @@ const generateTokens = (payload) => {
     accessToken: generateAccessToken(payload),
     refreshToken: generateRefreshToken(payload),
   };
+};
 
 /**
  * Verify JWT token

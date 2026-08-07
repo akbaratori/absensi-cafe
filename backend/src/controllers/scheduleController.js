@@ -34,6 +34,7 @@ class ScheduleController {
             console.error('[ScheduleController] Error:', err);
             next(err);
         }
+    }
 
     async bulkGenerateSchedule(req, res, next) {
         try {
@@ -67,6 +68,7 @@ class ScheduleController {
             console.error('[ScheduleController] Bulk Generate Error:', err);
             next(err);
         }
+    }
 
     async getUserSchedule(req, res, next) {
         try {
@@ -95,6 +97,7 @@ class ScheduleController {
         } catch (err) {
             next(err);
         }
+    }
 
     async distributeKitchenShifts(req, res, next) {
         try {
@@ -115,6 +118,7 @@ class ScheduleController {
         } catch (err) {
             next(err);
         }
+    }
 
     async redistributeStations(req, res, next) {
         try {
@@ -126,6 +130,7 @@ class ScheduleController {
         } catch (err) {
             next(err);
         }
+    }
 
     async assignStationsRotation(req, res, next) {
         try {
@@ -142,6 +147,7 @@ class ScheduleController {
         } catch (err) {
             next(err);
         }
+    }
 
 
     async updateSchedule(req, res, next) {
@@ -166,6 +172,7 @@ class ScheduleController {
         } catch (err) {
             next(err);
         }
+    }
 
     async deleteSchedule(req, res, next) {
         try {
@@ -193,6 +200,7 @@ class ScheduleController {
         } catch (err) {
             next(err);
         }
+    }
 
     async upsertSingleSchedule(req, res, next) {
         try {
@@ -218,6 +226,7 @@ class ScheduleController {
             console.error('[upsertSingleSchedule] ERROR:', err.message, err.code);
             next(err);
         }
+    }
 
     async getAllSchedules(req, res, next) {
         try {
@@ -237,6 +246,7 @@ class ScheduleController {
         } catch (err) {
             next(err);
         }
+    }
     async checkConflicts(req, res, next) {
         try {
             const { userId, startDate, months, baseOffDay, rotateOffDay } = req.body;
@@ -255,6 +265,7 @@ class ScheduleController {
         } catch (err) {
             next(err);
         }
+    }
 
     async getStationSummary(req, res, next) {
         try {
@@ -269,6 +280,7 @@ class ScheduleController {
         } catch (err) {
             next(err);
         }
+    }
 
     async getPublicSchedule(req, res, next) {
         try {
@@ -300,5 +312,7 @@ class ScheduleController {
         } catch (err) {
             next(err);
         }
+    }
+}
 
 module.exports = new ScheduleController();

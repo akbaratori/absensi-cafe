@@ -24,6 +24,8 @@ class OvertimeRepository {
             fullName: true,
             employeeId: true,
           },
+        },
+      },
     });
   }
 
@@ -42,12 +44,15 @@ class OvertimeRepository {
             employeeId: true,
             department: true,
           },
+        },
         approvedBy: {
           select: {
             id: true,
             username: true,
             fullName: true,
           },
+        },
+      },
     });
   }
 
@@ -91,12 +96,15 @@ class OvertimeRepository {
               employeeId: true,
               department: true,
             },
+          },
           approvedBy: {
             select: {
               id: true,
               username: true,
               fullName: true,
             },
+          },
+        },
         orderBy: { [sortBy]: sortOrder },
         skip,
         take: parseInt(limit),
@@ -136,6 +144,8 @@ class OvertimeRepository {
               username: true,
               fullName: true,
             },
+          },
+        },
         orderBy: { createdAt: 'desc' },
         skip,
         take: parseInt(limit),
@@ -178,12 +188,15 @@ class OvertimeRepository {
             fullName: true,
             employeeId: true,
           },
+        },
         approvedBy: {
           select: {
             id: true,
             username: true,
             fullName: true,
           },
+        },
+      },
     });
   }
 
@@ -231,6 +244,7 @@ class OvertimeRepository {
           gte: startDate,
           lte: endDate,
         },
+      },
       _sum: {
         durationHours: true,
       },
@@ -242,5 +256,6 @@ class OvertimeRepository {
       totalRequests: result._count,
     };
   }
+}
 
 module.exports = new OvertimeRepository();

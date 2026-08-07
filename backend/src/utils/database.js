@@ -3,15 +3,25 @@ const { PrismaClient } = require('@prisma/client');
 // Create a singleton instance with optimized connection pooling
 let prisma;
 
+// Resolve database URL from multiple sources (Neon provides POSTGRES_PRISMA_URL on Vercel)
+const databaseUrl =
+  process.env.DATABASE_URL ||
+  process.env.POSTGRES_PRISMA_URL ||
+  process.env.DIRECT_URL;
+
 const prismaClientOptions = {
-  // Connection pool configuration
-  datasources: {
-    db: {
-      url: process.env.DATABASE_URL,
-    },
   // Enable query logging in development only
   log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
 };
+
+// Only override datasource URL when explicitly provided (otherwise Prisma uses schema/.env default)
+if (databaseUrl) {
+  prismaClientOptions.datasources = {
+    db: {
+      url: databaseUrl,
+    },
+  };
+}
 
 if (process.env.NODE_ENV === 'production') {
   // Production: Use connection pooling for better performance

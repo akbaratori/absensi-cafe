@@ -1,4 +1,4 @@
-const { ErrorCodes } = require('../utils/AppError');
+const { ErrorCodes, AppError } = require('../utils/AppError');
 const attendanceRepository = require('../repositories/attendanceRepository');
 const prisma = require('../utils/database');
 const { getAttendanceConfig, calculateAttendanceStatus, calculateTotalHours, formatLocation, getTodayStart, getTodayEnd, formatStatus, parseStatus, calculateDistance } = require('../utils/attendanceHelpers');
@@ -97,6 +97,66 @@ class AttendanceService {
     };
 
     return response;
+  }
+
+  /**
+   * Get monthly summary for a user
+   * @param {string} userId
+   * @param {string} month - YYYY-MM format
+   */
+  async getMonthlySummary(userId, month) {
+    const now = new Date();
+    const [y, m] = (month || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`)
+      .split('-')
+      .map(Number);
+    const start = getTodayStart(new Date(y, m - 1, 1));
+    const end = getTodayEnd(new Date(y, m, 0));
+
+    const result = await attendanceRepository.list({
+      userId,
+      startDate: start.toISOString(),
+      endDate: end.toISOString()
+    });
+
+    const rows = Array.isArray(result) ? result : result && result.data ? result.data : [];
+    let totalMinutes = 0;
+    const statusCounts = {};
+    for (const record of rows) {
+      if (record.clockIn && record.clockOut) {
+        totalMinutes += Math.max(0, (new Date(record.clockOut) - new Date(record.clockIn)) / 60000);
+      }
+      const status = record.status || 'UNKNOWN';
+      statusCounts[status] = (statusCounts[status] || 0) + 1;
+    }
+
+    return {
+      month: `${y}-${String(m).padStart(2, '0')}`,
+      totalDays: rows.length,
+      totalHours: Math.round((totalMinutes / 60) * 100) / 100,
+      statusCounts,
+      records: rows
+    };
+  }
+
+  /**
+   * Get monthly report (alias of getMonthlySummary)
+   */
+  async getMonthlyReport(payload) {
+    return this.getMonthlySummary(payload && payload.userId, payload && payload.month);
+  }
+
+  /**
+   * Get single attendance record by id
+   */
+  async getById(id, userId, role) {
+    const record = await attendanceRepository.findById(id);
+    if (!record) {
+      throw new AppError('Attendance record not found', 404, 'ATTENDANCE_NOT_FOUND');
+    }
+    if (role !== 'ADMIN' && role !== 'OWNER' && record.userId !== userId) {
+      throw new AppError("You don't have permission to view this attendance record", 403, 'FORBIDDEN');
+    }
+    return record;
   }
 
   /**

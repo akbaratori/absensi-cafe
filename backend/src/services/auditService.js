@@ -29,6 +29,7 @@ class AuditService {
             // Audit logging should never crash the main flow
             console.error('[AuditService] Failed to write audit log:', error.message);
         }
+    }
 
     /**
      * Log attendance modification by admin
@@ -158,5 +159,6 @@ class AuditService {
             },
         };
     }
+}
 
 module.exports = new AuditService();

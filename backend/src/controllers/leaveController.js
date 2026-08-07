@@ -27,6 +27,7 @@ exports.createLeave = asyncHandler(async (req, res) => {
         status: 'success',
         data: { leave },
     });
+});
 
 exports.getMyLeaves = asyncHandler(async (req, res) => {
     const leaves = await leaveService.getUserLeaves(req.user.id);
@@ -35,6 +36,7 @@ exports.getMyLeaves = asyncHandler(async (req, res) => {
         status: 'success',
         data: { leaves },
     });
+});
 
 exports.getLeaveQuota = asyncHandler(async (req, res) => {
     const balance = await leaveService.getLeaveBalance(req.user.id);
@@ -43,6 +45,7 @@ exports.getLeaveQuota = asyncHandler(async (req, res) => {
         status: 'success',
         data: balance,
     });
+});
 
 exports.getAllLeaves = asyncHandler(async (req, res) => {
     const filters = req.query; // e.g. ?status=PENDING
@@ -52,6 +55,7 @@ exports.getAllLeaves = asyncHandler(async (req, res) => {
         status: 'success',
         data: { leaves },
     });
+});
 
 exports.updateLeaveStatus = asyncHandler(async (req, res) => {
     const { id } = req.params;
@@ -84,6 +88,7 @@ exports.updateLeaveStatus = asyncHandler(async (req, res) => {
         status: 'success',
         data: { leave },
     });
+});
 
 exports.deleteLeave = asyncHandler(async (req, res) => {
     const { id } = req.params;
@@ -94,3 +99,4 @@ exports.deleteLeave = asyncHandler(async (req, res) => {
         status: 'success',
         message: 'Leave request deleted successfully',
     });
+});

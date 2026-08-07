@@ -29,6 +29,7 @@ const errorHandler = (err, req, res, next) => {
       // This looks like a business logic/validation error, return 400 instead of 500
       return errorResponse(res, 400, "VALIDATION_ERROR", err.message);
     }
+  }
 
   // Handle Prisma errors
   if (err.code) {
@@ -46,6 +47,7 @@ const errorHandler = (err, req, res, next) => {
       default:
         return errorResponse(res, 500, "DATABASE_ERROR", "Database error occurred");
     }
+  }
 
   // Handle JWT errors
   if (err.name === "JsonWebTokenError") {

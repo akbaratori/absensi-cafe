@@ -140,6 +140,7 @@ const validate = (schema) => {
     req.body = value;
     next();
   };
+};
 
 const validateQuery = (schema) => {
   return (req, res, next) => {
@@ -168,6 +169,7 @@ const validateQuery = (schema) => {
     req.query = value;
     next();
   };
+};
 
 module.exports = {
   loginSchema,
