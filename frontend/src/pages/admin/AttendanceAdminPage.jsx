@@ -125,19 +125,13 @@ const AttendanceAdminPage = () => {
     return <SkeletonTable rows={10} />;
   }
 
-  // Helper to ensure full URL
+  // Helper to ensure full URL — uses Vite proxy for /uploads
   const getFullImageUrl = (path) => {
     if (!path) return '';
     if (path.startsWith('http')) return path;
-    // Remove leading slash if present to avoid double slash if API_URL has trailing slash (though usually API_URL handles api, here we need base)
-    // Assuming backend serves uploads at root /uploads, and we are on same domain or proxy.
-    // If different domain, we might need env var. For now assuming proxy.
-    const cleanPath = path.startsWith('/') ? path.substring(1) : path;
-    return `${import.meta.env.VITE_API_URL?.replace('/api/v1', '') || ''}/${cleanPath}`;
+    // Path is relative (e.g. /uploads/photo.jpg), Vite proxy forwards to backend at 127.0.0.1:3100
+    return path;
   };
-
-  // Actually, VITE_API_URL usually includes /api/v1. Let's strictly use relative path if proxy is set up or just prepend base url.
-  // Best way: check if path includes 'uploads'
 
 
 
