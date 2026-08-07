@@ -292,10 +292,18 @@ const DashboardPage = () => {
         <div className="mt-2 flex flex-col items-start gap-2">
           <div className="inline-flex items-center gap-2">
             <span className="px-3 py-1 rounded-full text-sm font-medium bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300">
-              {todayData?.schedule ?
-                `Shift: ${todayData.schedule.name} (${todayData.schedule.startTime} - ${todayData.schedule.endTime})`
-                : (user?.shift ? (user.shift === 'SHIFT_1' ? 'Shift: Pagi (08:15 - 20:00)' : 'Shift: Siang (11:15 - 23:00)') : 'Shift: -')
-              }
+              {(() => {
+                // Cek dari jadwal harian (UserSchedule) dulu — paling akurat
+                if (todayData?.schedule && typeof todayData.schedule === 'object' && todayData.schedule.name) {
+                  return `Shift: ${todayData.schedule.name} (${todayData.schedule.startTime?.slice(0, 5)} - ${todayData.schedule.endTime?.slice(0, 5)})`;
+                }
+                // Fallback ke shift default user (object dari relasi Prisma User.shift)
+                if (user?.shift && typeof user.shift === 'object' && user.shift.name) {
+                  return `Shift: ${user.shift.name} (${user.shift.startTime?.slice(0, 5)} - ${user.shift.endTime?.slice(0, 5)})`;
+                }
+                // Fallback terakhir — tidak ada data shift
+                return 'Shift: -';
+              })()}
             </span>
             <Button size="sm" variant="secondary" onClick={() => setShowSwapModal(true)}>
               🔄 Tukar Shift
