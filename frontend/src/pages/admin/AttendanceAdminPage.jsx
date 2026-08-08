@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import Card from '../../components/shared/Card';
-import { getAllAttendance } from '../../services/attendanceService';
+import { getAllAttendance, getAttendancePhotoData } from '../../services/attendanceService';
 import { formatDate, formatTime, formatStatus } from '../../utils/formatters';
 import { SkeletonTable } from '../../components/shared/Loading';
 import Badge from '../../components/shared/Badge';
@@ -28,9 +28,10 @@ const AttendanceAdminPage = () => {
   const [actionLoading, setActionLoading] = useState(false);
   const [photoModal, setPhotoModal] = useState({
     isOpen: false,
-    url: '',
     title: ''
   });
+  const [photoSrc, setPhotoSrc] = useState(null);
+  const [photoLoading, setPhotoLoading] = useState(false);
 
   const fetchAttendance = async (page = currentPage, currentFilters = filters) => {
     setLoading(true);
@@ -115,6 +116,24 @@ const AttendanceAdminPage = () => {
     } finally {
       setActionLoading(false);
     }
+  };
+
+  const openPhotoModal = async (photoUrl, title) => {
+    setPhotoModal({ isOpen: true, title });
+    setPhotoSrc(null);
+    setPhotoLoading(true);
+    const base64 = await getAttendancePhotoData(photoUrl);
+    if (base64) {
+      // Detect MIME type from base64 prefix
+      let mime = 'image/jpeg';
+      if (base64.startsWith('iVBOR')) mime = 'image/png';
+      else if (base64.startsWith('R0lGOD')) mime = 'image/gif';
+      else if (base64.startsWith('UklGR')) mime = 'image/webp';
+      setPhotoSrc(`data:${mime};base64,${base64}`);
+    } else {
+      setPhotoSrc('not-found');
+    }
+    setPhotoLoading(false);
   };
 
   useEffect(() => {
@@ -267,7 +286,7 @@ const AttendanceAdminPage = () => {
                     <div className="flex flex-col gap-1">
                       {record.clockInPhoto && (
                         <button
-                          onClick={() => setPhotoModal({ isOpen: true, url: record.clockInPhoto, title: `Clock In: ${record.user?.fullName}` })}
+                          onClick={() => openPhotoModal(record.clockInPhoto, `Clock In: ${record.user?.fullName}`)}
                           className="text-xs text-primary-600 hover:text-primary-700 underline"
                         >
                           View In
@@ -275,7 +294,7 @@ const AttendanceAdminPage = () => {
                       )}
                       {record.clockOutPhoto && (
                         <button
-                          onClick={() => setPhotoModal({ isOpen: true, url: record.clockOutPhoto, title: `Clock Out: ${record.user?.fullName}` })}
+                          onClick={() => openPhotoModal(record.clockOutPhoto, `Clock Out: ${record.user?.fullName}`)}
                           className="text-xs text-primary-600 hover:text-primary-700 underline"
                         >
                           View Out
@@ -355,7 +374,7 @@ const AttendanceAdminPage = () => {
                     <span className="font-medium text-gray-900 dark:text-white">{formatTime(record.clockIn)}</span>
                     {record.clockInPhoto && (
                       <button
-                        onClick={() => setPhotoModal({ isOpen: true, url: record.clockInPhoto, title: `Clock In: ${record.user?.fullName}` })}
+                        onClick={() => openPhotoModal(record.clockInPhoto, `Clock In: ${record.user?.fullName}`)}
                         className="text-xs text-primary-600 underline"
                       >
                         Foto
@@ -377,7 +396,7 @@ const AttendanceAdminPage = () => {
                     )}
                     {record.clockOutPhoto && (
                       <button
-                        onClick={() => setPhotoModal({ isOpen: true, url: record.clockOutPhoto, title: `Clock Out: ${record.user?.fullName}` })}
+                        onClick={() => openPhotoModal(record.clockOutPhoto, `Clock Out: ${record.user?.fullName}`)}
                         className="text-xs text-primary-600 underline"
                       >
                         Foto
@@ -458,23 +477,23 @@ const AttendanceAdminPage = () => {
       {/* Photo Modal */}
       <Modal
         isOpen={photoModal.isOpen}
-        onClose={() => setPhotoModal({ isOpen: false, url: '', title: '' })}
+        onClose={() => { setPhotoModal({ isOpen: false, title: '' }); setPhotoSrc(null); }}
         title={photoModal.title}
         size="lg"
       >
-        <div className="flex justify-center bg-gray-100 dark:bg-gray-800 rounded-lg p-2">
-          {photoModal.url ? (
+        <div className="flex justify-center bg-gray-100 dark:bg-gray-800 rounded-lg p-2 min-h-[200px]">
+          {photoLoading ? (
+            <p className="text-gray-500 self-center">Loading photo...</p>
+          ) : photoSrc === 'not-found' ? (
+            <p className="text-gray-500 self-center">Photo Not Found</p>
+          ) : photoSrc ? (
             <img
-              src={getFullImageUrl(photoModal.url)}
+              src={photoSrc}
               alt="Attendance"
               className="max-h-[70vh] rounded-md object-contain"
-              onError={(e) => {
-                e.target.onerror = null;
-                e.target.src = 'https://placehold.co/600x400?text=Image+Not+Found';
-              }}
             />
           ) : (
-            <p className="text-gray-500">No Image Available</p>
+            <p className="text-gray-500 self-center">No Image Available</p>
           )}
         </div>
       </Modal>

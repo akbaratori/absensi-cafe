@@ -143,3 +143,22 @@ export const exportReport = async (params = {}) => {
   });
   return response;
 };
+
+/**
+ * Get attendance photo as base64 data (authenticated)
+ * Uses /data/:type endpoint that returns JSON with base64
+ */
+export const getAttendancePhotoData = async (photoUrl) => {
+  if (!photoUrl) return null;
+  // photoUrl is like /api/v1/attendance/photo/123/in or https://.../api/v1/attendance/photo/123/in
+  // Convert to data endpoint relative path: /attendance/photo/123/data/in
+  const dataUrl = photoUrl.replace(/\/photo\/(\d+)\/(in|out)$/, '/photo/$1/data/$2')
+    .replace(/^.*\/api\/v1\//, '/'); // Strip full URL down to relative path
+  try {
+    const response = await api.get(dataUrl);
+    return response.data?.data?.base64 || response.data?.data || response.data?.base64 || null;
+  } catch (error) {
+    console.error('Failed to fetch photo data:', error);
+    return null;
+  }
+};
