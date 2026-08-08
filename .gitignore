@@ -29,6 +29,10 @@ backend/uploads/*
 
 # Prisma
 backend/dev.db
+backend/prisma/dev.db
+
+# Test coverage
+coverage/
 
 # Misc
 server_started.txt

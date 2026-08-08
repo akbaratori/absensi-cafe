@@ -290,7 +290,7 @@ const DashboardPage = () => {
         </h1>
         <p className="text-gray-600 dark:text-gray-400 mt-1">Berikut ringkasan absensi Anda hari ini</p>
         <div className="mt-2 flex flex-col items-start gap-2">
-          <div className="inline-flex items-center gap-2">
+          <div className="inline-flex flex-wrap items-center gap-2">
             <span className="px-3 py-1 rounded-full text-sm font-medium bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300">
               {(() => {
                 // Cek dari jadwal harian (UserSchedule) dulu — paling akurat
@@ -305,15 +305,17 @@ const DashboardPage = () => {
                 return 'Shift: -';
               })()}
             </span>
-            <Button size="sm" variant="secondary" onClick={() => setShowSwapModal(true)}>
-              🔄 Tukar Shift
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => setShowInboxModal(true)}>
-              📩 Inbox
-            </Button>
-            <Button size="sm" variant="secondary" onClick={() => setShowOffDayModal(true)} className="ml-2 bg-orange-100 text-orange-800 hover:bg-orange-200">
-              📅 Tukar Libur
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant="secondary" onClick={() => setShowSwapModal(true)} className="text-sm">
+                🔄 Tukar Shift
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setShowInboxModal(true)} className="text-sm">
+                📩 Inbox
+              </Button>
+              <Button size="sm" variant="secondary" onClick={() => setShowOffDayModal(true)} className="bg-orange-100 text-orange-800 hover:bg-orange-200 text-sm">
+                📅 Tukar Libur
+              </Button>
+            </div>
           </div>
 
           {todayData?.nextWeekChange && (

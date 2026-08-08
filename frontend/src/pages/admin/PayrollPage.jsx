@@ -80,7 +80,8 @@ const PayrollPage = () => {
 
             {data.length > 0 ? (
                 <Card className="overflow-hidden">
-                    <div className="overflow-x-auto">
+                    {/* Desktop table */}
+                    <div className="hidden md:block overflow-x-auto">
                         <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                             <thead className="bg-gray-50 dark:bg-gray-800">
                                 <tr>
@@ -129,6 +130,26 @@ const PayrollPage = () => {
                                 ))}
                             </tbody>
                         </table>
+                    </div>
+
+                    {/* Mobile cards */}
+                    <div className="block md:hidden divide-y divide-gray-200 dark:divide-gray-700">
+                        {data.map((item) => (
+                            <div key={item.userId} className="p-4 space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <p className="text-sm font-medium text-gray-900 dark:text-white">{item.fullName}</p>
+                                    <p className="text-sm font-bold text-green-600 dark:text-green-400">
+                                        {formatCurrency(item.baseSalary)}
+                                    </p>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2 text-xs text-gray-500 dark:text-gray-400">
+                                    <p>Total Hari: <span className="font-medium text-gray-700 dark:text-gray-300">{item.totalWorkingDays}</span></p>
+                                    <p>Total Jam: <span className="font-medium text-gray-700 dark:text-gray-300">{item.totalHours}</span></p>
+                                    <p>Rate/Jam: <span className="font-medium text-gray-700 dark:text-gray-300">{formatCurrency(item.hourlyRate)}</span></p>
+                                    <p>Terlambat: <span className="font-medium text-red-500">{item.lateCount > 0 ? `${item.lateCount}x` : '-'}</span></p>
+                                </div>
+                            </div>
+                        ))}
                     </div>
                 </Card>
             ) : (

@@ -3,9 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("POSTGRES_PRISMA_URL")
-  directUrl = env("POSTGRES_URL_NON_POOLING")
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
 }
 
 model User {
@@ -62,7 +61,7 @@ model Shift {
 model Attendance {
   id               Int       @id @default(autoincrement())
   userId           Int       @map("user_id")
-  date             DateTime  @db.Date
+  date             DateTime 
   clockIn          DateTime  @map("clock_in")
   clockOut         DateTime? @map("clock_out")
   clockInLocation  String?   @map("clock_in_location")
@@ -157,7 +156,7 @@ model ShiftSwap {
   id           Int      @id @default(autoincrement())
   requesterId  Int      @map("requester_id")
   targetUserId Int      @map("target_user_id")
-  date         DateTime @db.Date
+  date         DateTime
   status       String   @default("PENDING_USER")
   reason       String?
   createdAt    DateTime @default(now()) @map("created_at")
@@ -200,7 +199,7 @@ model OffDayRequest {
 model UserSchedule {
   id        Int      @id @default(autoincrement())
   userId    Int      @map("user_id")
-  date      DateTime @db.Date
+  date      DateTime
   shiftId   Int?     @map("shift_id")
   isOffDay  Boolean  @default(false) @map("is_off_day")
   kitchenStation String? @map("kitchen_station")
@@ -238,7 +237,7 @@ model PushSubscription {
 
 model PublicHoliday {
   id          Int      @id @default(autoincrement())
-  date        DateTime @db.Date @unique
+  date        DateTime @unique
   name        String
   description String?
   createdAt   DateTime @default(now()) @map("created_at")
@@ -250,7 +249,7 @@ model PublicHoliday {
 model Overtime {
   id          Int      @id @default(autoincrement())
   userId      Int      @map("user_id")
-  date        DateTime @db.Date
+  date        DateTime
   startTime   DateTime @map("start_time")
   endTime     DateTime @map("end_time")
   durationHours Float   @map("duration_hours")

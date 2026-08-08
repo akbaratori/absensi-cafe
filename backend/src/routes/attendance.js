@@ -11,9 +11,10 @@ const {
 const { asyncHandler, successResponse } = require('../utils/response');
 const prisma = require('../utils/database');
 const upload = require('../middleware/upload');
+const { attendanceActionLimiter } = require('../middleware/rateLimiter');
 
-router.post('/clock-in', authenticate, authorize('EMPLOYEE', 'ADMIN'), upload.single('photo'), validate(clockInSchema), attendanceController.clockIn);
-router.post('/clock-out', authenticate, authorize('EMPLOYEE', 'ADMIN'), upload.single('photo'), validate(clockOutSchema), attendanceController.clockOut);
+router.post('/clock-in', authenticate, authorize('EMPLOYEE', 'ADMIN'), attendanceActionLimiter, upload.single('photo'), validate(clockInSchema), attendanceController.clockIn);
+router.post('/clock-out', authenticate, authorize('EMPLOYEE', 'ADMIN'), attendanceActionLimiter, upload.single('photo'), validate(clockOutSchema), attendanceController.clockOut);
 router.get('/today', authenticate, authorize('EMPLOYEE', 'ADMIN'), attendanceController.getToday);
 router.get('/history', authenticate, authorize('EMPLOYEE', 'ADMIN'), validateQuery(attendanceHistorySchema), attendanceController.getHistory);
 router.get('/monthly-summary', authenticate, authorize('EMPLOYEE', 'ADMIN'), attendanceController.getMonthlySummary);

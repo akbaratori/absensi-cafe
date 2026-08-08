@@ -4,6 +4,7 @@ const authController = require('../controllers/authController');
 const { authenticate } = require('../middleware/auth');
 const { validate } = require('../utils/validator');
 const { loginSchema, refreshTokenSchema } = require('../utils/validator');
+const { authLimiter } = require('../middleware/rateLimiter');
 
 /**
  * @swagger
@@ -38,7 +39,7 @@ const { loginSchema, refreshTokenSchema } = require('../utils/validator');
  *                 refreshToken:
  *                   type: string
  */
-router.post('/login', validate(loginSchema), authController.login);
+router.post('/login', authLimiter, validate(loginSchema), authController.login);
 
 /**
  * @swagger
@@ -61,7 +62,7 @@ router.post('/login', validate(loginSchema), authController.login);
  *       200:
  *         description: Token refreshed
  */
-router.post('/refresh', validate(refreshTokenSchema), authController.refresh);
+router.post('/refresh', authLimiter, validate(refreshTokenSchema), authController.refresh);
 
 /**
  * @route   POST /api/v1/auth/logout

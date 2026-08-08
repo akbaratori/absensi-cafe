@@ -2,10 +2,10 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
-const rateLimit = require('express-rate-limit');
 const config = require('./config');
 const routes = require('./routes');
 const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
+const { apiLimiter, adminLimiter } = require('./middleware/rateLimiter');
 const swaggerDocs = require('./utils/swagger');
 
 // Create Express app
@@ -77,53 +77,10 @@ if (config.nodeEnv === 'development') {
   app.use(morgan('combined'));
 }
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: config.rateLimit.windowMs,
-  max: config.rateLimit.max,
-  message: {
-    success: false,
-    error: {
-      code: 'RATE_LIMIT_EXCEEDED',
-      message: 'Too many requests. Please try again later.',
-    },
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
 // Apply rate limiting to all API routes
-app.use('/api/', limiter);
-
-// Stricter rate limiting for auth endpoints
-const authLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
-  max: 10, // 10 requests per minute
-  message: {
-    success: false,
-    error: {
-      code: 'RATE_LIMIT_EXCEEDED',
-      message: 'Too many login attempts. Please try again later.',
-    },
-  },
-});
-
-app.use('/api/v1/auth/login', authLimiter);
-app.use('/api/v1/auth/refresh', authLimiter);
+app.use('/api/', apiLimiter);
 
 // Stricter rate limiting for admin endpoints
-const adminLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 1000, // Increased from 50 to prevent 429 in dashboard
-  message: {
-    success: false,
-    error: {
-      code: 'RATE_LIMIT_EXCEEDED',
-      message: 'Too many admin requests. Please try again later.',
-    },
-  },
-});
-
 app.use('/api/v1/admin', adminLimiter);
 
 // API routes

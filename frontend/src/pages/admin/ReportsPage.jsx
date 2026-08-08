@@ -300,7 +300,8 @@ const ReportsPage = () => {
               </h3>
             </div>
           </Card.Header>
-          <div className="overflow-x-auto">
+          {/* Desktop table */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50 dark:bg-gray-700/50">
                 <tr>
@@ -370,6 +371,37 @@ const ReportsPage = () => {
                 )}
               </tbody>
             </table>
+          </div>
+
+          {/* Mobile cards */}
+          <div className="block md:hidden divide-y divide-gray-200 dark:divide-gray-700">
+            {((reportData.records || []).length > 0) ? (reportData.records || []).map((record, idx) => (
+              <div key={idx} className="p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-medium text-gray-900 dark:text-white">
+                    {record.user?.fullName || '-'}
+                  </p>
+                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize
+                    ${record.status === 'PRESENT' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' : ''}
+                    ${record.status === 'LATE' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400' : ''}
+                    ${record.status === 'ABSENT' ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400' : ''}
+                    ${record.status === 'HALF_DAY' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400' : ''}
+                  `}>
+                    {(record.status || '').toLowerCase().replace('_', ' ')}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs text-gray-500 dark:text-gray-400">
+                  <p>Date: <span className="font-medium text-gray-700 dark:text-gray-300">{record.date ? formatDate(record.date) : '-'}</span></p>
+                  <p>Hours: <span className="font-medium text-gray-700 dark:text-gray-300">{record.totalHours !== undefined && record.totalHours !== null ? record.totalHours : '-'}</span></p>
+                  <p>Clock In: <span className="font-medium text-gray-700 dark:text-gray-300">{record.clockIn ? (record.clockIn.includes('T') ? new Date(record.clockIn).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : record.clockIn) : '-'}</span></p>
+                  <p>Clock Out: <span className="font-medium text-gray-700 dark:text-gray-300">{record.clockOut ? (record.clockOut.includes('T') ? new Date(record.clockOut).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : record.clockOut) : '-'}</span></p>
+                </div>
+              </div>
+            )) : (
+              <div className="text-center py-12 text-gray-500">
+                No records found for this period
+              </div>
+            )}
           </div>
         </Card>
       )}

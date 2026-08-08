@@ -65,12 +65,12 @@ const LeavePage = () => {
 
     return (
         <div className="space-y-6">
-            <div className="flex justify-between items-center">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                     <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Leave Management</h1>
                     <p className="text-gray-600 dark:text-gray-400">Request and track your leaves</p>
                 </div>
-                <Button onClick={() => setShowModal(true)}>
+                <Button onClick={() => setShowModal(true)} className="w-full sm:w-auto">
                     <Plus className="w-5 h-5" />
                     <span>New Request</span>
                 </Button>
@@ -78,7 +78,8 @@ const LeavePage = () => {
 
             {/* Leave History */}
             <Card>
-                <div className="overflow-x-auto">
+                {/* Desktop table */}
+                <div className="hidden md:block overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                         <thead className="bg-gray-50 dark:bg-gray-800">
                             <tr>
@@ -121,6 +122,35 @@ const LeavePage = () => {
                             )}
                         </tbody>
                     </table>
+                </div>
+
+                {/* Mobile cards */}
+                <div className="block md:hidden divide-y divide-gray-200 dark:divide-gray-700">
+                    {leaves.length === 0 ? (
+                        <div className="px-4 py-4 text-center text-sm text-gray-500 dark:text-gray-400">
+                            No leave requests found.
+                        </div>
+                    ) : (
+                        leaves.map((leave) => (
+                            <div key={leave.id} className="p-4 space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <p className="text-sm font-medium text-gray-900 dark:text-white">{leave.type}</p>
+                                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(leave.status)}`}>
+                                        {leave.status}
+                                    </span>
+                                </div>
+                                <p className="text-xs text-gray-500 dark:text-gray-400">
+                                    {new Date(leave.startDate).toLocaleDateString()} - {new Date(leave.endDate).toLocaleDateString()}
+                                </p>
+                                <p className="text-xs text-gray-600 dark:text-gray-300">
+                                    {leave.reason}
+                                </p>
+                                <p className="text-xs text-gray-400">
+                                    Requested: {new Date(leave.createdAt).toLocaleDateString()}
+                                </p>
+                            </div>
+                        ))
+                    )}
                 </div>
             </Card>
 

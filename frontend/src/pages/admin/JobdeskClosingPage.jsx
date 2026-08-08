@@ -330,40 +330,72 @@ const JobdeskClosingPage = () => {
                             </div>
                         )}
 
-                        {viewMode === 'all' && (
-                            <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700">
-                                <table className="min-w-full text-sm">
-                                    <thead className="bg-gray-50 dark:bg-gray-800">
-                                        <tr>
-                                            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">Tanggal</th>
-                                            {JOBS.map((j) => (
-                                                <th key={j.id} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">
-                                                    {j.icon} Pos {j.id}
-                                                </th>
+                {viewMode === 'all' && (
+                    <>
+                        {/* Desktop table */}
+                        <div className="hidden md:block overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700">
+                            <table className="min-w-full text-sm">
+                                <thead className="bg-gray-50 dark:bg-gray-800">
+                                    <tr>
+                                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">Tanggal</th>
+                                        {JOBS.map((j) => (
+                                            <th key={j.id} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">
+                                                {j.icon} Pos {j.id}
+                                            </th>
+                                        ))}
+                                        {mode > JOBS.length && <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">🆓 Bebas</th>}
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-900">
+                                    {generated.map(({ date, assignments, freeWorkers }, idx) => {
+                                        const isToday = date.toLocaleDateString('en-CA') === todayStr;
+                                        return (
+                                            <tr key={idx} className={isToday ? 'bg-indigo-50 dark:bg-indigo-900/30 font-semibold' : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'}>
+                                                <td className="px-4 py-2 whitespace-nowrap text-gray-700 dark:text-gray-300">
+                                                    {isToday && <span className="mr-1 text-indigo-600">▶</span>}
+                                                    {fmtDate(date)}
+                                                </td>
+                                                {assignments.map(({ job, person }) => (
+                                                    <td key={job.id} className="px-4 py-2 whitespace-nowrap text-gray-800 dark:text-gray-200">{person}</td>
+                                                ))}
+                                                {mode > JOBS.length && <td className="px-4 py-2 whitespace-nowrap text-gray-500 dark:text-gray-400 italic">{(freeWorkers || []).join(', ')}</td>}
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        {/* Mobile cards */}
+                        <div className="block md:hidden space-y-3">
+                            {generated.map(({ date, assignments, freeWorkers }, idx) => {
+                                const isToday = date.toLocaleDateString('en-CA') === todayStr;
+                                return (
+                                    <div key={idx} className={`rounded-xl border p-4 space-y-2 ${isToday ? 'bg-indigo-50 dark:bg-indigo-900/30 border-indigo-200 dark:border-indigo-800' : 'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700'}`}>
+                                        <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">
+                                            {isToday && <span className="mr-1 text-indigo-600">▶</span>}
+                                            {fmtDate(date)}
+                                        </p>
+                                        <div className="space-y-1">
+                                            {assignments.map(({ job, person }) => (
+                                                <div key={job.id} className="flex items-center justify-between text-xs">
+                                                    <span className="text-gray-500 dark:text-gray-400">{job.icon} Pos {job.id}</span>
+                                                    <span className="font-medium text-gray-800 dark:text-gray-200">{person}</span>
+                                                </div>
                                             ))}
-                                            {mode > JOBS.length && <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">🆓 Bebas</th>}
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-900">
-                                        {generated.map(({ date, assignments, freeWorkers }, idx) => {
-                                            const isToday = date.toLocaleDateString('en-CA') === todayStr;
-                                            return (
-                                                <tr key={idx} className={isToday ? 'bg-indigo-50 dark:bg-indigo-900/30 font-semibold' : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'}>
-                                                    <td className="px-4 py-2 whitespace-nowrap text-gray-700 dark:text-gray-300">
-                                                        {isToday && <span className="mr-1 text-indigo-600">▶</span>}
-                                                        {fmtDate(date)}
-                                                    </td>
-                                                    {assignments.map(({ job, person }) => (
-                                                        <td key={job.id} className="px-4 py-2 whitespace-nowrap text-gray-800 dark:text-gray-200">{person}</td>
-                                                    ))}
-                                                    {mode > JOBS.length && <td className="px-4 py-2 whitespace-nowrap text-gray-500 dark:text-gray-400 italic">{(freeWorkers || []).join(', ')}</td>}
-                                                </tr>
-                                            );
-                                        })}
-                                    </tbody>
-                                </table>
-                            </div>
-                        )}
+                                            {mode > JOBS.length && (
+                                                <div className="flex items-center justify-between text-xs">
+                                                    <span className="text-gray-500 dark:text-gray-400">🆓 Bebas</span>
+                                                    <span className="font-medium text-gray-600 dark:text-gray-300 italic">{(freeWorkers || []).join(', ')}</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </>
+                )}
                     </div>
 
                     {/* Fairness Summary */}
@@ -396,7 +428,7 @@ const JobdeskClosingPage = () => {
                                                         <td className="py-2 pr-4 font-medium text-gray-800 dark:text-gray-200 whitespace-nowrap">
                                                             {name}
                                                         </td>
-                                                        {jobs.map((j) => (
+                                                        {JOBS.map((j) => (
                                                             <td key={j.id} className="py-2 px-3 text-center">
                                                                 <span className="inline-block min-w-[2rem] py-0.5 rounded bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 font-semibold text-xs">
                                                                     {counts[j.id] || 0}
