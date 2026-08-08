@@ -1,4 +1,5 @@
 const { PrismaClient } = require('@prisma/client');
+const config = require('../config');
 
 // Create a singleton instance with optimized connection pooling
 let prisma;
@@ -7,7 +8,7 @@ const prismaClientOptions = {
   // Connection pool configuration
   datasources: {
     db: {
-      url: process.env.DATABASE_URL,
+      url: config.databaseUrl,
     },
   },
   // Enable query logging in development only

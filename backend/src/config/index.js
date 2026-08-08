@@ -1,7 +1,22 @@
-// Only load .env file in development (Vercel provides env vars directly)
+const path = require('path');
+const dotenv = require('dotenv');
+
+const envPath = path.join(__dirname, '../../.env');
+
+// Only load .env file in development; production hosts provide env vars directly.
 if (process.env.NODE_ENV !== 'production') {
-  require('dotenv').config();
+  dotenv.config({ path: envPath });
 }
+
+let databaseUrl = process.env.DATABASE_URL;
+
+  // Resolve relative SQLite paths (file:./...) to absolute paths relative to the
+  // backend folder so the database is found regardless of the process cwd.
+  if (databaseUrl && databaseUrl.startsWith('file:./')) {
+    const relativePath = databaseUrl.slice('file:./'.length);
+    const absolutePath = path.resolve(path.dirname(envPath), relativePath);
+    databaseUrl = 'file:' + absolutePath.replace(/\\/g, '/');
+  }
 
 module.exports = {
   // Server
@@ -9,7 +24,7 @@ module.exports = {
   nodeEnv: process.env.NODE_ENV || 'development',
 
   // Database
-  databaseUrl: process.env.DATABASE_URL,
+  databaseUrl,
 
   // JWT
   jwt: {
