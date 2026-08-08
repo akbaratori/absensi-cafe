@@ -6,7 +6,7 @@
 INSERT INTO users (username, password_hash, full_name, role, email, employee_id, department, is_active, hourly_rate, off_day, created_at, updated_at)
 VALUES (
   'admin',
-  '$2b$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi',
+  '$2b$10$knPcDxo8tKCcFAVHoKh96uuhjtWqf2tJaE/R5DsGON.wWpf3CccHu',
   'Administrator',
   'ADMIN',
   'admin@example.com',
@@ -24,7 +24,7 @@ ON DUPLICATE KEY UPDATE username = username;
 INSERT INTO users (username, password_hash, full_name, role, email, employee_id, department, is_active, hourly_rate, off_day, created_at, updated_at)
 VALUES (
   'employee',
-  '$2b$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi',
+  '$2b$10$knPcDxo8tKCcFAVHoKh96uuhjtWqf2tJaE/R5DsGON.wWpf3CccHu',
   'Employee Demo',
   'EMPLOYEE',
   'employee@example.com',
