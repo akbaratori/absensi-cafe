@@ -3,12 +3,8 @@
 // Combines: Auto Clock-Out + Absent Detection
 
 process.env.NODE_ENV = 'production';
-if (process.env.POSTGRES_PRISMA_URL) {
-  process.env.DATABASE_URL = process.env.POSTGRES_PRISMA_URL;
-}
 
-const { PrismaClient } = require('../../backend/node_modules/@prisma/client');
-const prisma = new PrismaClient();
+const prisma = require('../../backend/src/utils/database');
 
 const WITA_OFFSET_MS = 8 * 60 * 60 * 1000;
 

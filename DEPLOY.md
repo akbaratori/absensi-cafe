@@ -17,15 +17,14 @@ Pastikan komputer Anda sudah terinstall:
 
 ## 3. Konfigurasi Backend
 1. Masuk ke folder backend: `cd backend`
-2. Salin file `.env.example` menjadi `.env` (atau buat file baru).
-3. Isi konfigurasi berikut:
+2. File `.env` sudah tersedia. Buka dan sesuaikan `DATABASE_URL` sesuai user/password MySQL Anda:
    ```env
    PORT=3001
    DATABASE_URL="mysql://root:password@localhost:3306/absensi_cafe"
    JWT_SECRET="rahasia_dapur_cafe_anda_yang_aman"
    CORS_ALLOWED_ORIGINS="http://localhost:5173,http://localhost:3000"
    ```
-   *Sesuaikan `root:password` dengan user dan password MySQL Anda.*
+   *Ganti `root:password` dengan user dan password MySQL Anda.*
 
 ## 4. Instalasi dan Menjalankan Aplikasi
 Anda bisa menggunakan skrip otomatis yang sudah disediakan.
