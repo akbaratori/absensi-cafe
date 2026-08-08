@@ -23,7 +23,9 @@ export const AuthProvider = ({ children }) => {
       if (token) {
         try {
           const response = await getCurrentUser();
-          setUser(response.data);
+          const payload = response.data || response;
+          const userData = payload.data || payload;
+          setUser(userData);
           setIsAuthenticated(true);
         } catch (error) {
           console.error('Auth initialization failed:', error);
@@ -42,15 +44,19 @@ export const AuthProvider = ({ children }) => {
   const login = async (username, password) => {
     const response = await loginApi(username, password);
 
+    // Backend wraps payload in response.data.data
+    const payload = response.data || response;
+    const authData = payload.data || payload;
+
     // Store tokens
-    localStorage.setItem('token', response.data.accessToken);
-    localStorage.setItem('refreshToken', response.data.refreshToken);
+    localStorage.setItem('token', authData.accessToken);
+    localStorage.setItem('refreshToken', authData.refreshToken);
 
     // Set user state
-    setUser(response.data.user);
+    setUser(authData.user);
     setIsAuthenticated(true);
 
-    return response.data;
+    return authData;
   };
 
   const logout = async () => {
