@@ -5,7 +5,7 @@ const config = require('../config');
 let prisma;
 
 const prismaClientOptions = {
-  // Connection pool configuration
+  // Connection pool configuration (for MySQL; ignored for SQLite)
   datasources: {
     db: {
       url: config.databaseUrl,
@@ -16,10 +16,9 @@ const prismaClientOptions = {
 };
 
 if (process.env.NODE_ENV === 'production') {
-  // Production: Use connection pooling for better performance
+  // Production: Use connection pooling for better performance (safe for MySQL serverless)
   prisma = new PrismaClient({
     ...prismaClientOptions,
-    // Add connection timeout for production
   });
 } else {
   // In development, use globalThis to prevent multiple instances

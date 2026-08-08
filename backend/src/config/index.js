@@ -10,15 +10,16 @@ if (process.env.NODE_ENV !== 'production') {
 
 let databaseUrl = process.env.DATABASE_URL;
 
-  // Resolve relative SQLite paths (file:./...) to absolute paths relative to the
-  // backend folder so the database is found regardless of the process cwd.
-  if (databaseUrl && databaseUrl.startsWith('file:./')) {
-    const relativePath = databaseUrl.slice('file:./'.length);
-    const absolutePath = path.resolve(path.dirname(envPath), relativePath);
-    databaseUrl = 'file:' + absolutePath.replace(/\\/g, '/');
-  }
+// Resolve relative SQLite paths (file:./...) to absolute paths relative to the
+// backend folder so the database is found regardless of the process cwd.
+// MySQL URLs are left unchanged.
+if (databaseUrl && databaseUrl.startsWith('file:./')) {
+  const relativePath = databaseUrl.slice('file:./'.length);
+  const absolutePath = path.resolve(path.dirname(envPath), relativePath);
+  databaseUrl = 'file:' + absolutePath.replace(/\\/g, '/');
+}
 
-module.exports = {
+const config = {
   // Server
   port: parseInt(process.env.PORT || '3001', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
@@ -27,9 +28,11 @@ module.exports = {
   databaseUrl,
 
   // JWT
+  // Prefer legacy JWT_EXPIRES_IN for access token (hours string, e.g. 24h).
+  // Fallback to JWT_ACCESS_EXPIRY (seconds) then default 15 minutes.
   jwt: {
     secret: process.env.JWT_SECRET || 'your-secret-key-change-in-production',
-    accessTokenExpiry: parseInt(process.env.JWT_ACCESS_EXPIRY || '900', 10), // 15 minutes
+    accessTokenExpiry: process.env.JWT_EXPIRES_IN || parseInt(process.env.JWT_ACCESS_EXPIRY || '900', 10), // 15 minutes
     refreshTokenExpiry: parseInt(process.env.JWT_REFRESH_EXPIRY || '604800', 10), // 7 days
   },
 
@@ -61,3 +64,10 @@ module.exports = {
     radiusMeters: parseInt(process.env.CAFE_RADIUS || '100', 10),
   },
 };
+
+// In production, DATABASE_URL must be provided by the host (e.g., Vercel dashboard).
+if (config.nodeEnv === 'production' && !config.databaseUrl) {
+  throw new Error('DATABASE_URL environment variable is required in production');
+}
+
+module.exports = config;

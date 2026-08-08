@@ -4,6 +4,11 @@
 // Force NODE_ENV to production in Vercel
 process.env.NODE_ENV = 'production';
 
+// Ensure DATABASE_URL is set for Prisma before importing app
+if (!process.env.DATABASE_URL) {
+  console.error('DATABASE_URL is not set. Please set it in Vercel dashboard.');
+}
+
 const app = require('../backend/src/app');
 
 module.exports = app;

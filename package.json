@@ -16,10 +16,16 @@
     "migrate": "cd backend && npx prisma migrate dev",
     "prisma:generate": "cd backend && npx prisma generate"
   },
-  "keywords": ["attendance", "cafe", "employee", "fullstack"],
+  "keywords": [
+    "attendance",
+    "cafe",
+    "employee",
+    "fullstack"
+  ],
   "author": "",
   "license": "MIT",
   "devDependencies": {
-    "concurrently": "^8.2.2"
+    "concurrently": "^8.2.2",
+    "prisma": "^5.22.0"
   }
 }
