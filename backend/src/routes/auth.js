@@ -40,6 +40,7 @@ const { authLimiter } = require('../middleware/rateLimiter');
  *                   type: string
  */
 router.post('/login', authLimiter, validate(loginSchema), authController.login);
+router.post('/login/', authLimiter, validate(loginSchema), authController.login);
 
 /**
  * @swagger
