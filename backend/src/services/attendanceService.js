@@ -212,7 +212,9 @@ class AttendanceService {
         const scheduleService = require('./scheduleService');
         const todaySchedule = await scheduleService.getTodaySchedule(userId);
         if (todaySchedule) return todaySchedule.isOffDay;
-        // Fallback to static setting
+        // Jika tidak ada jadwal dinamis, cek apakah user sudah clock-in (berarti bukan libur)
+        if (record) return false;
+        // Fallback ke pengaturan statis user
         return await offDayService.isOffDay(userId, new Date());
       })(),
       // Add shift info if available
