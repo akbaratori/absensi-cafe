@@ -1,7 +1,7 @@
 {
   "version": 2,
   "installCommand": "npm install && cd backend && npm install && cd ../frontend && npm install --include=dev",
-  "buildCommand": "cd frontend && npm run build && cd ../backend && rm -rf node_modules/.prisma && npx prisma generate",
+  "buildCommand": "cd frontend && npm run build && cd ../backend && rm -rf node_modules/.prisma && npx prisma generate --schema=./prisma/schema.prisma",
   "outputDirectory": "frontend/dist",
   "crons": [
     {
@@ -11,7 +11,7 @@
   ],
   "functions": {
     "api/index.js": {
-      "includeFiles": "backend/src/**,backend/node_modules/.prisma/**,backend/node_modules/@prisma/**,backend/node_modules/**,backend/prisma/schema.prisma,backend/prisma/migrations/**,backend/package.json"
+      "includeFiles": "backend/src/**,backend/node_modules/.prisma/**,backend/node_modules/@prisma/client/**,backend/prisma/schema.prisma,backend/prisma/migrations/**,backend/package.json"
     },
     "api/cron/daily-cleanup.js": {
       "includeFiles": "backend/node_modules/.prisma/**,backend/node_modules/@prisma/**,backend/node_modules/**,backend/prisma/schema.prisma,backend/prisma/migrations/**"
