@@ -4,13 +4,13 @@
   "description": "Backend API for employee attendance system",
   "main": "src/server.js",
   "scripts": {
-    "postinstall": "npx prisma generate --schema=./prisma/schema.prisma",
-    "build": "npx prisma generate --schema=./prisma/schema.prisma",
+    "postinstall": "./node_modules/.bin/prisma generate --schema=./prisma/schema.prisma",
+    "build": "./node_modules/.bin/prisma generate --schema=./prisma/schema.prisma",
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "migrate": "npx prisma migrate dev --schema=./prisma/schema.prisma",
     "migrate:deploy": "npx prisma migrate deploy --schema=./prisma/schema.prisma",
-    "prisma:generate": "npx prisma generate --schema=./prisma/schema.prisma",
+    "prisma:generate": "./node_modules/.bin/prisma generate --schema=./prisma/schema.prisma",
     "test": "jest --coverage",
     "lint": "eslint src/"
   },

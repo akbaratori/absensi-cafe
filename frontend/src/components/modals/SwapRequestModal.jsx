@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X } from 'lucide-react';
+import { X, AlertTriangle } from 'lucide-react';
 import Button from '../../components/shared/Button';
 import Input from '../../components/shared/Input';
 import { createSwapRequest } from '../../services/swapService';
@@ -37,12 +37,25 @@ const SwapRequestModal = ({ onClose, onSuccess }) => {
                 // If a user doesn't have a schedule generated, they won't appear.这是个限制 for swapping OFF days.
                 // But generally initialized users have schedules.
 
+                // Fetch current user's schedule for the same date to compare shift
+                const mySchedule = (response.data.data || []).find(s => s.userId === user.id);
+                const myShiftId = mySchedule?.shiftId;
+                const myIsOffDay = mySchedule?.isOffDay || false;
+
                 const targets = (response.data.data || [])
-                    .filter(s => s.userId !== user.id)
+                    .filter(s => {
+                        // Exclude current user
+                        if (s.userId === user.id) return false;
+                        // Exclude targets with the same shift (can't swap same shift)
+                        if (!myIsOffDay && !s.isOffDay && s.shiftId === myShiftId) return false;
+                        // Exclude if both are off day
+                        if (myIsOffDay && s.isOffDay) return false;
+                        return true;
+                    })
                     .map(s => ({
                         userId: s.userId,
                         fullName: s.user.fullName,
-                        shiftName: s.isOffDay ? 'Libur' : (s.shift?.name || 'Shift ?'),
+                        shiftName: s.isOffDay ? 'Libur' : (s.shift?.name || 'Tidak Diketahui'),
                         isOffDay: s.isOffDay
                     }));
 
@@ -127,7 +140,12 @@ const SwapRequestModal = ({ onClose, onSuccess }) => {
                             ))}
                         </select>
                         {formData.date && !loadingTargets && potentialTargets.length === 0 && (
-                            <p className="text-xs text-orange-500 mt-1">Tidak ada rekan kerja lain yang ditemukan pada tanggal ini.</p>
+                            <div className="flex items-start gap-1.5 mt-1">
+                                <AlertTriangle className="w-3.5 h-3.5 text-orange-500 mt-0.5 shrink-0" />
+                                <p className="text-xs text-orange-500">
+                                    Tidak ada rekan kerja yang bisa ditukar pada tanggal ini. Pastikan Anda dan rekan memiliki shift yang berbeda.
+                                </p>
+                            </div>
                         )}
                     </div>
 
