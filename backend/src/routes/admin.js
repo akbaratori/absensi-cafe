@@ -155,21 +155,27 @@ router.put('/config', validate(updateConfigSchema), adminController.updateConfig
  * @desc    Get all off-day requests (Admin view)
  * @access  Private (Admin)
  */
-router.get('/off-days', offDayController.getRequests);
+router.get('/off-days', offDayController.getAllRequests);
 
 /**
  * @route   PATCH /api/v1/admin/off-days/:id/approve
  * @desc    Approve off-day request
  * @access  Private (Admin)
  */
-router.patch('/off-days/:id/approve', offDayController.approveRequest);
+router.patch('/off-days/:id/approve', (req, res, next) => {
+    req.body.action = 'APPROVE';
+    next();
+}, offDayController.approveByAdmin);
 
 /**
  * @route   PATCH /api/v1/admin/off-days/:id/reject
  * @desc    Reject off-day request
  * @access  Private (Admin)
  */
-router.patch('/off-days/:id/reject', offDayController.rejectRequest);
+router.patch('/off-days/:id/reject', (req, res, next) => {
+    req.body.action = 'REJECT';
+    next();
+}, offDayController.approveByAdmin);
 
 // Push Notification Broadcast Route
 
