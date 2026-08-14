@@ -1,59 +1,134 @@
 const swapService = require('../services/swapService');
-const { asyncHandler } = require('../utils/response');
 
-exports.createRequest = asyncHandler(async (req, res) => {
-    const swap = await swapService.createRequest(req.user.id, req.body);
+/**
+ * POST /api/v1/swaps
+ * Create a new shift swap request
+ */
+async function createRequest(req, res, next) {
+  try {
+    const data = req.body;
+    const result = await swapService.createRequest(req.user.id, data);
+    res.status(201).json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+}
 
-    res.status(201).json({
-        status: 'success',
-        data: { swap }
-    });
-});
-
-exports.getMySwaps = asyncHandler(async (req, res) => {
-    const swaps = await swapService.getUserSwaps(req.user.id);
-    res.status(200).json({
-        status: 'success',
-        data: { swaps }
-    });
-});
-
-exports.getAllSwaps = asyncHandler(async (req, res) => {
-    const swaps = await swapService.getAllSwaps(req.query);
-    res.status(200).json({
-        status: 'success',
-        data: { swaps }
-    });
-});
-
-exports.approveByUser = asyncHandler(async (req, res) => {
+/**
+ * POST /api/v1/swaps/:id/respond
+ * Target employee accepts or rejects the swap
+ */
+async function respondToRequest(req, res, next) {
+  try {
     const { id } = req.params;
-    const swap = await swapService.approveByUser(id, req.user.id);
+    const { action } = req.body; // 'ACCEPT' or 'REJECT'
 
-    res.status(200).json({
-        status: 'success',
-        data: { swap }
-    });
-});
+    if (!action || !['ACCEPT', 'REJECT'].includes(action)) {
+      return res.status(400).json({ success: false, message: 'Action harus ACCEPT atau REJECT.' });
+    }
 
-exports.approveByAdmin = asyncHandler(async (req, res) => {
+    const result = await swapService.respondToRequest(id, req.user.id, action);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * POST/PUT /api/v1/swaps/:id/approve
+ * Admin approves or rejects the swap
+ */
+async function approveByAdmin(req, res, next) {
+  try {
     const { id } = req.params;
-    const swap = await swapService.approveByAdmin(id);
+    const { action } = req.body; // 'APPROVE' or 'REJECT'
 
-    res.status(200).json({
-        status: 'success',
-        data: { swap }
-    });
-});
+    if (!action || !['APPROVE', 'REJECT'].includes(action)) {
+      return res.status(400).json({ success: false, message: 'Action harus APPROVE atau REJECT.' });
+    }
 
-exports.rejectRequest = asyncHandler(async (req, res) => {
+    const result = await swapService.approveByAdmin(id, req.user.id, action);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * POST /api/v1/swaps/:id/cancel
+ * Requester cancels their request (only if still pending target response)
+ */
+async function cancelRequest(req, res, next) {
+  try {
     const { id } = req.params;
-    const isAdmin = req.user.role === 'ADMIN' || req.user.role === 'OWNER';
+    const result = await swapService.cancelRequest(id, req.user.id);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+}
 
-    const swap = await swapService.rejectRequest(id, req.user.id, isAdmin);
+/**
+ * GET /api/v1/swaps/my
+ * Get swaps for the current user
+ */
+async function getMySwaps(req, res, next) {
+  try {
+    const { status } = req.query;
+    const swaps = await swapService.getUserSwaps(req.user.id, { status });
+    res.json({ success: true, data: swaps });
+  } catch (error) {
+    next(error);
+  }
+}
 
-    res.status(200).json({
-        status: 'success',
-        data: { swap }
-    });
-});
+/**
+ * GET /api/v1/swaps
+ * Get all swaps (admin only)
+ */
+async function getAllSwaps(req, res, next) {
+  try {
+    const { status } = req.query;
+    const swaps = await swapService.getAllSwaps({ status });
+    res.json({ success: true, data: swaps });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * GET /api/v1/swaps/inbox
+ * Get swaps that need current user's target response
+ */
+async function getInbox(req, res, next) {
+  try {
+    const swaps = await swapService.getPendingTargetResponse(req.user.id);
+    res.json({ success: true, data: swaps });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * GET /api/v1/swaps/pending-admin-approval
+ * Get swaps that need admin approval
+ */
+async function getPendingAdminApproval(req, res, next) {
+  try {
+    const swaps = await swapService.getPendingAdminApproval();
+    res.json({ success: true, data: swaps });
+  } catch (error) {
+    next(error);
+  }
+}
+
+module.exports = {
+  createRequest,
+  respondToRequest,
+  approveByAdmin,
+  cancelRequest,
+  getMySwaps,
+  getAllSwaps,
+  getInbox,
+  getPendingAdminApproval,
+};

@@ -3,17 +3,29 @@ const router = express.Router();
 const swapController = require('../controllers/swapController');
 const { authenticate, authorize } = require('../middleware/auth');
 
-// Base: /shifts/swaps (or just /swaps, let's decice in index.js)
-// Let's use /api/v1/swaps
+// Base: /api/v1/swaps (mounted in routes/index.js)
 
-// Public (Authenticated)
-router.post('/', authenticate, swapController.createRequest);
-router.get('/my-swaps', authenticate, swapController.getMySwaps);
-router.patch('/:id/approve', authenticate, swapController.approveByUser); // Target user approval
-router.patch('/:id/reject', authenticate, swapController.rejectRequest); // Cancel/Reject
+// All routes require authentication
+router.use(authenticate);
 
-// Admin
-router.get('/', authenticate, authorize('ADMIN', 'OWNER'), swapController.getAllSwaps);
-router.patch('/:id/admin-approve', authenticate, authorize('ADMIN', 'OWNER'), swapController.approveByAdmin);
+// Employee creates a new swap request
+router.post('/', swapController.createRequest);
+
+// Employee gets their own swaps
+router.get('/my', swapController.getMySwaps);
+
+// Employee gets swaps needing their response (inbox)
+router.get('/inbox', swapController.getInbox);
+
+// Target employee responds (accept/reject) to a swap
+router.post('/:id/respond', swapController.respondToRequest);
+
+// Requester cancels their own request
+router.post('/:id/cancel', swapController.cancelRequest);
+
+// Admin routes
+router.get('/', authorize('ADMIN', 'OWNER'), swapController.getAllSwaps);
+router.get('/pending-admin-approval', authorize('ADMIN', 'OWNER'), swapController.getPendingAdminApproval);
+router.post('/:id/approve', authorize('ADMIN', 'OWNER'), swapController.approveByAdmin);
 
 module.exports = router;

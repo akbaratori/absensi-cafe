@@ -132,8 +132,11 @@ const BulkSchedulePanel = ({ onComplete }) => {
                 {/* Shift Selection */}
                 <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                        Pilih Shift
+                        Pilih Shift Minggu Pertama
                     </label>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">
+                        Shift akan di-rotasi otomatis setiap minggu (bergantian antar shift).
+                    </p>
                     <select
                         name="shiftId"
                         value={formData.shiftId}

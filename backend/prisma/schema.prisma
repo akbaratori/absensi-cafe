@@ -33,8 +33,10 @@ model User {
 
   sentSwaps         ShiftSwap[]      @relation("Requester")
   receivedSwaps     ShiftSwap[]      @relation("Target")
+  approvedSwaps     ShiftSwap[]      @relation("ShiftSwapApprover")
   OffDayRequest     OffDayRequest[]
   receivedOffSwaps  OffDayRequest[]  @relation("OffDaySwapTarget")
+  approvedOffDays   OffDayRequest[]  @relation("OffDayApprover")
   pushSubscriptions PushSubscription[]
   overtimes         Overtime[]
   approvedOvertimes Overtime[]       @relation("OvertimeApprover")
@@ -154,17 +156,22 @@ model Notification {
 }
 
 model ShiftSwap {
-  id           Int      @id @default(autoincrement())
-  requesterId  Int      @map("requester_id")
-  targetUserId Int      @map("target_user_id")
-  date         DateTime
-  status       String   @default("PENDING_USER")
-  reason       String?
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  id            Int       @id @default(autoincrement())
+  requesterId   Int       @map("requester_id")
+  targetUserId  Int       @map("target_user_id")
+  date          DateTime
+  status        String    @default("PENDING_VALIDATION")
+  reason        String?
+  rejectionNote String?   @map("rejection_note")
+  approverId    Int?      @map("approver_id")
+  respondedAt   DateTime? @map("responded_at")
+  approvedAt    DateTime? @map("approved_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
 
   requester User @relation("Requester", fields: [requesterId], references: [id])
   target    User @relation("Target", fields: [targetUserId], references: [id])
+  approver  User? @relation("ShiftSwapApprover", fields: [approverId], references: [id])
 
   @@index([requesterId])
   @@index([targetUserId])
@@ -176,18 +183,23 @@ model ShiftSwap {
 }
 
 model OffDayRequest {
-  id           Int      @id @default(autoincrement())
-  userId       Int      @map("user_id")
-  targetUserId Int?     @map("target_user_id")
-  offDate      DateTime @map("off_date")
-  workDate     DateTime @map("work_date")
-  reason       String?
-  status       String   @default("PENDING")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  id            Int       @id @default(autoincrement())
+  userId        Int       @map("user_id")
+  targetUserId  Int?      @map("target_user_id")
+  offDate       DateTime  @map("off_date")
+  workDate      DateTime  @map("work_date")
+  reason        String?
+  status        String    @default("PENDING_VALIDATION")
+  rejectionNote String?   @map("rejection_note")
+  approverId    Int?      @map("approver_id")
+  respondedAt   DateTime? @map("responded_at")
+  approvedAt    DateTime? @map("approved_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
 
-  user   User? @relation(fields: [userId], references: [id])
-  target User? @relation("OffDaySwapTarget", fields: [targetUserId], references: [id])
+  user     User? @relation(fields: [userId], references: [id])
+  target   User? @relation("OffDaySwapTarget", fields: [targetUserId], references: [id])
+  approver User? @relation("OffDayApprover", fields: [approverId], references: [id])
 
   @@index([userId])
   @@index([targetUserId])

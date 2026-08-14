@@ -167,6 +167,14 @@ class ScheduleService {
 
         const allSchedules = [];
 
+        const anchorMonday = new Date(startDate);
+        const anchorDay = anchorMonday.getUTCDay();
+        if (anchorDay !== 1) {
+            const diffToMonday = anchorDay === 0 ? -6 : 1 - anchorDay;
+            anchorMonday.setUTCDate(anchorMonday.getUTCDate() + diffToMonday);
+        }
+        anchorMonday.setUTCHours(0, 0, 0, 0);
+
         for (const user of users) {
             let currentDate = new Date(startDate);
 
@@ -174,10 +182,19 @@ class ScheduleService {
                 const dayOfWeek = currentDate.getUTCDay();
                 const isOffDay = keepOffDays && user.offDay != null && user.offDay !== -1 && dayOfWeek === user.offDay;
 
+                let assignedShiftId = null;
+                if (!isOffDay) {
+                    const diffTime = currentDate.getTime() - anchorMonday.getTime();
+                    const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+                    const weekIndex = Math.floor(diffDays / 7);
+                    // Rotasi mingguan: minggu genap = shift terpilih, minggu ganjil = shift lainnya (1 <-> 2)
+                    assignedShiftId = (weekIndex % 2 === 0) ? shiftId : (shiftId === 1 ? 2 : 1);
+                }
+
                 allSchedules.push({
                     userId: user.id,
                     date: new Date(currentDate),
-                    shiftId: isOffDay ? null : shiftId,
+                    shiftId: assignedShiftId,
                     isOffDay: isOffDay
                 });
 
