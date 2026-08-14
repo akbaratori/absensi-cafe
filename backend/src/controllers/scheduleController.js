@@ -87,10 +87,15 @@ class ScheduleController {
                 req.query.endDate = end.toISOString().split('T')[0];
             }
 
+            const start = new Date(req.query.startDate);
+            start.setHours(0, 0, 0, 0);
+            const end = new Date(req.query.endDate);
+            end.setHours(23, 59, 59, 999);
+
             const schedules = await scheduleService.getUserSchedule(
                 parseInt(userId),
-                new Date(req.query.startDate),
-                new Date(req.query.endDate)
+                start,
+                end
             );
 
             return successResponse(res, 200, schedules, 'Data jadwal berhasil dimuat');
@@ -236,9 +241,14 @@ class ScheduleController {
                 throw ErrorCodes.SCHEDULE_ERRORS.MISSING_REQUIRED_FIELDS;
             }
 
+            const start = new Date(startDate);
+            start.setHours(0, 0, 0, 0);
+            const end = new Date(endDate);
+            end.setHours(23, 59, 59, 999);
+
             const schedules = await scheduleService.getAllSchedules(
-                new Date(startDate),
-                new Date(endDate),
+                start,
+                end,
                 department
             );
 
