@@ -87,10 +87,9 @@ class ScheduleController {
                 req.query.endDate = end.toISOString().split('T')[0];
             }
 
-            const start = new Date(req.query.startDate);
-            start.setHours(0, 0, 0, 0);
-            const end = new Date(req.query.endDate);
-            end.setHours(23, 59, 59, 999);
+            // Parse as UTC midnight to match how schedules are stored (generateSchedule uses T00:00:00Z)
+            const start = new Date(req.query.startDate + 'T00:00:00Z');
+            const end = new Date(req.query.endDate + 'T23:59:59.999Z');
 
             const schedules = await scheduleService.getUserSchedule(
                 parseInt(userId),
@@ -241,10 +240,9 @@ class ScheduleController {
                 throw ErrorCodes.SCHEDULE_ERRORS.MISSING_REQUIRED_FIELDS;
             }
 
-            const start = new Date(startDate);
-            start.setHours(0, 0, 0, 0);
-            const end = new Date(endDate);
-            end.setHours(23, 59, 59, 999);
+            // Parse as UTC midnight to match how schedules are stored (generateSchedule uses T00:00:00Z)
+            const start = new Date(startDate + 'T00:00:00Z');
+            const end = new Date(endDate + 'T23:59:59.999Z');
 
             const schedules = await scheduleService.getAllSchedules(
                 start,
