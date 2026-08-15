@@ -1,5 +1,5 @@
 -- CreateTable
-CREATE TABLE `positions` (
+CREATE TABLE IF NOT EXISTS `positions` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `name` VARCHAR(191) NOT NULL,
     `shift1_capacity` INTEGER NOT NULL DEFAULT 2,
@@ -13,7 +13,7 @@ CREATE TABLE `positions` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `position_rosters` (
+CREATE TABLE IF NOT EXISTS `position_rosters` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `position_id` INTEGER NOT NULL,
     `user_id` INTEGER NOT NULL,
@@ -27,7 +27,7 @@ CREATE TABLE `position_rosters` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `rotation_states` (
+CREATE TABLE IF NOT EXISTS `rotation_states` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `position_id` INTEGER NOT NULL,
     `current_start_index` INTEGER NOT NULL DEFAULT 0,
@@ -39,7 +39,7 @@ CREATE TABLE `rotation_states` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `weekly_schedules` (
+CREATE TABLE IF NOT EXISTS `weekly_schedules` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `position_id` INTEGER NOT NULL,
     `week_start` DATETIME(3) NOT NULL,
