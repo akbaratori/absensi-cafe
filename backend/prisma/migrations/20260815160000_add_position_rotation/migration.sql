@@ -54,12 +54,3 @@ CREATE TABLE `weekly_schedules` (
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
--- Ensure shift_swaps approval columns exist (idempotent fix for missing rejection_note)
-ALTER TABLE `shift_swaps` ADD COLUMN IF NOT EXISTS `rejection_note` VARCHAR(191) NULL;
-ALTER TABLE `shift_swaps` ADD COLUMN IF NOT EXISTS `approver_id` INTEGER NULL;
-ALTER TABLE `shift_swaps` ADD COLUMN IF NOT EXISTS `responded_at` DATETIME(3) NULL;
-ALTER TABLE `shift_swaps` ADD COLUMN IF NOT EXISTS `approved_at` DATETIME(3) NULL;
-ALTER TABLE `off_day_requests` ADD COLUMN IF NOT EXISTS `rejection_note` VARCHAR(191) NULL;
-ALTER TABLE `off_day_requests` ADD COLUMN IF NOT EXISTS `approver_id` INTEGER NULL;
-ALTER TABLE `off_day_requests` ADD COLUMN IF NOT EXISTS `responded_at` DATETIME(3) NULL;
-ALTER TABLE `off_day_requests` ADD COLUMN IF NOT EXISTS `approved_at` DATETIME(3) NULL;
