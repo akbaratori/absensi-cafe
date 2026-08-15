@@ -517,7 +517,7 @@ class ScheduleService {
     }
 
     async getUserSchedule(userId, startDate, endDate) {
-        return await prisma.userSchedule.findMany({
+        let schedules = await prisma.userSchedule.findMany({
             where: {
                 userId,
                 date: {
@@ -532,6 +532,44 @@ class ScheduleService {
                 date: 'asc'
             }
         });
+
+        // Fallback: if no schedule rows exist for this user in the requested range,
+        // auto-generate them from the user's configured shift pattern so "Jadwal Saya"
+        // is never empty when the rolling schedule has not been persisted yet.
+        if (schedules.length === 0) {
+            const startDateStr = startDate.toISOString().slice(0, 10);
+            const months = Math.max(1, Math.ceil(
+                (endDate.getTime() - startDate.getTime()) / (30 * 24 * 60 * 60 * 1000)
+            ));
+
+            const user = await prisma.user.findUnique({ where: { id: userId } });
+            if (user) {
+                const shiftPattern = user.shiftId ? [user.shiftId] : [1];
+                await this.generateSchedule(userId, startDateStr, months, {
+                    shiftPattern,
+                    baseOffDay: user.offDay ?? 0,
+                    rotateOffDay: true
+                });
+
+                schedules = await prisma.userSchedule.findMany({
+                    where: {
+                        userId,
+                        date: {
+                            gte: startDate,
+                            lte: endDate
+                        }
+                    },
+                    include: {
+                        shift: true
+                    },
+                    orderBy: {
+                        date: 'asc'
+                    }
+                });
+            }
+        }
+
+        return schedules;
     }
 
     async getTodaySchedule(userId) {
