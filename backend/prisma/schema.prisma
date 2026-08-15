@@ -308,6 +308,8 @@ model PositionRoster {
   orderIndex Int     @map("order_index")
   createdAt  DateTime @default(now()) @map("created_at")
 
+  position Position @relation(fields: [positionId], references: [id], onDelete: Cascade)
+
   @@unique([positionId, orderIndex])
   @@unique([positionId, userId])
   @@index([userId])
@@ -316,10 +318,12 @@ model PositionRoster {
 
 model RotationState {
   id                    Int      @id @default(autoincrement())
-  positionId            Int      @unique @map("position_id")
+  positionId            Int      @map("position_id")
   currentStartIndex     Int      @default(0) @map("current_start_index")
   lastGeneratedWeekStart DateTime? @map("last_generated_week_start")
   updatedAt             DateTime @updatedAt @map("updated_at")
+
+  position Position @relation(fields: [positionId], references: [id], onDelete: Cascade)
 
   @@map("rotation_states")
 }
@@ -332,6 +336,8 @@ model WeeklySchedule {
   shiftNumber Int      @map("shift_number")
   isGenerated Boolean  @default(true) @map("is_generated")
   createdAt   DateTime @default(now()) @map("created_at")
+
+  position Position @relation(fields: [positionId], references: [id], onDelete: Cascade)
 
   @@unique([positionId, weekStart, userId])
   @@index([positionId, weekStart])

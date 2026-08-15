@@ -34,7 +34,7 @@ CREATE TABLE `rotation_states` (
     `last_generated_week_start` DATETIME(3) NULL,
     `updated_at` DATETIME(3) NOT NULL,
 
-    UNIQUE INDEX `rotation_states_position_id_key`(`position_id`),
+    INDEX `rotation_states_position_id_idx`(`position_id`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
