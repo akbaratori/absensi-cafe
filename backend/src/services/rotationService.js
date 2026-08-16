@@ -65,6 +65,7 @@ class RotationService {
       const rosters = await prisma.positionRoster.findMany({
         where: { positionId: p.id },
         orderBy: { orderIndex: 'asc' },
+        include: { user: { select: { id: true, name: true, fullName: true } } },
       });
       const rotationState = await prisma.rotationState.findFirst({
         where: { positionId: p.id },
@@ -88,6 +89,7 @@ class RotationService {
     const rosters = await prisma.positionRoster.findMany({
       where: { positionId },
       orderBy: { orderIndex: 'asc' },
+      include: { user: { select: { id: true, name: true, fullName: true } } },
     });
     const rotationState = await prisma.rotationState.findFirst({
       where: { positionId },
