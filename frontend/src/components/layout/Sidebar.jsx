@@ -77,6 +77,11 @@ const Sidebar = ({ isOpen, onClose }) => {
       icon: Calendar,
     },
     {
+      name: 'Posisi & Rotasi',
+      path: '/admin/rotation',
+      icon: Users,
+    },
+    {
       name: '🌙 Jobdesk Closing',
       path: '/admin/jobdesk-closing',
       icon: Calendar,

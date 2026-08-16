@@ -18,10 +18,10 @@ const prisma = require('./database');
  */
 async function checkEmployeeScheduleConflict(employeeId, date) {
   const checkDate = new Date(date);
-  checkDate.setHours(0, 0, 0, 0);
+  checkDate.setUTCHours(0, 0, 0, 0);
 
   const endOfDay = new Date(checkDate);
-  endOfDay.setHours(23, 59, 59, 999);
+  endOfDay.setUTCHours(23, 59, 59, 999);
 
   // Check 1: Approved leave on the same day
   const leave = await prisma.leave.findFirst({

@@ -27,6 +27,7 @@ import ShiftManagementPage from './pages/admin/ShiftManagementPage';
 import SwapApprovalPage from './pages/admin/SwapApprovalPage';
 import OffDayApprovalPage from './pages/admin/OffDayApprovalPage';
 import ScheduleManagementPage from './pages/admin/ScheduleManagementPage';
+import RotationManagementPage from './pages/admin/RotationManagementPage';
 import PayrollPage from './pages/admin/PayrollPage';
 import JobdeskClosingPage from './pages/admin/JobdeskClosingPage';
 import OvertimePage from './pages/employee/OvertimePage';
@@ -232,6 +233,14 @@ function App() {
               element={
                 <AdminRoute>
                   <ScheduleManagementPage />
+                </AdminRoute>
+              }
+            />
+            <Route
+              path="/admin/rotation"
+              element={
+                <AdminRoute>
+                  <RotationManagementPage />
                 </AdminRoute>
               }
             />

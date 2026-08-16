@@ -13,30 +13,30 @@ const prisma = require('../utils/database');
 
 function toDateOnly(date) {
   const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
+  d.setUTCHours(0, 0, 0, 0);
   return d;
 }
 
 function addDays(date, days) {
   const d = new Date(date);
-  d.setDate(d.getDate() + days);
+  d.setUTCDate(d.getUTCDate() + days);
   return d;
 }
 
-/** Get Monday (00:00 local) of the week containing `date`. */
+/** Get Monday (00:00 UTC) of the week containing `date`. */
 function getMonday(date) {
   const d = toDateOnly(date);
-  const day = d.getDay(); // 0=Sun, 1=Mon
+  const day = d.getUTCDay(); // 0=Sun, 1=Mon
   const diff = (day === 0 ? -6 : 1 - day);
-  d.setDate(d.getDate() + diff);
+  d.setUTCDate(d.getUTCDate() + diff);
   return d;
 }
 
-/** Format a Date to YYYY-MM-DD (local). */
+/** Format a Date to YYYY-MM-DD (UTC). */
 function toISO(date) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
+  const y = date.getUTCFullYear();
+  const m = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(date.getUTCDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
 }
 

@@ -14,7 +14,7 @@ class SwapService {
     if (!date) throw new Error('Tanggal wajib diisi.');
 
     const swapDate = new Date(date);
-    swapDate.setHours(0, 0, 0, 0);
+    swapDate.setUTCHours(0, 0, 0, 0);
 
     if (isNaN(swapDate.getTime())) {
       throw new Error('Format tanggal tidak valid.');
@@ -22,7 +22,7 @@ class SwapService {
 
     // Validate future date
     const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    today.setUTCHours(0, 0, 0, 0);
     if (swapDate < today) {
       throw new Error('Tidak dapat mengajukan tukar shift untuk tanggal yang sudah lewat.');
     }
@@ -463,7 +463,7 @@ class SwapService {
    */
   async getActiveSwap(userId, date) {
     const checkDate = new Date(date);
-    checkDate.setHours(0, 0, 0, 0);
+    checkDate.setUTCHours(0, 0, 0, 0);
 
     const swap = await prisma.shiftSwap.findFirst({
       where: {

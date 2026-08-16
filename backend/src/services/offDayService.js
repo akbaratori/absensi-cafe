@@ -14,9 +14,9 @@ class OffDayService {
     if (!offDate || !workDate) throw new Error('Tanggal libur dan tanggal kerja wajib diisi.');
 
     const offDateObj = new Date(offDate);
-    offDateObj.setHours(0, 0, 0, 0);
+    offDateObj.setUTCHours(0, 0, 0, 0);
     const workDateObj = new Date(workDate);
-    workDateObj.setHours(0, 0, 0, 0);
+    workDateObj.setUTCHours(0, 0, 0, 0);
 
     if (isNaN(offDateObj.getTime()) || isNaN(workDateObj.getTime())) {
       throw new Error('Format tanggal tidak valid.');
@@ -24,7 +24,7 @@ class OffDayService {
 
     // Validate future dates
     const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    today.setUTCHours(0, 0, 0, 0);
     if (offDateObj < today || workDateObj < today) {
       throw new Error('Tidak dapat mengajukan tukar libur untuk tanggal yang sudah lewat.');
     }
