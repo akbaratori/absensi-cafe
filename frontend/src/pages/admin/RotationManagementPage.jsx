@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import rotationService from '../../services/rotationService';
 import { getUsers } from '../../services/adminService';
-import Loading from '../../components/shared/Loading';
+import { LoadingSpinner } from '../../components/shared/Loading';
 
 export default function RotationManagementPage() {
   const [positions, setPositions] = useState([]);
@@ -115,7 +115,7 @@ export default function RotationManagementPage() {
     setRoster(roster.filter((r) => r.userId !== userId));
   };
 
-  if (loading) return <Loading />;
+if (loading) return <LoadingSpinner />;
 
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto">
