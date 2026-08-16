@@ -163,11 +163,19 @@ class RotationService {
       ),
     ]);
 
-    await prisma.rotationState.upsert({
+    const existingState = await prisma.rotationState.findFirst({
       where: { positionId },
-      update: { currentStartIndex: 0, lastGeneratedWeekStart: null },
-      create: { positionId, currentStartIndex: 0 },
     });
+    if (existingState) {
+      await prisma.rotationState.update({
+        where: { id: existingState.id },
+        data: { currentStartIndex: 0, lastGeneratedWeekStart: null },
+      });
+    } else {
+      await prisma.rotationState.create({
+        data: { positionId, currentStartIndex: 0 },
+      });
+    }
 
     return this.getPosition(positionId);
   }

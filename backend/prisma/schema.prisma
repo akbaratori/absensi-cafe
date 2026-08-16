@@ -318,7 +318,7 @@ model PositionRoster {
 
 model RotationState {
   id                    Int      @id @default(autoincrement())
-  positionId            Int      @map("position_id")
+  positionId            Int      @unique @map("position_id")
   currentStartIndex     Int      @default(0) @map("current_start_index")
   lastGeneratedWeekStart DateTime? @map("last_generated_week_start")
   updatedAt             DateTime @updatedAt @map("updated_at")
