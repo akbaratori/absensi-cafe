@@ -66,7 +66,7 @@ class RotationService {
         where: { positionId: p.id },
         orderBy: { orderIndex: 'asc' },
       });
-      const rotationState = await prisma.rotationState.findUnique({
+      const rotationState = await prisma.rotationState.findFirst({
         where: { positionId: p.id },
       });
       result.push({
@@ -89,7 +89,7 @@ class RotationService {
       where: { positionId },
       orderBy: { orderIndex: 'asc' },
     });
-    const rotationState = await prisma.rotationState.findUnique({
+    const rotationState = await prisma.rotationState.findFirst({
       where: { positionId },
     });
     return { ...position, rosters, rotationState };
