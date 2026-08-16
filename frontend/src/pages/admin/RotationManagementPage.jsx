@@ -27,7 +27,7 @@ export default function RotationManagementPage() {
 
   const fetchUsers = useCallback(async () => {
     try {
-      const res = await getUsers({ limit: 200 });
+      const res = await getUsers({ limit: 100 });
       setUsers(res.data || []);
     } catch (err) {
       toast.error('Gagal memuat user: ' + (err.response?.data?.message || err.message));
