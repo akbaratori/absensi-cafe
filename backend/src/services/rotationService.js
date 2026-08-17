@@ -289,8 +289,10 @@ class RotationService {
     const startIndex = state.currentStartIndex;
     const totalRoster = roster.length;
 
-    const shift1UserIds = circularSlice(roster, startIndex, position.shift1Capacity).map((r) => r.userId);
-    const shift2UserIds = circularSlice(roster, startIndex + position.shift1Capacity, position.shift2Capacity).map((r) => r.userId);
+    // Rotate roster so startIndex is first, then split shift1/shift2 without duplicates.
+    const rotated = [...roster.slice(startIndex % roster.length), ...roster.slice(0, startIndex % roster.length)];
+    const shift1UserIds = rotated.slice(0, position.shift1Capacity).map((r) => r.userId);
+    const shift2UserIds = rotated.slice(position.shift1Capacity, position.shift1Capacity + position.shift2Capacity).map((r) => r.userId);
 
     const shift1 = await prisma.shift.findFirst({ where: { name: 'Shift 1' } });
     const shift2 = await prisma.shift.findFirst({ where: { name: 'Shift 2' } });
