@@ -44,12 +44,22 @@ export default function RotationManagementPage() {
 
   const openPosition = async (pos) => {
     setSelectedPosition(pos);
-    setRoster(pos.rosters || []);
+    setRoster(
+      (pos.rosters || []).map((r, i) => ({
+        ...r,
+        shift: i < pos.shift1Capacity ? 1 : 2,
+      }))
+    );
     setSchedule(null);
     try {
       const res = await rotationService.getPosition(pos.id);
       setSelectedPosition(res.data.data);
-      setRoster(res.data.data.rosters || []);
+      setRoster(
+        (res.data.data.rosters || []).map((r, i) => ({
+          ...r,
+          shift: i < res.data.data.shift1Capacity ? 1 : 2,
+        }))
+      );
     } catch (err) {
       toast.error('Gagal memuat detail posisi');
     }
@@ -96,7 +106,8 @@ export default function RotationManagementPage() {
 
   const handleSaveRoster = async () => {
     try {
-      const userIds = roster.map((r) => r.userId);
+      const sorted = [...roster].sort((a, b) => (a.shift || 1) - (b.shift || 1));
+      const userIds = sorted.map((r) => r.userId);
       await rotationService.setRoster(selectedPosition.id, userIds);
       toast.success('Roster berhasil disimpan');
       setRosterModal(false);
@@ -108,11 +119,20 @@ export default function RotationManagementPage() {
 
   const addToRoster = (user) => {
     if (roster.find((r) => r.userId === user.id)) return toast.error('User sudah ada di roster');
-    setRoster([...roster, { userId: user.id, user }]);
+    const shift = roster.filter((r) => r.shift === 1).length < selectedPosition.shift1Capacity ? 1 : 2;
+    setRoster([...roster, { userId: user.id, user, shift }]);
   };
 
   const removeFromRoster = (userId) => {
     setRoster(roster.filter((r) => r.userId !== userId));
+  };
+
+  const clearRoster = () => {
+    setRoster([]);
+  };
+
+  const setShift = (userId, shift) => {
+    setRoster(roster.map((r) => (r.userId === userId ? { ...r, shift } : r)));
   };
 
   const moveRoster = (idx, dir) => {
@@ -360,9 +380,19 @@ if (loading) return <LoadingSpinner />;
               Atur Roster - {selectedPosition?.name}
             </h2>
             <div className="mb-4">
-              <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-2">
-                Anggota saat ini
-              </h3>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300">
+                  Anggota saat ini
+                </h3>
+                {roster.length > 0 && (
+                  <button
+                    onClick={clearRoster}
+                    className="text-xs text-red-500 hover:text-red-700"
+                  >
+                    Hapus Semua
+                  </button>
+                )}
+              </div>
               {roster.length === 0 ? (
                 <p className="text-gray-400 text-sm">Kosong</p>
               ) : (
@@ -376,6 +406,15 @@ if (loading) return <LoadingSpinner />;
                         {idx + 1}. {r.user?.name || r.user?.fullName || `User ${r.userId}`}
                       </span>
                       <div className="flex items-center gap-1">
+                        <select
+                          value={r.shift || 1}
+                          onChange={(e) => setShift(r.userId, Number(e.target.value))}
+                          title="Pilih shift"
+                          className="text-xs border border-gray-300 dark:border-gray-600 rounded px-1 py-0.5 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200"
+                        >
+                          <option value={1}>Shift 1</option>
+                          <option value={2}>Shift 2</option>
+                        </select>
                         <button
                           onClick={() => moveRoster(idx, -1)}
                           disabled={idx === 0}
