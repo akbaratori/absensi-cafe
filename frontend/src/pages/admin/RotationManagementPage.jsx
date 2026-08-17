@@ -90,7 +90,7 @@ export default function RotationManagementPage() {
       const schedRes = await rotationService.getSchedule(selectedPosition.id, weekStart);
       setSchedule(schedRes.data.data);
     } catch (err) {
-      toast.error('Gagal generate jadwal: ' + (err.response?.data?.message || err.message));
+      toast.error('Gagal generate jadwal: ' + (err.response?.data?.error?.message || err.response?.data?.message || err.message));
     }
   };
 

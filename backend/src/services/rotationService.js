@@ -273,15 +273,6 @@ class RotationService {
       );
     }
 
-    const totalCapacity = position.shift1Capacity + position.shift2Capacity;
-    if (roster.length < totalCapacity) {
-      throw new AppError(
-        `Roster posisi "${position.name}" (${roster.length} orang) kurang dari total kapasitas shift (${totalCapacity}). Tambah karyawan atau kurangi kapasitas.`,
-        400,
-        'VALIDATION_ERROR',
-      );
-    }
-
     let monday;
     if (weekStart) {
       monday = getMonday(weekStart);
