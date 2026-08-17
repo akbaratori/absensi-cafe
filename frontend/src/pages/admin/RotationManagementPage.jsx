@@ -82,13 +82,28 @@ export default function RotationManagementPage() {
     }
   };
 
+  const buildDays = (data) => {
+    const list = data?.schedules || [];
+    const shift1 = list.filter((s) => s.shiftNumber === 1).map((s) => s.user).filter(Boolean);
+    const shift2 = list.filter((s) => s.shiftNumber === 2).map((s) => s.user).filter(Boolean);
+    const names = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'];
+    const start = data?.weekStart ? new Date(data.weekStart) : null;
+    return names.map((name, i) => {
+      const d = start ? new Date(start.getTime() + i * 86400000) : null;
+      const dateLabel = d
+        ? d.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'short' })
+        : name;
+      return { date: dateLabel, shift1, shift2 };
+    });
+  };
+
   const handleGenerateWeek = async () => {
     if (!weekStart) return toast.error('Pilih minggu terlebih dahulu');
     try {
       const res = await rotationService.generateWeek(selectedPosition.id, weekStart);
       toast.success(res.data.message || 'Jadwal minggu berhasil dibuat');
       const schedRes = await rotationService.getSchedule(selectedPosition.id, weekStart);
-      setSchedule(schedRes.data.data);
+      setSchedule(buildDays(schedRes.data.data));
     } catch (err) {
       toast.error('Gagal generate jadwal: ' + (err.response?.data?.error?.message || err.response?.data?.message || err.message));
     }
@@ -98,7 +113,7 @@ export default function RotationManagementPage() {
     if (!weekStart) return toast.error('Pilih minggu terlebih dahulu');
     try {
       const res = await rotationService.getSchedule(selectedPosition.id, weekStart);
-      setSchedule(res.data.data);
+      setSchedule(buildDays(res.data.data));
     } catch (err) {
       toast.error('Gagal memuat jadwal: ' + (err.response?.data?.message || err.message));
     }
