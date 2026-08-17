@@ -115,6 +115,14 @@ export default function RotationManagementPage() {
     setRoster(roster.filter((r) => r.userId !== userId));
   };
 
+  const moveRoster = (idx, dir) => {
+    const next = [...roster];
+    const target = idx + dir;
+    if (target < 0 || target >= next.length) return;
+    [next[idx], next[target]] = [next[target], next[idx]];
+    setRoster(next);
+  };
+
 if (loading) return <LoadingSpinner />;
 
   return (
@@ -362,17 +370,35 @@ if (loading) return <LoadingSpinner />;
                   {roster.map((r, idx) => (
                     <li
                       key={r.userId}
-                      className="flex items-center justify-between bg-gray-50 dark:bg-gray-700 px-3 py-2 rounded-lg"
+                      className="flex items-center justify-between bg-gray-50 dark:bg-gray-700 rounded px-3 py-2"
                     >
                       <span className="text-sm text-gray-700 dark:text-gray-200">
                         {idx + 1}. {r.user?.name || r.user?.fullName || `User ${r.userId}`}
                       </span>
-                      <button
-                        onClick={() => removeFromRoster(r.userId)}
-                        className="text-red-500 hover:text-red-700 text-sm"
-                      >
-                        Hapus
-                      </button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => moveRoster(idx, -1)}
+                          disabled={idx === 0}
+                          title="Naikkan urutan"
+                          className="px-2 py-1 text-gray-500 hover:text-gray-700 disabled:opacity-30 disabled:cursor-not-allowed"
+                        >
+                          ↑
+                        </button>
+                        <button
+                          onClick={() => moveRoster(idx, 1)}
+                          disabled={idx === roster.length - 1}
+                          title="Turunkan urutan"
+                          className="px-2 py-1 text-gray-500 hover:text-gray-700 disabled:opacity-30 disabled:cursor-not-allowed"
+                        >
+                          ↓
+                        </button>
+                        <button
+                          onClick={() => removeFromRoster(r.userId)}
+                          className="text-red-500 hover:text-red-700 text-sm ml-2"
+                        >
+                          Hapus
+                        </button>
+                      </div>
                     </li>
                   ))}
                 </ul>
@@ -397,11 +423,14 @@ if (loading) return <LoadingSpinner />;
                 </option>
                 {users
                   .filter((u) => u.role !== 'ADMIN')
-                  .map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.name || u.fullName || u.email} ({u.role})
-                    </option>
-                  ))}
+                  .map((u) => {
+                    const inRoster = roster.some((r) => r.userId === u.id);
+                    return (
+                      <option key={u.id} value={u.id} disabled={inRoster}>
+                        {u.name || u.fullName || u.email} ({u.role}){inRoster ? ' ✓ Sudah di roster' : ''}
+                      </option>
+                    );
+                  })}
               </select>
             </div>
             <div className="flex justify-end gap-2 mt-4">
