@@ -65,7 +65,7 @@ class RotationService {
       const rosters = await prisma.positionRoster.findMany({
         where: { positionId: p.id },
         orderBy: { orderIndex: 'asc' },
-        include: { user: { select: { id: true, fullName: true } } },
+        include: { user: { select: { id: true, name: true, fullName: true } } },
       });
       const rotationState = await prisma.rotationState.findFirst({
         where: { positionId: p.id },
@@ -89,7 +89,7 @@ class RotationService {
     const rosters = await prisma.positionRoster.findMany({
       where: { positionId },
       orderBy: { orderIndex: 'asc' },
-      include: { user: { select: { id: true, fullName: true } } },
+      include: { user: { select: { id: true, name: true, fullName: true } } },
     });
     const rotationState = await prisma.rotationState.findFirst({
       where: { positionId },
@@ -203,7 +203,8 @@ class RotationService {
       ? total
       : Math.max(0, Math.min(orderIndex, total));
 
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(
+      async (tx) => {
       for (let i = total - 1; i >= insertAt; i--) {
         await tx.positionRoster.update({
           where: { id: rosters[i].id },
@@ -289,7 +290,7 @@ class RotationService {
     const startIndex = state.currentStartIndex;
     const totalRoster = roster.length;
 
-    // Rotate roster so startIndex is first, then split shift1/shift2 without duplicates.
+    // Rotate roster so startIndex is first, then split shift1/shift2 tanpa duplikat.
     const rotated = [...roster.slice(startIndex % roster.length), ...roster.slice(0, startIndex % roster.length)];
     const shift1UserIds = rotated.slice(0, position.shift1Capacity).map((r) => r.userId);
     const shift2UserIds = rotated.slice(position.shift1Capacity, position.shift1Capacity + position.shift2Capacity).map((r) => r.userId);
@@ -393,7 +394,9 @@ class RotationService {
           lastGeneratedWeekStart: monday,
         },
       });
-    });
+      },
+      { timeout: 30000 },
+    );
 
     return this.getSchedule(positionId, mondayISO);
   }
