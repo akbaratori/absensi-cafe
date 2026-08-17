@@ -303,11 +303,12 @@ model Position {
 }
 
 model PositionRoster {
-  id         Int     @id @default(autoincrement())
-  positionId Int     @map("position_id")
-  userId     Int     @map("user_id")
-  orderIndex Int     @map("order_index")
-  createdAt  DateTime @default(now()) @map("created_at")
+  id          Int     @id @default(autoincrement())
+  positionId  Int     @map("position_id")
+  userId      Int     @map("user_id")
+  orderIndex  Int     @map("order_index")
+  shiftNumber Int     @default(1) @map("shift_number")
+  createdAt   DateTime @default(now()) @map("created_at")
 
   position Position @relation(fields: [positionId], references: [id], onDelete: Cascade)
   user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)

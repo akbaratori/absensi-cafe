@@ -46,9 +46,10 @@ class RotationController {
 
     async setRoster(req, res, next) {
         try {
-            const { userIds } = req.body;
-            if (!Array.isArray(userIds)) throw ErrorCodes.SCHEDULE_ERRORS.MISSING_REQUIRED_FIELDS;
-            const position = await rotationService.setRoster(parseInt(req.params.id), userIds);
+            const { roster, userIds } = req.body;
+            const entries = Array.isArray(roster) ? roster : userIds;
+            if (!Array.isArray(entries)) throw ErrorCodes.SCHEDULE_ERRORS.MISSING_REQUIRED_FIELDS;
+            const position = await rotationService.setRoster(parseInt(req.params.id), entries);
             return successResponse(res, 200, position, 'Roster berhasil diatur');
         } catch (err) {
             next(err);

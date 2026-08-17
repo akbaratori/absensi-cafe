@@ -139,13 +139,20 @@ class RotationService {
 
   // ---------- Roster ----------
 
-  async setRoster(positionId, userIds) {
+  async setRoster(positionId, entries) {
     await this.getPosition(positionId);
 
-    if (!Array.isArray(userIds) || userIds.length === 0) {
+    if (!Array.isArray(entries) || entries.length === 0) {
       throw new AppError('Roster minimal berisi 1 karyawan', 400, 'VALIDATION_ERROR');
     }
 
+    const normalized = entries.map((e, index) => {
+      const userId = typeof e === 'number' ? e : e?.userId;
+      const shiftNumber = typeof e === 'number' ? 1 : (e?.shiftNumber || 1);
+      return { userId, shiftNumber, orderIndex: index };
+    });
+
+    const userIds = normalized.map((e) => e.userId);
     const users = await prisma.user.findMany({
       where: { id: { in: userIds }, isActive: true },
       select: { id: true },
@@ -158,9 +165,9 @@ class RotationService {
 
     await prisma.$transaction([
       prisma.positionRoster.deleteMany({ where: { positionId } }),
-      ...userIds.map((userId, index) =>
+      ...normalized.map((e) =>
         prisma.positionRoster.create({
-          data: { positionId, userId, orderIndex: index },
+          data: { positionId, userId: e.userId, orderIndex: e.orderIndex, shiftNumber: e.shiftNumber },
         }),
       ),
     ]);
@@ -290,17 +297,18 @@ class RotationService {
     const startIndex = state.currentStartIndex;
     const totalRoster = roster.length;
 
-    // Rotate roster so startIndex is first, then split shift1/shift2 tanpa duplikat.
-    const rotated = [...roster.slice(startIndex % roster.length), ...roster.slice(0, startIndex % roster.length)];
-    const shift1UserIds = rotated.slice(0, position.shift1Capacity).map((r) => r.userId);
-    const shift2UserIds = rotated.slice(position.shift1Capacity, position.shift1Capacity + position.shift2Capacity).map((r) => r.userId);
-
     const shift1 = await prisma.shift.findFirst({ where: { name: 'Shift 1' } });
     const shift2 = await prisma.shift.findFirst({ where: { name: 'Shift 2' } });
 
     if (!shift1 || !shift2) {
       throw new AppError('Data Shift 1 dan Shift 2 belum ada di database', 500, 'INTERNAL_ERROR');
     }
+
+    // Gunakan shiftNumber yang tersimpan pada tiap anggota roster (manual assignment).
+    // Rotate roster sehingga startIndex di depan, lalu kelompokkan per shiftNumber.
+    const rotated = [...roster.slice(startIndex % roster.length), ...roster.slice(0, startIndex % roster.length)];
+    const shift1UserIds = rotated.filter((r) => (r.shiftNumber || 1) === 1).map((r) => r.userId);
+    const shift2UserIds = rotated.filter((r) => (r.shiftNumber || 1) === 2).map((r) => r.userId);
 
     const assignments = [
       ...shift1UserIds.map((userId) => ({ userId, shiftNumber: 1, shiftId: shift1.id })),

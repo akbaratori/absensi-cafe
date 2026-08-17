@@ -47,7 +47,7 @@ export default function RotationManagementPage() {
     setRoster(
       (pos.rosters || []).map((r, i) => ({
         ...r,
-        shift: i < pos.shift1Capacity ? 1 : 2,
+        shift: r.shiftNumber || (i < pos.shift1Capacity ? 1 : 2),
       }))
     );
     setSchedule(null);
@@ -57,7 +57,7 @@ export default function RotationManagementPage() {
       setRoster(
         (res.data.data.rosters || []).map((r, i) => ({
           ...r,
-          shift: i < res.data.data.shift1Capacity ? 1 : 2,
+          shift: r.shiftNumber || (i < res.data.data.shift1Capacity ? 1 : 2),
         }))
       );
     } catch (err) {
@@ -122,8 +122,8 @@ export default function RotationManagementPage() {
   const handleSaveRoster = async () => {
     try {
       const sorted = [...roster].sort((a, b) => (a.shift || 1) - (b.shift || 1));
-      const userIds = sorted.map((r) => r.userId);
-      await rotationService.setRoster(selectedPosition.id, userIds);
+      const payload = sorted.map((r) => ({ userId: r.userId, shiftNumber: r.shift || 1 }));
+      await rotationService.setRoster(selectedPosition.id, payload);
       toast.success('Roster berhasil disimpan');
       setRosterModal(false);
       openPosition(selectedPosition);

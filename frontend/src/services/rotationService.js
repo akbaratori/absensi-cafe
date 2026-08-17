@@ -8,7 +8,7 @@ const rotationService = {
   updatePosition: (id, data) => api.put(`/rotation/${id}`, data),
 
   // Roster
-  setRoster: (id, userIds) => api.post(`/rotation/${id}/roster`, { userIds }),
+  setRoster: (id, roster) => api.post(`/rotation/${id}/roster`, { roster }),
   insertRosterMember: (id, userId, orderIndex) =>
     api.post(`/rotation/${id}/roster/insert`, { userId, orderIndex }),
   removeRosterMember: (id, userId) =>
