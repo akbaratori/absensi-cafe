@@ -117,6 +117,17 @@ class RotationController {
             next(err);
         }
     }
+
+    async generateMonth(req, res, next) {
+        try {
+            const { month } = req.body;
+            if (!month) throw ErrorCodes.SCHEDULE_ERRORS.MISSING_REQUIRED_FIELDS;
+            const result = await rotationService.generateMonth(parseInt(req.params.id), month);
+            return successResponse(res, 200, result, 'Jadwal bulanan berhasil di-generate');
+        } catch (err) {
+            next(err);
+        }
+    }
 }
 
 module.exports = new RotationController();

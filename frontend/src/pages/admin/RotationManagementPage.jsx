@@ -12,6 +12,8 @@ export default function RotationManagementPage() {
   const [roster, setRoster] = useState([]);
   const [schedule, setSchedule] = useState(null);
   const [weekStart, setWeekStart] = useState('');
+  const [month, setMonth] = useState('');
+  const [understaffed, setUnderstaffed] = useState([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newPosition, setNewPosition] = useState({ name: '', shift1Capacity: 2, shift2Capacity: 3 });
   const [rosterModal, setRosterModal] = useState(false);
@@ -106,6 +108,27 @@ export default function RotationManagementPage() {
       setSchedule(buildDays(schedRes.data.data));
     } catch (err) {
       toast.error('Gagal generate jadwal: ' + (err.response?.data?.error?.message || err.response?.data?.message || err.message));
+    }
+  };
+
+  const handleGenerateMonth = async () => {
+    if (!month) return toast.error('Pilih bulan terlebih dahulu');
+    if (!selectedPosition) return toast.error('Pilih posisi terlebih dahulu');
+    try {
+      const res = await rotationService.generateMonth(selectedPosition.id, month);
+      const data = res.data.data || {};
+      setUnderstaffed(data.understaffed || []);
+      toast.success(
+        data.understaffed?.length
+          ? `Jadwal bulan dibuat, tapi ada ${data.understaffed.length} kekurangan staff`
+          : 'Jadwal bulan berhasil dibuat'
+      );
+      if (weekStart) {
+        const schedRes = await rotationService.getSchedule(selectedPosition.id, weekStart);
+        setSchedule(buildDays(schedRes.data.data));
+      }
+    } catch (err) {
+      toast.error('Gagal generate bulan: ' + (err.response?.data?.error?.message || err.response?.data?.message || err.message));
     }
   };
 
@@ -267,6 +290,44 @@ if (loading) return <LoadingSpinner />;
                     Lihat Jadwal
                   </button>
                 </div>
+              </div>
+
+              {/* Generate Bulanan */}
+              <div className="border-t pt-4 mt-4">
+                <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-2">
+                  Generate Jadwal Bulanan
+                </h3>
+                <div className="flex flex-wrap gap-2 items-center">
+                  <input
+                    type="month"
+                    value={month}
+                    onChange={(e) => setMonth(e.target.value)}
+                    className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100"
+                  />
+                  <button
+                    onClick={handleGenerateMonth}
+                    className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm"
+                  >
+                    Generate Bulan
+                  </button>
+                </div>
+                {understaffed.length > 0 && (
+                  <div className="mt-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                    <p className="text-sm font-medium text-red-700 dark:text-red-300 mb-2">
+                      Peringatan kekurangan staff ({understaffed.length} shift):
+                    </p>
+                    <ul className="text-xs text-red-600 dark:text-red-400 space-y-1">
+                      {understaffed.map((u, i) => (
+                        <li key={i}>
+                          {u.date} - Shift {u.shiftNumber}: kurang {u.missing} orang
+                          {u.offUsers?.length > 0 && (
+                            <span className="text-gray-500"> (libur: {u.offUsers.map((id) => id).join(', ')})</span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
 
               {/* Jadwal */}

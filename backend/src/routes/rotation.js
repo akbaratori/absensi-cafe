@@ -19,6 +19,7 @@ router.post('/:id/roster/remove', authorize('ADMIN'), rotationController.removeR
 
 // Schedule generation & viewing (ADMIN + EMPLOYEE can view)
 router.post('/:id/generate-week', authorize('ADMIN'), rotationController.generateWeek);
+router.post('/:id/generate-month', authorize('ADMIN'), rotationController.generateMonth);
 router.get('/:id/schedule', authorize('ADMIN', 'EMPLOYEE'), rotationController.getSchedule);
 router.get('/:id/schedules', authorize('ADMIN', 'EMPLOYEE'), rotationController.listSchedules);
 

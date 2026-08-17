@@ -467,6 +467,184 @@ class RotationService {
       weekStart: toISO(s.weekStart),
     }));
   }
+
+  /**
+   * Gather all "off-day" sources for a position's roster over a set of dates.
+   * Returns a Map<userId, Set<dateISO>> where the user is considered OFF.
+   * Sources: Leave (APPROVED), OffDayRequest (APPROVED offDate), User.offDay (weekly),
+   * and PublicHoliday (date).
+   */
+  async getOffDayUserIds(positionId, dates) {
+    const roster = await prisma.positionRoster.findMany({
+      where: { positionId },
+      select: { userId: true },
+    });
+    const rosterUserIds = roster.map((r) => r.userId);
+    if (rosterUserIds.length === 0 || dates.length === 0) return new Map();
+
+    const dateISOs = dates.map((d) => toISO(d));
+    const minDate = dates[0];
+    const maxDate = dates[dates.length - 1];
+
+    const offMap = new Map();
+    const mark = (userId, dateISO) => {
+      if (!offMap.has(userId)) offMap.set(userId, new Set());
+      offMap.get(userId).add(dateISO);
+    };
+
+    // 1. Leave (cuti/sakit) APPROVED overlapping date range
+    const leaves = await prisma.leave.findMany({
+      where: {
+        userId: { in: rosterUserIds },
+        status: 'APPROVED',
+        startDate: { lte: maxDate },
+        endDate: { gte: minDate },
+      },
+      select: { userId: true, startDate: true, endDate: true },
+    });
+    for (const l of leaves) {
+      for (const d of dates) {
+        const iso = toISO(d);
+        const start = toISO(l.startDate);
+        const end = toISO(l.endDate);
+        if (iso >= start && iso <= end) mark(l.userId, iso);
+      }
+    }
+
+    // 2. OffDayRequest APPROVED — user is OFF on offDate (not workDate)
+    const offRequests = await prisma.offDayRequest.findMany({
+      where: {
+        userId: { in: rosterUserIds },
+        status: 'APPROVED',
+        offDate: { in: dates },
+      },
+      select: { userId: true, offDate: true },
+    });
+    for (const r of offRequests) {
+      mark(r.userId, toISO(r.offDate));
+    }
+
+    // 3. User.offDay (recurring weekly day-off index: 0=Sun..6=Sat)
+    const users = await prisma.user.findMany({
+      where: { id: { in: rosterUserIds } },
+      select: { id: true, offDay: true },
+    });
+    const userOffDayMap = new Map(users.map((u) => [u.id, u.offDay]));
+    for (const d of dates) {
+      const dow = d.getUTCDay();
+      for (const uid of rosterUserIds) {
+        if (userOffDayMap.get(uid) === dow) mark(uid, toISO(d));
+      }
+    }
+
+    // 4. PublicHoliday — everyone off on holiday dates
+    const holidays = await prisma.publicHoliday.findMany({
+      where: { date: { in: dates } },
+      select: { date: true },
+    });
+    const holidayDates = new Set(holidays.map((h) => toISO(h.date)));
+    for (const uid of rosterUserIds) {
+      for (const iso of holidayDates) mark(uid, iso);
+    }
+
+    return offMap;
+  }
+
+  /**
+   * Generate a full month's schedule by looping the weekly generator for each
+   * Monday in the month, continuing the rotation state from the previous week.
+   * Afterwards, detect understaffed day/shift caused by off-day sources and
+   * flag them (no auto-redistribution).
+   */
+  async generateMonth(positionId, monthISO) {
+    // monthISO: 'YYYY-MM'
+    const match = /^(\d{4})-(\d{2})$/.exec(monthISO);
+    if (!match) throw new AppError('Format bulan harus YYYY-MM', 400, 'VALIDATION_ERROR');
+
+    const year = parseInt(match[1], 10);
+    const month = parseInt(match[2], 10) - 1;
+
+    // Collect all Mondays belonging to this month
+    const mondays = [];
+    let cursor = new Date(Date.UTC(year, month, 1));
+    while (cursor.getUTCDay() !== 1) {
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+    while (cursor.getUTCMonth() === month) {
+      mondays.push(new Date(cursor));
+      cursor.setUTCDate(cursor.getUTCDate() + 7);
+    }
+
+    const position = await this.getPosition(positionId);
+    const shift1Capacity = position.shift1Capacity || 1;
+    const shift2Capacity = position.shift2Capacity || 1;
+
+    const generatedWeeks = [];
+    const understaffed = [];
+
+    for (const monday of mondays) {
+      await this.generateWeek(positionId, monday);
+
+      // Off-day check for this week's 7 days
+      const weekDates = [];
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(monday);
+        d.setUTCDate(d.getUTCDate() + i);
+        weekDates.push(d);
+      }
+      const offMap = await this.getOffDayUserIds(positionId, weekDates);
+
+      // Load generated weekly schedules to detect understaffing
+      const schedules = await prisma.weeklySchedule.findMany({
+        where: { positionId, weekStart: monday },
+        orderBy: [{ shiftNumber: 'asc' }, { userId: 'asc' }],
+      });
+
+      for (const date of weekDates) {
+        const iso = toISO(date);
+        const offUserIds = new Set();
+        for (const [uid, set] of offMap.entries()) {
+          if (set.has(iso)) offUserIds.add(uid);
+        }
+
+        const shift1Users = schedules.filter((s) => s.shiftNumber === 1).map((s) => s.userId);
+        const shift2Users = schedules.filter((s) => s.shiftNumber === 2).map((s) => s.userId);
+
+        // Remove off users from each shift, count remaining
+        const shift1Active = shift1Users.filter((u) => !offUserIds.has(u));
+        const shift2Active = shift2Users.filter((u) => !offUserIds.has(u));
+
+        if (shift1Active.length < shift1Capacity) {
+          understaffed.push({
+            date: iso,
+            shiftNumber: 1,
+            needed: shift1Capacity,
+            available: shift1Active.length,
+            missing: shift1Capacity - shift1Active.length,
+            offUsers: shift1Users.filter((u) => offUserIds.has(u)),
+          });
+        }
+        if (shift2Active.length < shift2Capacity) {
+          understaffed.push({
+            date: iso,
+            shiftNumber: 2,
+            needed: shift2Capacity,
+            available: shift2Active.length,
+            missing: shift2Capacity - shift2Active.length,
+            offUsers: shift2Users.filter((u) => offUserIds.has(u)),
+          });
+        }
+      }
+
+      generatedWeeks.push(toISO(monday));
+    }
+
+    return {
+      month: monthISO,
+      generatedWeeks,
+      understaffed,
+    };
+  }
 }
 
 module.exports = new RotationService();

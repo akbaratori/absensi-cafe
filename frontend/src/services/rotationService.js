@@ -17,6 +17,8 @@ const rotationService = {
   // Jadwal
   generateWeek: (id, weekStart) =>
     api.post(`/rotation/${id}/generate-week`, { weekStart }),
+  generateMonth: (id, month) =>
+    api.post(`/rotation/${id}/generate-month`, { month }),
   getSchedule: (id, weekStart) =>
     api.get(`/rotation/${id}/schedule`, { params: { weekStart } }),
   listSchedules: (id, startWeek, endWeek) =>

@@ -100,7 +100,7 @@ const updateConfigSchema = Joi.object({
 
 const usersQuerySchema = Joi.object({
   page: Joi.number().integer().min(1).default(1),
-  limit: Joi.number().integer().min(1).max(100).default(20),
+  limit: Joi.number().integer().min(1).max(200).default(20),
   role: Joi.string().valid('ADMIN', 'EMPLOYEE').optional().allow('', null),
   status: Joi.string().valid('active', 'inactive').optional().allow('', null),
   search: Joi.string().max(100).optional().allow('', null),
@@ -118,6 +118,7 @@ const validate = (schema) => {
     const { error, value } = schema.validate(req.body, {
       abortEarly: false,
       stripUnknown: true,
+      convert: true,
     });
 
     if (error) {
@@ -147,6 +148,7 @@ const validateQuery = (schema) => {
     const { error, value } = schema.validate(req.query, {
       abortEarly: false,
       stripUnknown: true,
+      convert: true,
     });
 
     if (error) {
