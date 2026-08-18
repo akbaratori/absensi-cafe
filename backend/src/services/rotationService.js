@@ -315,15 +315,36 @@ class RotationService {
       ...shift2UserIds.map((userId) => ({ userId, shiftNumber: 2, shiftId: shift2.id })),
     ];
 
+    // Dedupe by userId (a user should only be assigned once per week).
+    const uniqueAssignments = [];
+    const seenUserIds = new Set();
+    for (const a of assignments) {
+      if (!seenUserIds.has(a.userId)) {
+        seenUserIds.add(a.userId);
+        uniqueAssignments.push(a);
+      }
+    }
+
     const mondayISO = toISO(monday);
 
     await prisma.weeklySchedule.deleteMany({
       where: { positionId, weekStart: monday },
     });
 
-    for (const a of assignments) {
-      await prisma.weeklySchedule.create({
-        data: {
+    for (const a of uniqueAssignments) {
+      await prisma.weeklySchedule.upsert({
+        where: {
+          positionId_weekStart_userId: {
+            positionId,
+            weekStart: monday,
+            userId: a.userId,
+          },
+        },
+        update: {
+          shiftNumber: a.shiftNumber,
+          isGenerated: true,
+        },
+        create: {
           positionId,
           weekStart: monday,
           userId: a.userId,
