@@ -269,7 +269,7 @@ class RotationService {
 
   // ---------- Schedule Generation ----------
 
-  async generateWeek(positionId, weekStart) {
+  async generateWeek(positionId, weekStart, options = {}) {
     const position = await this.getPosition(positionId);
 
     const roster = position.rosters;
@@ -331,80 +331,71 @@ class RotationService {
       where: { positionId, weekStart: monday },
     });
 
-    for (const a of uniqueAssignments) {
-      await prisma.weeklySchedule.upsert({
-        where: {
-          positionId_weekStart_userId: {
-            positionId,
-            weekStart: monday,
-            userId: a.userId,
-          },
-        },
-        update: {
-          shiftNumber: a.shiftNumber,
-          isGenerated: true,
-        },
-        create: {
+    if (uniqueAssignments.length) {
+      await prisma.weeklySchedule.createMany({
+        data: uniqueAssignments.map((a) => ({
           positionId,
           weekStart: monday,
           userId: a.userId,
           shiftNumber: a.shiftNumber,
           isGenerated: true,
-        },
+        })),
       });
     }
     const assignedUserIds = new Set(assignments.map((a) => a.userId));
     const allRosterIds = roster.map((r) => r.userId);
 
-    for (let day = 0; day < 7; day++) {
-      const dateObj = addDays(monday, day);
-
+    // Build all (userId, date) pairs for the 7-day week in one pass.
+    const weekDates = Array.from({ length: 7 }, (_, day) => addDays(monday, day));
+    const pairs = [];
+    for (const dateObj of weekDates) {
       for (const a of assignments) {
-        const existing = await prisma.userSchedule.findFirst({
-          where: { userId: a.userId, date: dateObj },
-        });
-
-        if (existing && existing.isManualOverride) {
-          continue;
-        }
-
-        const data = {
-          userId: a.userId,
-          date: dateObj,
-          shiftId: a.shiftId,
-          isOffDay: false,
-          temporaryDepartment: position.name === 'Kitchen' ? 'KITCHEN' : 'BAR',
-          isManualOverride: false,
-        };
-
-        if (existing) {
-          await prisma.userSchedule.update({ where: { id: existing.id }, data });
-        } else {
-          await prisma.userSchedule.create({ data });
-        }
+        pairs.push({ userId: a.userId, date: dateObj, shiftId: a.shiftId, isOffDay: false });
       }
-
       for (const userId of allRosterIds) {
         if (assignedUserIds.has(userId)) continue;
-        const existing = await prisma.userSchedule.findFirst({
-          where: { userId, date: dateObj },
-        });
-        if (existing && existing.isManualOverride) continue;
+        pairs.push({ userId, date: dateObj, shiftId: null, isOffDay: true });
+      }
+    }
 
-        const data = {
-          userId,
-          date: dateObj,
-          shiftId: null,
-          isOffDay: true,
-          temporaryDepartment: position.name === 'Kitchen' ? 'KITCHEN' : 'BAR',
+    if (pairs.length) {
+      const department = position.name === 'Kitchen' ? 'KITCHEN' : 'BAR';
+
+      // Fetch existing manual-override rows for the week to preserve them.
+      const existingRows = await prisma.userSchedule.findMany({
+        where: {
+          OR: pairs.map((p) => ({ userId: p.userId, date: p.date })),
+        },
+        select: { userId: true, date: true, isManualOverride: true },
+      });
+      const overrideSet = new Set(
+        existingRows
+          .filter((r) => r.isManualOverride)
+          .map((r) => `${r.userId}_${r.date.toISOString()}`),
+      );
+
+      // Remove previous auto-generated rows for this week (single bulk delete).
+      await prisma.userSchedule.deleteMany({
+        where: {
           isManualOverride: false,
-        };
+          OR: pairs.map((p) => ({ userId: p.userId, date: p.date })),
+        },
+      });
 
-        if (existing) {
-          await prisma.userSchedule.update({ where: { id: existing.id }, data });
-        } else {
-          await prisma.userSchedule.create({ data });
-        }
+      // Recreate all rows for the week, skipping manual overrides (single bulk create).
+      const toCreate = pairs
+        .filter((p) => !overrideSet.has(`${p.userId}_${p.date.toISOString()}`))
+        .map((p) => ({
+          userId: p.userId,
+          date: p.date,
+          shiftId: p.shiftId,
+          isOffDay: p.isOffDay,
+          temporaryDepartment: department,
+          isManualOverride: false,
+        }));
+
+      if (toCreate.length) {
+        await prisma.userSchedule.createMany({ data: toCreate });
       }
     }
 
@@ -422,6 +413,9 @@ class RotationService {
       },
     });
 
+    if (options.skipGetSchedule) {
+      return { positionId, weekStart: mondayISO };
+    }
     return this.getSchedule(positionId, mondayISO);
   }
 
@@ -599,7 +593,7 @@ class RotationService {
     const understaffed = [];
 
     for (const monday of mondays) {
-      await this.generateWeek(positionId, monday);
+      await this.generateWeek(positionId, monday, { skipGetSchedule: true });
 
       // Off-day check for this week's 7 days
       const weekDates = [];
