@@ -317,94 +317,89 @@ class RotationService {
 
     const mondayISO = toISO(monday);
 
-    await prisma.$transaction(async (tx) => {
-      await tx.weeklySchedule.deleteMany({
-        where: { positionId, weekStart: monday },
+    await prisma.weeklySchedule.deleteMany({
+      where: { positionId, weekStart: monday },
+    });
+
+    for (const a of assignments) {
+      await prisma.weeklySchedule.create({
+        data: {
+          positionId,
+          weekStart: monday,
+          userId: a.userId,
+          shiftNumber: a.shiftNumber,
+          isGenerated: true,
+        },
       });
+    }
+    const assignedUserIds = new Set(assignments.map((a) => a.userId));
+    const allRosterIds = roster.map((r) => r.userId);
+
+    for (let day = 0; day < 7; day++) {
+      const dateObj = addDays(monday, day);
 
       for (const a of assignments) {
-        await tx.weeklySchedule.create({
-          data: {
-            positionId,
-            weekStart: monday,
-            userId: a.userId,
-            shiftNumber: a.shiftNumber,
-            isGenerated: true,
-          },
+        const existing = await prisma.userSchedule.findFirst({
+          where: { userId: a.userId, date: dateObj },
         });
-      }
 
-      const assignedUserIds = new Set(assignments.map((a) => a.userId));
-      const allRosterIds = roster.map((r) => r.userId);
-
-      for (let day = 0; day < 7; day++) {
-        const dateObj = addDays(monday, day);
-
-        for (const a of assignments) {
-          const existing = await tx.userSchedule.findFirst({
-            where: { userId: a.userId, date: dateObj },
-          });
-
-          if (existing && existing.isManualOverride) {
-            continue;
-          }
-
-          const data = {
-            userId: a.userId,
-            date: dateObj,
-            shiftId: a.shiftId,
-            isOffDay: false,
-            temporaryDepartment: position.name === 'Kitchen' ? 'KITCHEN' : 'BAR',
-            isManualOverride: false,
-          };
-
-          if (existing) {
-            await tx.userSchedule.update({ where: { id: existing.id }, data });
-          } else {
-            await tx.userSchedule.create({ data });
-          }
+        if (existing && existing.isManualOverride) {
+          continue;
         }
 
-        for (const userId of allRosterIds) {
-          if (assignedUserIds.has(userId)) continue;
-          const existing = await tx.userSchedule.findFirst({
-            where: { userId, date: dateObj },
-          });
-          if (existing && existing.isManualOverride) continue;
+        const data = {
+          userId: a.userId,
+          date: dateObj,
+          shiftId: a.shiftId,
+          isOffDay: false,
+          temporaryDepartment: position.name === 'Kitchen' ? 'KITCHEN' : 'BAR',
+          isManualOverride: false,
+        };
 
-          const data = {
-            userId,
-            date: dateObj,
-            shiftId: null,
-            isOffDay: true,
-            temporaryDepartment: position.name === 'Kitchen' ? 'KITCHEN' : 'BAR',
-            isManualOverride: false,
-          };
-
-          if (existing) {
-            await tx.userSchedule.update({ where: { id: existing.id }, data });
-          } else {
-            await tx.userSchedule.create({ data });
-          }
+        if (existing) {
+          await prisma.userSchedule.update({ where: { id: existing.id }, data });
+        } else {
+          await prisma.userSchedule.create({ data });
         }
       }
 
-      const nextStartIndex = (startIndex + position.shift1Capacity) % totalRoster;
-      await tx.rotationState.upsert({
-        where: { positionId },
-        update: {
-          currentStartIndex: nextStartIndex,
-          lastGeneratedWeekStart: monday,
-        },
-        create: {
-          positionId,
-          currentStartIndex: nextStartIndex,
-          lastGeneratedWeekStart: monday,
-        },
-      });
+      for (const userId of allRosterIds) {
+        if (assignedUserIds.has(userId)) continue;
+        const existing = await prisma.userSchedule.findFirst({
+          where: { userId, date: dateObj },
+        });
+        if (existing && existing.isManualOverride) continue;
+
+        const data = {
+          userId,
+          date: dateObj,
+          shiftId: null,
+          isOffDay: true,
+          temporaryDepartment: position.name === 'Kitchen' ? 'KITCHEN' : 'BAR',
+          isManualOverride: false,
+        };
+
+        if (existing) {
+          await prisma.userSchedule.update({ where: { id: existing.id }, data });
+        } else {
+          await prisma.userSchedule.create({ data });
+        }
+      }
+    }
+
+    const nextStartIndex = (startIndex + position.shift1Capacity) % totalRoster;
+    await prisma.rotationState.upsert({
+      where: { positionId },
+      update: {
+        currentStartIndex: nextStartIndex,
+        lastGeneratedWeekStart: monday,
       },
-      { timeout: 30000 },
-    );
+      create: {
+        positionId,
+        currentStartIndex: nextStartIndex,
+        lastGeneratedWeekStart: monday,
+      },
+    });
 
     return this.getSchedule(positionId, mondayISO);
   }
