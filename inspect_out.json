@@ -1,0 +1,120 @@
+{
+  "users": [
+    {
+      "id": 1,
+      "fullName": "Administrator",
+      "role": "ADMIN",
+      "isActive": true,
+      "department": "BAR"
+    },
+    {
+      "id": 2,
+      "fullName": "Employee Demo",
+      "role": "EMPLOYEE",
+      "isActive": true,
+      "department": "BAR"
+    },
+    {
+      "id": 3,
+      "fullName": "Baso",
+      "role": "EMPLOYEE",
+      "isActive": true,
+      "department": "BAR"
+    },
+    {
+      "id": 4,
+      "fullName": "Gio",
+      "role": "EMPLOYEE",
+      "isActive": true,
+      "department": "BAR"
+    },
+    {
+      "id": 5,
+      "fullName": "Wulan",
+      "role": "EMPLOYEE",
+      "isActive": true,
+      "department": "KITCHEN"
+    },
+    {
+      "id": 6,
+      "fullName": "Juli",
+      "role": "EMPLOYEE",
+      "isActive": true,
+      "department": "KITCHEN"
+    },
+    {
+      "id": 7,
+      "fullName": "Nhelam",
+      "role": "EMPLOYEE",
+      "isActive": true,
+      "department": "KITCHEN"
+    },
+    {
+      "id": 8,
+      "fullName": "Indy",
+      "role": "EMPLOYEE",
+      "isActive": true,
+      "department": "KITCHEN"
+    },
+    {
+      "id": 9,
+      "fullName": "akbar",
+      "role": "EMPLOYEE",
+      "isActive": true,
+      "department": "KITCHEN"
+    }
+  ],
+  "positions": [
+    {
+      "id": 1,
+      "name": "Bar",
+      "s1": 1,
+      "s2": 1,
+      "rosters": [
+        {
+          "uid": 4,
+          "order": 0,
+          "shift": 1
+        },
+        {
+          "uid": 3,
+          "order": 1,
+          "shift": 2
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "Dapur",
+      "s1": 2,
+      "s2": 3,
+      "rosters": [
+        {
+          "uid": 5,
+          "order": 0,
+          "shift": 1
+        },
+        {
+          "uid": 6,
+          "order": 1,
+          "shift": 1
+        },
+        {
+          "uid": 7,
+          "order": 2,
+          "shift": 2
+        },
+        {
+          "uid": 8,
+          "order": 3,
+          "shift": 2
+        },
+        {
+          "uid": 9,
+          "order": 4,
+          "shift": 2
+        }
+      ]
+    }
+  ]
+}

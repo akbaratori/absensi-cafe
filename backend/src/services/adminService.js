@@ -65,6 +65,24 @@ class AdminService {
       throw ErrorCodes.USER_ERRORS.USER_NOT_FOUND;
     }
 
+    // Prevent deactivating an ADMIN account (keeps at least one active admin).
+    if (
+      data.isActive === false &&
+      (user.role === 'ADMIN' || (data.role && typeof data.role === 'string' && data.role.toUpperCase() === 'ADMIN'))
+    ) {
+      throw new Error('Akun admin tidak dapat dinonaktifkan. Gunakan akun admin lain atau hubungi developer.');
+    }
+
+    // Prevent changing an ADMIN user's role to a non-admin role (keeps at least one admin).
+    if (
+      user.role === 'ADMIN' &&
+      data.role &&
+      typeof data.role === 'string' &&
+      data.role.toUpperCase() !== 'ADMIN'
+    ) {
+      throw new Error('Role akun admin tidak dapat diubah menjadi non-admin.');
+    }
+
     // Check if username is taken by ANOTHER user (exclude current user)
     if (data.username) {
       const existingUser = await prisma.user.findFirst({

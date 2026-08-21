@@ -50,6 +50,11 @@ const UsersPage = () => {
   };
 
   const handleToggleStatus = async (user) => {
+    if (user.isActive && user.role === 'ADMIN') {
+      showError('Akun admin tidak dapat dinonaktifkan.');
+      return;
+    }
+
     if (!window.confirm(`Are you sure you want to ${user.isActive ? 'deactivate' : 'activate'} this user?`)) {
       return;
     }
@@ -59,7 +64,7 @@ const UsersPage = () => {
       showSuccess(`User ${user.isActive ? 'deactivated' : 'activated'} successfully`);
       fetchUsers();
     } catch (error) {
-      showError('Failed to update user status');
+      showError(error?.response?.data?.error?.message || 'Failed to update user status');
     }
   };
 
