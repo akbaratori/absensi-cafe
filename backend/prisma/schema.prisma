@@ -3,8 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "mysql"
-  url      = env("DATABASE_URL")
+  provider     = "mysql"
   relationMode = "prisma"
 }
 
@@ -346,4 +345,16 @@ model WeeklySchedule {
   @@index([positionId, weekStart])
   @@index([userId, weekStart])
   @@map("weekly_schedules")
+}
+
+model ManualOffDay {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  date      DateTime @map("date") @db.Date
+  weekStart DateTime @map("week_start") @db.Date
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([userId, date])
+  @@index([weekStart])
+  @@map("manual_off_days")
 }
