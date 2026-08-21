@@ -74,4 +74,8 @@ const notFoundHandler = (req, res) => {
   errorResponse(res, 404, "NOT_FOUND", `Route ${req.method} ${req.path} not found`);
 };
 
-module.exports = { errorHandler, notFoundHandler };
+const catchAsync = (fn) => (req, res, next) => {
+  Promise.resolve(fn(req, res, next)).catch(next);
+};
+
+module.exports = { errorHandler, notFoundHandler, catchAsync };

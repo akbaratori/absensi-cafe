@@ -6,6 +6,10 @@ const { authenticate, authorize } = require('../middleware/auth');
 // All rotation routes require authentication
 router.use(authenticate);
 
+// Manual Off-days
+router.get('/manual-off-days', rotationController.getManualOffDays);
+router.post('/manual-off-days', rotationController.saveManualOffDays);
+
 // Position management (ADMIN only)
 router.get('/', authorize('ADMIN'), rotationController.listPositions);
 router.post('/', authorize('ADMIN'), rotationController.createPosition);
