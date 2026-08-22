@@ -50,7 +50,17 @@ exports.createPosition = catchAsync(async (req, res) => {
 });
 
 exports.getPosition = catchAsync(async (req, res) => {
-    const position = await prisma.position.findUnique({ where: { id: parseInt(req.params.id) } });
+    const position = await prisma.position.findUnique({
+        where: { id: parseInt(req.params.id) },
+        include: {
+            rosters: {
+                include: {
+                    user: { select: { id: true, username: true, fullName: true } },
+                },
+                orderBy: { orderIndex: 'asc' },
+            },
+        },
+    });
     if (!position) throw new AppError('Position not found', 404);
     res.status(200).json({ status: 'success', data: position });
 });
