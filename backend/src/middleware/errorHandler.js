@@ -17,21 +17,7 @@ const errorHandler = (err, req, res, next) => {
     return errorResponse(res, err.statusCode, err.code, err.message);
   }
 
-  // Handle regular Error objects - check if it's likely a validation/business logic error
-  if (err instanceof Error) {
-    // If the error message looks like a user-facing validation error (not technical),
-    // treat it as a 400 validation error instead of 500
-    const technicalErrorPatterns = [/Cannot read property/i, /Cannot read/i, /is not a function/i, /undefined/i, /null/i, /Unexpected/i, /SyntaxError/i, /TypeError/i, /ReferenceError/i];
-
-    const isTechnicalError = technicalErrorPatterns.some((pattern) => pattern.test(err.message) || err.name.match(pattern));
-
-    if (!isTechnicalError) {
-      // This looks like a business logic/validation error, return 400 instead of 500
-      return errorResponse(res, 400, "VALIDATION_ERROR", err.message);
-    }
-  }
-
-  // Handle Prisma errors
+  // Handle Prisma errors (must be checked BEFORE generic Error handler)
   if (err.code) {
     switch (err.code) {
       case "P2002": // Unique constraint violation
