@@ -470,16 +470,12 @@ if (loading) return <LoadingSpinner />;
               {/* ─── TAB: Libur Manual ─── */}
               {detailTab === 'offday' && (
                 <div>
-                  {!weekStart ? (
-                    <div className="p-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 rounded-lg text-sm text-yellow-700 dark:text-yellow-300">
-                      Pilih tanggal minggu di tab Jadwal terlebih dahulu untuk menggunakan fitur ini.
-                    </div>
-                  ) : roster.length === 0 ? (
+                  {roster.length === 0 ? (
                     <div className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg text-sm text-gray-500">
                       Belum ada anggota roster. Atur roster terlebih dahulu.
                     </div>
                   ) : (
-                    <ManualOffDayPanel weekStart={weekStart} roster={roster} />
+                    <ManualOffDayPanel roster={roster} />
                   )}
                 </div>
               )}

@@ -33,11 +33,15 @@ const rotationService = {
   getMySchedule: (from, to) =>
     api.get('/rotation/my-schedule', { params: { from, to } }),
 
-  // Manual Off-days
+  // Manual Off-days (month-based: month = "YYYY-MM")
   getManualOffDays: (weekStart) =>
     api.get('/rotation/manual-off-days', { params: { weekStart } }),
   saveManualOffDays: (weekStart, offDays) =>
     api.post('/rotation/manual-off-days', { weekStart, offDays }),
+  getManualOffDaysMonth: (month) =>
+    api.get('/rotation/manual-off-days', { params: { month } }),
+  saveManualOffDaysMonth: (month, offDays) =>
+    api.post('/rotation/manual-off-days', { month, offDays }),
 
   // Backup assignments
   listBackups: (date) =>

@@ -15,11 +15,23 @@ class RotationController {
 
     async getManualOffDays(req, res, next) {
         try {
-            const { weekStart } = req.query;
-            if (!weekStart) throw ErrorCodes.SCHEDULE_ERRORS.MISSING_REQUIRED_FIELDS;
-            const manualOffDays = await prisma.manualOffDay.findMany({
-                where: { weekStart: new Date(weekStart) },
-            });
+            // Support both month-based (YYYY-MM) and weekStart-based queries
+            const { month, weekStart } = req.query;
+
+            let where = {};
+            if (month) {
+                // month = "YYYY-MM"
+                const [year, mon] = month.split('-').map(Number);
+                const startDate = new Date(Date.UTC(year, mon - 1, 1));
+                const endDate = new Date(Date.UTC(year, mon, 0, 23, 59, 59, 999));
+                where = { date: { gte: startDate, lte: endDate } };
+            } else if (weekStart) {
+                where = { weekStart: new Date(weekStart) };
+            } else {
+                throw ErrorCodes.SCHEDULE_ERRORS.MISSING_REQUIRED_FIELDS;
+            }
+
+            const manualOffDays = await prisma.manualOffDay.findMany({ where });
             return successResponse(res, 200, manualOffDays, 'Manual off-days berhasil dimuat');
         } catch (err) {
             next(err);
@@ -28,19 +40,58 @@ class RotationController {
 
     async saveManualOffDays(req, res, next) {
         try {
-            const { weekStart, offDays } = req.body;
-            if (!weekStart || !offDays) throw ErrorCodes.SCHEDULE_ERRORS.MISSING_REQUIRED_FIELDS;
-            const weekStartDate = new Date(weekStart);
-            await prisma.$transaction([
-                prisma.manualOffDay.deleteMany({ where: { weekStart: weekStartDate } }),
-                prisma.manualOffDay.createMany({
-                    data: offDays.map((item) => ({
-                        userId: parseInt(item.userId),
-                        date: new Date(item.date),
-                        weekStart: weekStartDate,
-                    })),
-                }),
-            ]);
+            // Support both month-based and weekStart-based saves
+            const { month, weekStart, offDays } = req.body;
+            if (!offDays) throw ErrorCodes.SCHEDULE_ERRORS.MISSING_REQUIRED_FIELDS;
+            if (!month && !weekStart) throw ErrorCodes.SCHEDULE_ERRORS.MISSING_REQUIRED_FIELDS;
+
+            // Helper: get Monday of the week containing a date
+            const getMonday = (dateStr) => {
+                const d = new Date(dateStr);
+                d.setUTCHours(0, 0, 0, 0);
+                const day = d.getUTCDay();
+                const diff = day === 0 ? -6 : 1 - day;
+                d.setUTCDate(d.getUTCDate() + diff);
+                return d;
+            };
+
+            if (month) {
+                // Delete all existing off-days for this month then recreate
+                const [year, mon] = month.split('-').map(Number);
+                const startDate = new Date(Date.UTC(year, mon - 1, 1));
+                const endDate = new Date(Date.UTC(year, mon, 0, 23, 59, 59, 999));
+
+                await prisma.$transaction([
+                    prisma.manualOffDay.deleteMany({
+                        where: { date: { gte: startDate, lte: endDate } },
+                    }),
+                    prisma.manualOffDay.createMany({
+                        data: offDays.map((item) => {
+                            const dateObj = new Date(item.date);
+                            return {
+                                userId: parseInt(item.userId),
+                                date: dateObj,
+                                weekStart: getMonday(item.date),
+                            };
+                        }),
+                        skipDuplicates: true,
+                    }),
+                ]);
+            } else {
+                // Legacy weekStart-based save
+                const weekStartDate = new Date(weekStart);
+                await prisma.$transaction([
+                    prisma.manualOffDay.deleteMany({ where: { weekStart: weekStartDate } }),
+                    prisma.manualOffDay.createMany({
+                        data: offDays.map((item) => ({
+                            userId: parseInt(item.userId),
+                            date: new Date(item.date),
+                            weekStart: weekStartDate,
+                        })),
+                    }),
+                ]);
+            }
+
             return successResponse(res, 200, null, 'Manual off-days berhasil diperbarui');
         } catch (err) {
             next(err);
