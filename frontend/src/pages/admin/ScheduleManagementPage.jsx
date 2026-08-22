@@ -189,6 +189,14 @@ const ScheduleManagementPage = () => {
 
     return (
         <div className="space-y-6">
+            <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                <p className="text-sm font-semibold text-amber-800">
+                    Fitur ini sudah digantikan oleh Posisi & Rotasi
+                </p>
+                <p className="text-xs text-amber-700 mt-1">
+                    Silakan gunakan menu <b>Posisi & Rotasi</b> untuk mengatur dan me-generate jadwal.
+                </p>
+            </div>
             <div className="flex justify-between items-center">
                 <div>
                     <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Manajemen Jadwal</h1>

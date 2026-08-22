@@ -1,9 +1,10 @@
 const scheduleService = require('../services/scheduleService');
 const { successResponse } = require('../utils/response');
-const { ErrorCodes } = require('../utils/AppError');
+const { AppError, ErrorCodes } = require('../utils/AppError');
 
 class ScheduleController {
     async generateSchedule(req, res, next) {
+        return next(new AppError('Fitur generate jadwal sudah digantikan oleh Posisi & Rotasi', 410, 'FEATURE_DEPRECATED'));
         try {
             const { userId, startDate, months, shiftPattern, baseOffDay, rotateOffDay } = req.body;
 
@@ -37,6 +38,7 @@ class ScheduleController {
     }
 
     async bulkGenerateSchedule(req, res, next) {
+        return next(new AppError('Fitur generate jadwal sudah digantikan oleh Posisi & Rotasi', 410, 'FEATURE_DEPRECATED'));
         try {
             const { userIds, startDate, endDate, shiftId, keepOffDays } = req.body;
 
@@ -104,6 +106,7 @@ class ScheduleController {
     }
 
     async distributeKitchenShifts(req, res, next) {
+        return next(new AppError('Fitur generate jadwal sudah digantikan oleh Posisi & Rotasi', 410, 'FEATURE_DEPRECATED'));
         try {
             // Attempt to get month or date ranges
             const month = req.body?.month || req.query?.month;
@@ -125,6 +128,7 @@ class ScheduleController {
     }
 
     async redistributeStations(req, res, next) {
+        return next(new AppError('Fitur generate jadwal sudah digantikan oleh Posisi & Rotasi', 410, 'FEATURE_DEPRECATED'));
         try {
             const { date } = req.body;
             if (!date) throw ErrorCodes.SCHEDULE_ERRORS.MISSING_REQUIRED_FIELDS;
@@ -137,6 +141,7 @@ class ScheduleController {
     }
 
     async assignStationsRotation(req, res, next) {
+        return next(new AppError('Fitur generate jadwal sudah digantikan oleh Posisi & Rotasi', 410, 'FEATURE_DEPRECATED'));
         try {
             const month = req.body?.month || req.query?.month;
             const startDate = req.body?.startDate || req.query?.startDate;

@@ -72,11 +72,6 @@ const Sidebar = ({ isOpen, onClose }) => {
       icon: Clock,
     },
     {
-      name: 'Jadwal Rolling',
-      path: '/admin/schedules',
-      icon: Calendar,
-    },
-    {
       name: 'Posisi & Rotasi',
       path: '/admin/rotation',
       icon: Users,
