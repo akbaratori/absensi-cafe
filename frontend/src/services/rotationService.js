@@ -28,6 +28,12 @@ const rotationService = {
   // Jadwal milik karyawan (skema rotasi baru)
   getMySchedule: (from, to) =>
     api.get('/rotation/my-schedule', { params: { from, to } }),
+
+  // Manual Off-days
+  getManualOffDays: (weekStart) =>
+    api.get('/rotation/manual-off-days', { params: { weekStart } }),
+  saveManualOffDays: (weekStart, offDays) =>
+    api.post('/rotation/manual-off-days', { weekStart, offDays }),
 };
 
 export default rotationService;

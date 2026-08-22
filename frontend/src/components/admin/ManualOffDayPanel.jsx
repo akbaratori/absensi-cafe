@@ -62,7 +62,7 @@ export default function ManualOffDayPanel({ weekStart, roster }) {
           <tbody>
             {roster.map(member => (
               <tr key={member.userId}>
-                <td className="p-2 border font-medium">{member.user.name}</td>
+                <td className="p-2 border font-medium">{member.user?.fullName || member.fullName || member.user?.name || 'Unknown'}</td>
                 {weekDates.map(d => {
                   const dateStr = d.toISOString().split('T')[0];
                   const isChecked = manualOffDays.some(m => m.userId === member.userId && new Date(m.date).toISOString().split('T')[0] === dateStr);

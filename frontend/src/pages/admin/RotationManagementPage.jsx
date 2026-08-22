@@ -142,18 +142,20 @@ export default function RotationManagementPage() {
   const fetchPositions = useCallback(async () => {
     try {
       const res = await rotationService.listPositions();
-      setPositions(res.data.data || []);
+      setPositions(res.data?.data || res.data || []);
     } catch (err) {
-      toast.error('Gagal memuat posisi: ' + (err.response?.data?.message || err.message));
+      const msg = err.response?.data?.error?.message || err.response?.data?.message || err.message;
+      toast.error('Gagal memuat posisi: ' + msg);
     }
   }, []);
 
   const fetchUsers = useCallback(async () => {
     try {
-      const res = await getUsers({ limit: 100 });
-      setUsers(res.data?.users || []);
+      const res = await getUsers({ limit: 200, status: 'active' });
+      setUsers(res.data?.users || res.users || []);
     } catch (err) {
-      toast.error('Gagal memuat user: ' + (err.response?.data?.message || err.message));
+      const msg = err.response?.data?.error?.message || err.response?.data?.message || err.message;
+      toast.error('Gagal memuat user: ' + msg);
     }
   }, []);
 
