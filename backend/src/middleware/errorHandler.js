@@ -17,13 +17,18 @@ const errorHandler = (err, req, res, next) => {
     return errorResponse(res, err.statusCode, err.code, err.message);
   }
 
-  // Handle Prisma errors (must be checked BEFORE generic Error handler)
-  if (err.code) {
+  // Handle Prisma validation errors (e.g. unsupported features like mode:'insensitive' on MySQL)
+  if (err.name === "PrismaClientValidationError") {
+    return errorResponse(res, 400, "VALIDATION_ERROR", "Invalid query parameters");
+  }
+
+  // Handle Prisma known request errors
+  if (err.code && typeof err.code === "string" && err.code.startsWith("P")) {
     switch (err.code) {
-      case "P2002": // Unique constraint violation
+      case "P2002": { // Unique constraint violation
         const fields = err.meta?.target?.join(", ") || "field";
         return errorResponse(res, 409, "DUPLICATE_ENTRY", `A record with this ${fields} already exists`);
-
+      }
       case "P2025": // Record not found
         return errorResponse(res, 404, "NOT_FOUND", "Record not found");
 
