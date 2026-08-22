@@ -307,8 +307,11 @@ class BackupController {
       const otherSchedules = candidateIds.length > 0
         ? await prisma.weeklySchedule.findMany({
             where: { userId: { in: candidateIds }, weekStart },
-            select: { userId: true, positionId: true },
-            include: { position: { select: { name: true } } },
+            select: {
+              userId: true,
+              positionId: true,
+              position: { select: { name: true } },
+            },
           })
         : [];
       const scheduleByUser = new Map();
