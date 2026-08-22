@@ -25,6 +25,10 @@ const rotationService = {
   listSchedules: (id, startWeek, endWeek) =>
     api.get(`/rotation/${id}/schedules`, { params: { startWeek, endWeek } }),
 
+  // Semua jadwal posisi untuk satu minggu (FullSchedulePage)
+  getAllSchedules: (weekStart) =>
+    api.get('/rotation/all-schedules', { params: { weekStart } }),
+
   // Jadwal milik karyawan (skema rotasi baru)
   getMySchedule: (from, to) =>
     api.get('/rotation/my-schedule', { params: { from, to } }),
@@ -34,6 +38,16 @@ const rotationService = {
     api.get('/rotation/manual-off-days', { params: { weekStart } }),
   saveManualOffDays: (weekStart, offDays) =>
     api.post('/rotation/manual-off-days', { weekStart, offDays }),
+
+  // Backup assignments
+  listBackups: (date) =>
+    api.get('/rotation/backups', { params: { date } }),
+  getBackupCandidates: (date, absentPositionId) =>
+    api.get('/rotation/backup-candidates', { params: { date, absentPositionId } }),
+  createBackup: (data) =>
+    api.post('/rotation/backups', data),
+  deleteBackup: (id) =>
+    api.delete(`/rotation/backups/${id}`),
 };
 
 export default rotationService;

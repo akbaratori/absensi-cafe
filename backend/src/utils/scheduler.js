@@ -115,6 +115,35 @@ function initScheduler() {
 
         console.log('[Scheduler] Shift reminder cron initialized');
     }
+
+    // ROLLING LIBUR OTOMATIS: Setiap tanggal 1 jam 01:00 WITA, geser offDay semua karyawan +1 hari
+    // offDay: 0=Minggu, 1=Senin, ..., 6=Sabtu
+    cron.schedule('0 1 1 * *', async () => {
+        try {
+            const users = await prisma.user.findMany({
+                where: { isActive: true, role: 'EMPLOYEE' },
+                select: { id: true, fullName: true, offDay: true },
+            });
+
+            let updated = 0;
+            for (const user of users) {
+                const newOffDay = (user.offDay + 1) % 7;
+                await prisma.user.update({
+                    where: { id: user.id },
+                    data: { offDay: newOffDay },
+                });
+                updated++;
+            }
+
+            console.log(`[RollingLibur] Berhasil menggeser hari libur ${updated} karyawan (+1 hari)`);
+        } catch (err) {
+            console.error('[RollingLibur] Cron error:', err.message);
+        }
+    }, {
+        timezone: 'Asia/Makassar', // WITA
+    });
+
+    console.log('[Scheduler] Rolling libur otomatis (bulanan) cron initialized');
 }
 
 module.exports = { initScheduler };

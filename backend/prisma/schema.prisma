@@ -359,3 +359,20 @@ model ManualOffDay {
   @@index([weekStart])
   @@map("manual_off_days")
 }
+
+model BackupAssignment {
+  id                          Int      @id @default(autoincrement())
+  date                        DateTime @map("date") @db.Date
+  absentUserId                Int      @map("absent_user_id")
+  backupUserId                Int      @map("backup_user_id")
+  absentPositionId            Int      @map("absent_position_id")
+  backupUserOriginalDepartment String  @default("BAR") @map("backup_user_original_department")
+  notes                       String?  @db.VarChar(500)
+  createdAt                   DateTime @default(now()) @map("created_at")
+
+  @@unique([date, absentUserId])
+  @@index([date])
+  @@index([absentUserId])
+  @@index([backupUserId])
+  @@map("backup_assignments")
+}

@@ -1,81 +1,108 @@
-import { useState, useEffect, useCallback } from 'react';
-import toast from 'react-hot-toast';
-import api from '../../services/api';
-import { LoadingSpinner } from '../../components/shared/Loading';
+import { useState, useEffect } from 'react';
+import rotationService from '../../services/rotationService';
+import BackupPanel from '../../components/admin/BackupPanel';
 
-const DAY_NAMES = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'];
-
-// Return the Monday of the current week
-function getMondayOfCurrentWeek() {
-  const today = new Date();
-  const day = today.getDay(); // 0=Sun, 1=Mon...
-  const diff = day === 0 ? -6 : 1 - day;
-  const monday = new Date(today);
-  monday.setDate(today.getDate() + diff);
-  return monday.toISOString().split('T')[0];
+function LoadingSpinner() {
+  return (
+    <div className="flex justify-center items-center py-16">
+      <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+    </div>
+  );
 }
 
-// Build array of 7 date labels from weekStart
-function buildDateLabels(weekStart) {
-  const start = new Date(weekStart);
-  return DAY_NAMES.map((name, i) => {
-    const d = new Date(start.getTime() + i * 86400000);
-    return {
-      name,
-      label: d.toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short' }),
-      date: d.toISOString().split('T')[0],
-    };
-  });
+/** Hitung Monday (UTC) dari tanggal mana saja */
+function getMondayISO(dateStr) {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  const day = d.getUTCDay(); // 0=Sun
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setUTCDate(d.getUTCDate() + diff);
+  return d.toISOString().split('T')[0];
+}
+
+/** Format Date ke YYYY-MM-DD */
+function toISO(date) {
+  const y = date.getUTCFullYear();
+  const m = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(date.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+/**
+ * Untuk satu posisi + weekStart, ambil nama staff yang bertugas pada `dateISO` dan `shiftNum`.
+ * WeeklySchedule hanya punya weekStart (bukan per-hari) — jadwal berlaku untuk semua 7 hari.
+ */
+function getUsersOnDay(schedule, dateISO, shiftNum) {
+  if (!schedule || !schedule.schedules?.length) return [];
+  return schedule.schedules
+    .filter(s => s.shiftNumber === shiftNum)
+    .map(s => s.user?.fullName || `User #${s.userId}`)
+    .filter(Boolean);
 }
 
 export default function FullSchedulePage() {
-  const [weekStart, setWeekStart] = useState(getMondayOfCurrentWeek);
-  const [data, setData] = useState([]); // [{position, schedule}]
+  const [weekStart, setWeekStart] = useState(() => {
+    const today = new Date().toISOString().split('T')[0];
+    return getMondayISO(today);
+  });
+  const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [dateLabels, setDateLabels] = useState([]);
+  const [error, setError] = useState(null);
 
-  const fetchSchedule = useCallback(async (ws) => {
+  // Backup panel state
+  const [backupDate, setBackupDate] = useState(null);
+  const [showBackupPanel, setShowBackupPanel] = useState(false);
+
+  useEffect(() => {
+    fetchAll();
+  }, [weekStart]);
+
+  const fetchAll = async () => {
     setLoading(true);
+    setError(null);
     try {
-      const res = await api.get('/rotation/all-schedules', { params: { weekStart: ws } });
+      const res = await rotationService.getAllSchedules(weekStart);
       setData(res.data.data || []);
-      setDateLabels(buildDateLabels(ws));
     } catch (err) {
-      toast.error('Gagal memuat jadwal: ' + (err.response?.data?.message || err.message));
+      setError(err?.response?.data?.message || 'Gagal memuat jadwal');
     } finally {
       setLoading(false);
     }
-  }, []);
-
-  useEffect(() => {
-    fetchSchedule(weekStart);
-  }, [fetchSchedule, weekStart]);
+  };
 
   const prevWeek = () => {
-    const d = new Date(weekStart);
-    d.setDate(d.getDate() - 7);
-    setWeekStart(d.toISOString().split('T')[0]);
+    const d = new Date(`${weekStart}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - 7);
+    setWeekStart(toISO(d));
   };
 
   const nextWeek = () => {
-    const d = new Date(weekStart);
-    d.setDate(d.getDate() + 7);
-    setWeekStart(d.toISOString().split('T')[0]);
+    const d = new Date(`${weekStart}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + 7);
+    setWeekStart(toISO(d));
   };
 
-  // Get users assigned on a specific date + shift for a position's schedule
-  const getUsersOnDay = (schedule, dayDate, shiftNumber) => {
-    if (!schedule?.schedules) return [];
-    return schedule.schedules
-      .filter((s) => {
-        const sd = new Date(s.date || s.scheduleDate);
-        const dd = new Date(dayDate);
-        return (
-          sd.toISOString().split('T')[0] === dayDate &&
-          s.shiftNumber === shiftNumber
-        );
-      })
-      .map((s) => s.user?.name || s.user?.fullName || `User ${s.userId}`);
+  // Buat 7 tanggal dalam minggu ini
+  const weekDates = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(`${weekStart}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + i);
+    return toISO(d);
+  });
+
+  const dateLabels = weekDates.map(dateISO => {
+    const d = new Date(`${dateISO}T00:00:00Z`);
+    return {
+      date: dateISO,
+      label: d.toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }),
+      isToday: dateISO === new Date().toISOString().split('T')[0],
+    };
+  });
+
+  // Ambil semua posisi dari data untuk BackupPanel
+  const allPositions = data.map(d => d.position).filter(Boolean);
+
+  const openBackupPanel = (dateISO) => {
+    setBackupDate(dateISO);
+    setShowBackupPanel(true);
   };
 
   return (
@@ -95,7 +122,7 @@ export default function FullSchedulePage() {
           <input
             type="date"
             value={weekStart}
-            onChange={(e) => setWeekStart(e.target.value)}
+            onChange={(e) => setWeekStart(getMondayISO(e.target.value))}
             className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100"
           />
           <button
@@ -106,6 +133,37 @@ export default function FullSchedulePage() {
           </button>
         </div>
       </div>
+
+      {/* Info baris tanggal dengan tombol backup */}
+      {!loading && data.length > 0 && (
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-3 mb-5 overflow-x-auto">
+          <div className="flex gap-2 min-w-max">
+            <div className="w-28 flex-shrink-0 text-xs font-semibold text-gray-500 dark:text-gray-400 flex items-center">
+              Kelola Backup
+            </div>
+            {dateLabels.map(dl => (
+              <button
+                key={dl.date}
+                onClick={() => openBackupPanel(dl.date)}
+                className={`flex-1 min-w-[90px] text-xs px-2 py-1.5 rounded-lg border transition-colors ${
+                  dl.isToday
+                    ? 'border-blue-400 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-semibold'
+                    : 'border-gray-200 dark:border-gray-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 text-gray-600 dark:text-gray-300'
+                }`}
+              >
+                <div>{dl.label}</div>
+                <div className="text-blue-500 mt-0.5">+ Backup</div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {error && (
+        <div className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-700 text-red-700 dark:text-red-300 rounded-lg p-4 mb-4 text-sm">
+          {error}
+        </div>
+      )}
 
       {loading ? (
         <LoadingSpinner />
@@ -138,9 +196,14 @@ export default function FullSchedulePage() {
                   <table className="w-full text-sm min-w-[700px]">
                     <thead>
                       <tr className="bg-gray-50 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
-                        <th className="px-3 py-2 text-left w-32">Shift</th>
+                        <th className="px-3 py-2 text-left w-24">Shift</th>
                         {dateLabels.map((dl) => (
-                          <th key={dl.date} className="px-3 py-2 text-left whitespace-nowrap">
+                          <th
+                            key={dl.date}
+                            className={`px-3 py-2 text-left whitespace-nowrap ${
+                              dl.isToday ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : ''
+                            }`}
+                          >
                             {dl.label}
                           </th>
                         ))}
@@ -155,7 +218,12 @@ export default function FullSchedulePage() {
                         {dateLabels.map((dl) => {
                           const names = getUsersOnDay(schedule, dl.date, 1);
                           return (
-                            <td key={dl.date} className="px-3 py-2 text-gray-600 dark:text-gray-300">
+                            <td
+                              key={dl.date}
+                              className={`px-3 py-2 text-gray-600 dark:text-gray-300 ${
+                                dl.isToday ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''
+                              }`}
+                            >
                               {names.length > 0 ? (
                                 <ul className="space-y-0.5">
                                   {names.map((n, i) => (
@@ -177,7 +245,12 @@ export default function FullSchedulePage() {
                         {dateLabels.map((dl) => {
                           const names = getUsersOnDay(schedule, dl.date, 2);
                           return (
-                            <td key={dl.date} className="px-3 py-2 text-gray-600 dark:text-gray-300">
+                            <td
+                              key={dl.date}
+                              className={`px-3 py-2 text-gray-600 dark:text-gray-300 ${
+                                dl.isToday ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''
+                              }`}
+                            >
                               {names.length > 0 ? (
                                 <ul className="space-y-0.5">
                                   {names.map((n, i) => (
@@ -198,6 +271,18 @@ export default function FullSchedulePage() {
             </div>
           ))}
         </div>
+      )}
+
+      {/* Backup Panel Modal */}
+      {showBackupPanel && backupDate && (
+        <BackupPanel
+          date={backupDate}
+          positions={allPositions}
+          onClose={() => {
+            setShowBackupPanel(false);
+            setBackupDate(null);
+          }}
+        />
       )}
     </div>
   );

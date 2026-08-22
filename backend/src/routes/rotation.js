@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const rotationController = require('../controllers/rotationController');
+const backupController = require('../controllers/backupController');
 const { authenticate, authorize } = require('../middleware/auth');
 
 // All rotation routes require authentication
@@ -18,6 +19,12 @@ router.get('/all-schedules', authorize('ADMIN'), rotationController.getAllSchedu
 // Manual Off-days
 router.get('/manual-off-days', rotationController.getManualOffDays);
 router.post('/manual-off-days', rotationController.saveManualOffDays);
+
+// Backup assignments
+router.get('/backups', authorize('ADMIN'), backupController.listBackups.bind(backupController));
+router.get('/backup-candidates', authorize('ADMIN'), backupController.getBackupCandidates.bind(backupController));
+router.post('/backups', authorize('ADMIN'), backupController.createBackup.bind(backupController));
+router.delete('/backups/:id', authorize('ADMIN'), backupController.deleteBackup.bind(backupController));
 
 // Position management (ADMIN only)
 router.get('/', authorize('ADMIN'), rotationController.listPositions);
