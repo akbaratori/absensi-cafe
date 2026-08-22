@@ -479,6 +479,109 @@ class RotationService {
   }
 
   /**
+   * Build a per-date schedule for a single employee over a date range.
+   * Uses the new rotation scheme (weeklySchedule.shiftNumber) instead of the
+   * legacy UserSchedule.shiftId. Off-day is the union of: Leave (APPROVED),
+   * OffDayRequest (APPROVED offDate), User.offDay (weekly), PublicHoliday,
+   * and ManualOffDay.
+   * Returns [{ date, shiftNumber, positionName, isOffDay }] sorted by date.
+   */
+  async getMySchedule(userId, fromISO, toISO) {
+    const from = new Date(`${fromISO}T00:00:00Z`);
+    const to = new Date(`${toISO}T00:00:00Z`);
+
+    // Build the list of dates in range
+    const dates = [];
+    const cursor = new Date(from);
+    while (cursor <= to) {
+      dates.push(new Date(cursor));
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+    const dateISOs = dates.map((d) => toISO(d));
+
+    // Weekly schedules covering the range (weekStart .. weekStart+7)
+    const schedules = await prisma.weeklySchedule.findMany({
+      where: {
+        userId,
+        weekStart: { lte: to },
+      },
+      include: { position: { select: { id: true, name: true } } },
+    });
+
+    // Map date -> schedule entry
+    const scheduleByDate = new Map();
+    for (const s of schedules) {
+      const ws = new Date(s.weekStart);
+      for (let i = 0; i < 7; i++) {
+        const day = new Date(ws);
+        day.setUTCDate(day.getUTCDate() + i);
+        const iso = toISO(day);
+        if (iso >= fromISO && iso <= toISO) {
+          scheduleByDate.set(iso, s);
+        }
+      }
+    }
+
+    // Off-day sources
+    const offSet = new Set();
+    const mark = (iso) => offSet.add(iso);
+
+    // 1. Leave APPROVED
+    const leaves = await prisma.leave.findMany({
+      where: { userId, status: 'APPROVED', startDate: { lte: to }, endDate: { gte: from } },
+      select: { startDate: true, endDate: true },
+    });
+    for (const l of leaves) {
+      for (const d of dates) {
+        const iso = toISO(d);
+        if (iso >= toISO(l.startDate) && iso <= toISO(l.endDate)) mark(iso);
+      }
+    }
+
+    // 2. OffDayRequest APPROVED
+    const offRequests = await prisma.offDayRequest.findMany({
+      where: { userId, status: 'APPROVED', offDate: { gte: from, lte: to } },
+      select: { offDate: true },
+    });
+    for (const r of offRequests) mark(toISO(r.offDate));
+
+    // 3. User.offDay (recurring weekly day-off index 0=Sun..6=Sat)
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { offDay: true },
+    });
+    for (const d of dates) {
+      if (user && user.offDay === d.getUTCDay()) mark(toISO(d));
+    }
+
+    // 4. PublicHoliday
+    const holidays = await prisma.publicHoliday.findMany({
+      where: { date: { gte: from, lte: to } },
+      select: { date: true },
+    });
+    for (const h of holidays) mark(toISO(h.date));
+
+    // 5. ManualOffDay
+    const manualOffDays = await prisma.manualOffDay.findMany({
+      where: { userId, date: { gte: from, lte: to } },
+      select: { date: true },
+    });
+    for (const m of manualOffDays) mark(toISO(m.date));
+
+    // Build final list
+    return dateISOs.map((iso) => {
+      const s = scheduleByDate.get(iso);
+      return {
+        date: iso,
+        shiftNumber: s ? s.shiftNumber : null,
+        positionName: s && s.position ? s.position.name : null,
+        positionId: s ? s.positionId : null,
+        isOffDay: offSet.has(iso),
+      };
+    });
+  }
+
+  /**
    * Gather all "off-day" sources for a position's roster over a set of dates.
    * Returns a Map<userId, Set<dateISO>> where the user is considered OFF.
    * Sources: Leave (APPROVED), OffDayRequest (APPROVED offDate), User.offDay (weekly),

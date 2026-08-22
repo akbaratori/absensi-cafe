@@ -163,6 +163,18 @@ class RotationController {
             next(err);
         }
     }
+
+    async getMySchedule(req, res, next) {
+        try {
+            const userId = req.user.id;
+            const { from, to } = req.query;
+            if (!from || !to) throw ErrorCodes.SCHEDULE_ERRORS.MISSING_REQUIRED_FIELDS;
+            const result = await rotationService.getMySchedule(userId, from, to);
+            return successResponse(res, 200, result, 'Jadwal karyawan berhasil dimuat');
+        } catch (err) {
+            next(err);
+        }
+    }
 }
 
 module.exports = new RotationController();

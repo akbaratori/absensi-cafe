@@ -23,6 +23,10 @@ const rotationService = {
     api.get(`/rotation/${id}/schedule`, { params: { weekStart } }),
   listSchedules: (id, startWeek, endWeek) =>
     api.get(`/rotation/${id}/schedules`, { params: { startWeek, endWeek } }),
+
+  // Jadwal milik karyawan (skema rotasi baru)
+  getMySchedule: (from, to) =>
+    api.get('/rotation/my-schedule', { params: { from, to } }),
 };
 
 export default rotationService;

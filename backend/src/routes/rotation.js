@@ -6,6 +6,12 @@ const { authenticate, authorize } = require('../middleware/auth');
 // All rotation routes require authentication
 router.use(authenticate);
 
+// Employee's own schedule (new rotation scheme)
+router.get('/my-schedule', authorize('ADMIN', 'EMPLOYEE'), rotationController.getMySchedule);
+
+// Backward-compatible alias: legacy frontend calls /rotation/positions
+router.get('/positions', authorize('ADMIN'), rotationController.listPositions);
+
 // Manual Off-days
 router.get('/manual-off-days', rotationController.getManualOffDays);
 router.post('/manual-off-days', rotationController.saveManualOffDays);
