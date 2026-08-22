@@ -17,6 +17,8 @@ export default function RotationManagementPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newPosition, setNewPosition] = useState({ name: '', shift1Capacity: 2, shift2Capacity: 3 });
   const [rosterModal, setRosterModal] = useState(false);
+  const [editModal, setEditModal] = useState(false);
+  const [editForm, setEditForm] = useState({ name: '', shift1Capacity: 2, shift2Capacity: 3 });
 
   const fetchPositions = useCallback(async () => {
     try {
@@ -64,6 +66,50 @@ export default function RotationManagementPage() {
       );
     } catch (err) {
       toast.error('Gagal memuat detail posisi');
+    }
+  };
+
+  const handleDeletePosition = async (pos) => {
+    if (!window.confirm(`Hapus posisi "${pos.name}"? Tindakan ini tidak dapat dibatalkan.`)) return;
+    try {
+      await rotationService.deletePosition(pos.id);
+      toast.success(`Posisi "${pos.name}" berhasil dihapus`);
+      if (selectedPosition?.id === pos.id) {
+        setSelectedPosition(null);
+        setRoster([]);
+        setSchedule(null);
+      }
+      fetchPositions();
+    } catch (err) {
+      toast.error('Gagal menghapus posisi: ' + (err.response?.data?.message || err.message));
+    }
+  };
+
+  const openEditModal = (pos) => {
+    setEditForm({
+      name: pos.name,
+      shift1Capacity: pos.shift1Capacity,
+      shift2Capacity: pos.shift2Capacity,
+    });
+    setEditModal(pos);
+  };
+
+  const handleEditPosition = async (e) => {
+    e.preventDefault();
+    try {
+      await rotationService.updatePosition(editModal.id, {
+        name: editForm.name,
+        shift1Capacity: Number(editForm.shift1Capacity),
+        shift2Capacity: Number(editForm.shift2Capacity),
+      });
+      toast.success('Posisi berhasil diperbarui');
+      setEditModal(false);
+      fetchPositions();
+      if (selectedPosition?.id === editModal.id) {
+        openPosition({ ...editModal, ...editForm, shift1Capacity: Number(editForm.shift1Capacity), shift2Capacity: Number(editForm.shift2Capacity) });
+      }
+    } catch (err) {
+      toast.error('Gagal memperbarui posisi: ' + (err.response?.data?.message || err.message));
     }
   };
 
@@ -206,10 +252,10 @@ if (loading) return <LoadingSpinner />;
           ) : (
             <ul className="space-y-2">
               {positions.map((pos) => (
-                <li key={pos.id}>
+                <li key={pos.id} className="flex items-stretch gap-1">
                   <button
                     onClick={() => openPosition(pos)}
-                    className={`w-full text-left px-3 py-2 rounded-lg border transition ${
+                    className={`flex-1 text-left px-3 py-2 rounded-lg border transition ${
                       selectedPosition?.id === pos.id
                         ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30'
                         : 'border-gray-200 dark:border-gray-700 hover:border-blue-300'
@@ -219,6 +265,20 @@ if (loading) return <LoadingSpinner />;
                     <div className="text-xs text-gray-500">
                       Shift 1: {pos.shift1Capacity} · Shift 2: {pos.shift2Capacity}
                     </div>
+                  </button>
+                  <button
+                    onClick={() => openEditModal(pos)}
+                    title="Edit posisi"
+                    className="px-2 py-1 text-blue-500 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg border border-gray-200 dark:border-gray-700 text-sm"
+                  >
+                    ✏️
+                  </button>
+                  <button
+                    onClick={() => handleDeletePosition(pos)}
+                    title="Hapus posisi"
+                    className="px-2 py-1 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg border border-gray-200 dark:border-gray-700 text-sm"
+                  >
+                    🗑️
                   </button>
                 </li>
               ))}
@@ -441,6 +501,74 @@ if (loading) return <LoadingSpinner />;
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
                 >
                   Simpan
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Edit Posisi */}
+      {editModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6 w-full max-w-md">
+            <h2 className="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-100">
+              Edit Posisi: {editModal.name}
+            </h2>
+            <form onSubmit={handleEditPosition} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">
+                  Nama Posisi
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editForm.name}
+                  onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">
+                    Kapasitas Shift 1
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    required
+                    value={editForm.shift1Capacity}
+                    onChange={(e) => setEditForm({ ...editForm, shift1Capacity: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">
+                    Kapasitas Shift 2
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    required
+                    value={editForm.shift2Capacity}
+                    onChange={(e) => setEditForm({ ...editForm, shift2Capacity: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditModal(false)}
+                  className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg text-sm"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
+                >
+                  Simpan Perubahan
                 </button>
               </div>
             </form>

@@ -121,6 +121,16 @@ class RotationService {
     return this.getPosition(position.id);
   }
 
+  async deletePosition(positionId) {
+    const position = await prisma.position.findUnique({ where: { id: positionId } });
+    if (!position) throw new AppError('Posisi tidak ditemukan', 404);
+    // Soft delete: set isActive = false
+    return prisma.position.update({
+      where: { id: positionId },
+      data: { isActive: false },
+    });
+  }
+
   async updatePosition(positionId, { name, shift1Capacity, shift2Capacity, isActive }) {
     const position = await prisma.position.findUnique({ where: { id: positionId } });
     if (!position) {

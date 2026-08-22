@@ -67,6 +67,15 @@ class RotationController {
         }
     }
 
+    async deletePosition(req, res, next) {
+        try {
+            await rotationService.deletePosition(parseInt(req.params.id));
+            return successResponse(res, 200, null, 'Posisi berhasil dihapus');
+        } catch (err) {
+            next(err);
+        }
+    }
+
     async updatePosition(req, res, next) {
         try {
             const { name, shift1Capacity, shift2Capacity, isActive } = req.body;

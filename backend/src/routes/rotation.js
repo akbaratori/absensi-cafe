@@ -21,6 +21,7 @@ router.get('/', authorize('ADMIN'), rotationController.listPositions);
 router.post('/', authorize('ADMIN'), rotationController.createPosition);
 router.get('/:id', authorize('ADMIN'), rotationController.getPosition);
 router.put('/:id', authorize('ADMIN'), rotationController.updatePosition);
+router.delete('/:id', authorize('ADMIN'), rotationController.deletePosition);
 
 // Roster management (ADMIN only)
 router.post('/:id/roster', authorize('ADMIN'), rotationController.setRoster);

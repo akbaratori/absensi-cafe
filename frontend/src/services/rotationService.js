@@ -6,6 +6,7 @@ const rotationService = {
   getPosition: (id) => api.get(`/rotation/${id}`),
   createPosition: (data) => api.post('/rotation', data),
   updatePosition: (id, data) => api.put(`/rotation/${id}`, data),
+  deletePosition: (id) => api.delete(`/rotation/${id}`),
 
   // Roster
   setRoster: (id, roster) => api.post(`/rotation/${id}/roster`, { roster }),
