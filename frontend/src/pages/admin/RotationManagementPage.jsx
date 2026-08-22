@@ -3,6 +3,124 @@ import toast from 'react-hot-toast';
 import rotationService from '../../services/rotationService';
 import { getUsers } from '../../services/adminService';
 import { LoadingSpinner } from '../../components/shared/Loading';
+import ManualOffDayPanel from '../../components/admin/ManualOffDayPanel';
+
+// ─── Jobdesk Kitchen Panel ────────────────────────────────────────────────────
+const KITCHEN_JOBS = [
+  { id: 'A', label: 'Pos A — Dapur Dalam', tasks: ['Lap-lap meja', 'Cuci lap'], icon: '🧹', color: 'bg-blue-100 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700' },
+  { id: 'B', label: 'Pos B — Dapur Dalam', tasks: ['Sapu lantai dapur', 'Pel lantai dapur', 'Cuci piring'], icon: '🫧', color: 'bg-emerald-100 dark:bg-emerald-900/30 border-emerald-300 dark:border-emerald-700' },
+  { id: 'C', label: 'Pos C — Dapur Luar', tasks: ['Angkat & rapikan bangku', 'Sapu area luar', 'Pel area luar', 'Bersihkan WC'], icon: '🪑', color: 'bg-purple-100 dark:bg-purple-900/30 border-purple-300 dark:border-purple-700' },
+];
+
+const DAY_NAMES_SHORT = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'];
+
+function JobdeskKitchenPanel({ roster, weekStart, setWeekStart }) {
+  const names = roster.map((r) => r.user?.name || r.user?.fullName || `User ${r.userId}`).filter(Boolean);
+
+  const weekDates = weekStart
+    ? Array.from({ length: 7 }, (_, i) => {
+        const d = new Date(weekStart);
+        d.setDate(d.getDate() + i);
+        return d;
+      })
+    : [];
+
+  const buildRotation = () => {
+    if (!names.length || !weekDates.length) return [];
+    return weekDates.map((date, dayIdx) => {
+      const rotated = names.map((_, i) => names[(i + dayIdx) % names.length]);
+      return {
+        date,
+        label: `${DAY_NAMES_SHORT[dayIdx]}, ${date.getDate()}/${date.getMonth() + 1}`,
+        assignments: KITCHEN_JOBS.map((job, jobIdx) => ({
+          job,
+          person: rotated[jobIdx] ?? '—',
+        })),
+        freeWorkers: rotated.slice(KITCHEN_JOBS.length),
+      };
+    });
+  };
+
+  const rotation = buildRotation();
+  const today = new Date().toDateString();
+
+  return (
+    <div>
+      <div className="mb-4 flex items-center gap-2">
+        <label className="text-sm text-gray-600 dark:text-gray-300">Minggu:</label>
+        <input
+          type="date"
+          value={weekStart}
+          onChange={(e) => setWeekStart(e.target.value)}
+          className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100"
+        />
+        {!weekStart && (
+          <span className="text-xs text-yellow-600 dark:text-yellow-400">
+            Pilih tanggal minggu untuk melihat rotasi.
+          </span>
+        )}
+      </div>
+
+      {names.length === 0 ? (
+        <div className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg text-sm text-gray-500">
+          Belum ada anggota roster.
+        </div>
+      ) : !weekStart ? null : (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4">
+            {KITCHEN_JOBS.map((job) => (
+              <div key={job.id} className={`p-3 rounded-lg border ${job.color}`}>
+                <div className="font-medium text-sm mb-1">{job.icon} {job.label}</div>
+                <ul className="text-xs text-gray-600 dark:text-gray-300 space-y-0.5">
+                  {job.tasks.map((t, i) => <li key={i}>• {t}</li>)}
+                </ul>
+              </div>
+            ))}
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[480px]">
+              <thead>
+                <tr className="bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-200">
+                  <th className="px-3 py-2 text-left">Hari</th>
+                  {KITCHEN_JOBS.map((j) => (
+                    <th key={j.id} className="px-3 py-2 text-left">{j.icon} {j.id}</th>
+                  ))}
+                  {names.length > KITCHEN_JOBS.length && (
+                    <th className="px-3 py-2 text-left text-green-600 dark:text-green-400">Bebas</th>
+                  )}
+                </tr>
+              </thead>
+              <tbody>
+                {rotation.map((day, i) => {
+                  const isToday = day.date.toDateString() === today;
+                  return (
+                    <tr key={i} className={`border-t border-gray-100 dark:border-gray-700 ${isToday ? 'bg-yellow-50 dark:bg-yellow-900/20 font-medium' : ''}`}>
+                      <td className="px-3 py-2 text-gray-700 dark:text-gray-200 whitespace-nowrap">
+                        {day.label}{isToday ? ' ← Hari ini' : ''}
+                      </td>
+                      {day.assignments.map(({ job, person }) => (
+                        <td key={job.id} className="px-3 py-2 text-gray-700 dark:text-gray-200">{person}</td>
+                      ))}
+                      {names.length > KITCHEN_JOBS.length && (
+                        <td className="px-3 py-2 text-green-700 dark:text-green-400">
+                          {day.freeWorkers.join(', ') || '—'}
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-3 text-xs text-gray-400">
+            Rotasi otomatis berdasarkan urutan roster. Urutan dapat diubah di "Atur Roster".
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 export default function RotationManagementPage() {
   const [positions, setPositions] = useState([]);
@@ -19,6 +137,7 @@ export default function RotationManagementPage() {
   const [rosterModal, setRosterModal] = useState(false);
   const [editModal, setEditModal] = useState(false);
   const [editForm, setEditForm] = useState({ name: '', shift1Capacity: 2, shift2Capacity: 3 });
+  const [detailTab, setDetailTab] = useState('schedule'); // 'schedule' | 'offday' | 'jobdesk'
 
   const fetchPositions = useCallback(async () => {
     try {
@@ -304,6 +423,27 @@ if (loading) return <LoadingSpinner />;
                 </button>
               </div>
 
+              {/* Tab Navigation */}
+              <div className="flex gap-1 mb-4 border-b border-gray-200 dark:border-gray-700">
+                {[
+                  { key: 'schedule', label: '📅 Jadwal' },
+                  { key: 'offday', label: '🏖️ Libur Manual' },
+                  { key: 'jobdesk', label: '🍳 Jobdesk Kitchen' },
+                ].map((tab) => (
+                  <button
+                    key={tab.key}
+                    onClick={() => setDetailTab(tab.key)}
+                    className={`px-3 py-2 text-sm font-medium border-b-2 transition -mb-px ${
+                      detailTab === tab.key
+                        ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                        : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
               {/* Roster */}
               <div className="mb-4">
                 <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-2">
@@ -325,6 +465,35 @@ if (loading) return <LoadingSpinner />;
                 )}
               </div>
 
+              {/* ─── TAB: Libur Manual ─── */}
+              {detailTab === 'offday' && (
+                <div>
+                  {!weekStart ? (
+                    <div className="p-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 rounded-lg text-sm text-yellow-700 dark:text-yellow-300">
+                      Pilih tanggal minggu di tab Jadwal terlebih dahulu untuk menggunakan fitur ini.
+                    </div>
+                  ) : roster.length === 0 ? (
+                    <div className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg text-sm text-gray-500">
+                      Belum ada anggota roster. Atur roster terlebih dahulu.
+                    </div>
+                  ) : (
+                    <ManualOffDayPanel weekStart={weekStart} roster={roster} />
+                  )}
+                </div>
+              )}
+
+              {/* ─── TAB: Jobdesk Kitchen ─── */}
+              {detailTab === 'jobdesk' && (
+                <JobdeskKitchenPanel
+                  roster={roster}
+                  weekStart={weekStart}
+                  setWeekStart={setWeekStart}
+                />
+              )}
+
+              {/* ─── TAB: Jadwal ─── */}
+              {detailTab === 'schedule' && (
+              <>
               {/* Generate Jadwal */}
               <div className="border-t pt-4">
                 <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-2">
@@ -429,6 +598,8 @@ if (loading) return <LoadingSpinner />;
                     </tbody>
                   </table>
                 </div>
+              )}
+              </>
               )}
             </>
           )}
