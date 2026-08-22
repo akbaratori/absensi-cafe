@@ -12,6 +12,9 @@ router.get('/my-schedule', authorize('ADMIN', 'EMPLOYEE'), rotationController.ge
 // Backward-compatible alias: legacy frontend calls /rotation/positions
 router.get('/positions', authorize('ADMIN'), rotationController.listPositions);
 
+// All positions schedule for a given week
+router.get('/all-schedules', authorize('ADMIN'), rotationController.getAllSchedules);
+
 // Manual Off-days
 router.get('/manual-off-days', rotationController.getManualOffDays);
 router.post('/manual-off-days', rotationController.saveManualOffDays);

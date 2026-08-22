@@ -72,6 +72,16 @@ const Sidebar = ({ isOpen, onClose }) => {
       icon: Clock,
     },
     {
+      name: 'Jadwal Lengkap',
+      path: '/admin/full-schedule',
+      icon: Calendar,
+    },
+    {
+      name: 'Manajemen Jadwal',
+      path: '/admin/schedules',
+      icon: Calendar,
+    },
+    {
       name: 'Posisi & Rotasi',
       path: '/admin/rotation',
       icon: Users,

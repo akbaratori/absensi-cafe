@@ -173,6 +173,28 @@ class RotationController {
         }
     }
 
+    async getAllSchedules(req, res, next) {
+        try {
+            const { weekStart } = req.query;
+            if (!weekStart) throw ErrorCodes.SCHEDULE_ERRORS.MISSING_REQUIRED_FIELDS;
+
+            const positions = await rotationService.listPositions();
+            const results = await Promise.all(
+                positions.map(async (pos) => {
+                    try {
+                        const schedule = await rotationService.getSchedule(pos.id, weekStart);
+                        return { position: pos, schedule };
+                    } catch {
+                        return { position: pos, schedule: null };
+                    }
+                })
+            );
+            return successResponse(res, 200, results, 'Semua jadwal berhasil dimuat');
+        } catch (err) {
+            next(err);
+        }
+    }
+
     async getMySchedule(req, res, next) {
         try {
             const userId = req.user.id;

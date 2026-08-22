@@ -32,6 +32,7 @@ import PayrollPage from './pages/admin/PayrollPage';
 import JobdeskClosingPage from './pages/admin/JobdeskClosingPage';
 import OvertimePage from './pages/employee/OvertimePage';
 import OvertimeApprovalPage from './pages/admin/OvertimeApprovalPage';
+import FullSchedulePage from './pages/admin/FullSchedulePage';
 
 // Components
 
@@ -268,6 +269,15 @@ function App() {
               element={
                 <AdminRoute>
                   <OvertimeApprovalPage />
+                </AdminRoute>
+              }
+            />
+
+            <Route
+              path="/admin/full-schedule"
+              element={
+                <AdminRoute>
+                  <FullSchedulePage />
                 </AdminRoute>
               }
             />
