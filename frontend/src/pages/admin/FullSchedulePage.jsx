@@ -28,22 +28,46 @@ function toISO(date) {
 }
 
 /**
- * Untuk satu posisi + weekStart, kembalikan daftar staff per shift DENGAN info off-day per tanggal.
- * offDaySet: Set<"userId_YYYY-MM-DD"> — user yang libur pada tanggal tersebut.
+ * Untuk satu posisi + weekStart, kembalikan daftar staff per shift DENGAN info off-day dan
+ * deployed-elsewhere (backup ke posisi lain) per tanggal.
  *
- * Returns: { working: [{name, userId}], offDay: [{name, userId}] }
+ * offDaySet: Set<"userId_YYYY-MM-DD"> — user yang libur pada tanggal tersebut.
+ * backupsOnDay: backup[] — semua backup aktif pada tanggal tersebut (dari backupsByDate.get(dateISO)).
+ * currentPositionId: number — id posisi yang sedang di-render, agar tidak flag backup di posisi yang sama.
+ *
+ * Returns: {
+ *   working:          [{name, userId}],
+ *   offDay:           [{name, userId}],
+ *   deployedElsewhere: [{name, userId, targetPositionName}],
+ * }
  */
-function getUsersOnDayWithOffDay(schedule, dateISO, shiftNum, offDaySet) {
-  if (!schedule || !schedule.schedules?.length) return { working: [], offDay: [] };
+function getUsersOnDayWithOffDay(schedule, dateISO, shiftNum, offDaySet, backupsOnDay = [], currentPositionId = null) {
+  if (!schedule || !schedule.schedules?.length) return { working: [], offDay: [], deployedElsewhere: [] };
 
   const all = schedule.schedules
     .filter(s => s.shiftNumber === shiftNum)
     .map(s => ({ name: s.user?.fullName || `User #${s.userId}`, userId: s.userId }));
 
-  const working = all.filter(u => !offDaySet.has(`${u.userId}_${dateISO}`));
-  const offDay = all.filter(u => offDaySet.has(`${u.userId}_${dateISO}`));
+  // Backup yang men-deploy staff dari posisi LAIN (bukan posisi yang sedang di-render)
+  // ke posisi lain — artinya backupUser berasal dari posisi ini dan pergi ke posisi lain.
+  // Kita tandai user yang userId-nya menjadi backupUserId di backup dengan absentPositionId !== currentPositionId.
+  const deployedMap = new Map(); // userId -> targetPositionName
+  backupsOnDay.forEach(b => {
+    if (
+      b.backupUserId &&
+      b.absentPositionId !== currentPositionId
+    ) {
+      const targetName = b.absentPosition?.name || `Posisi #${b.absentPositionId}`;
+      deployedMap.set(b.backupUserId, targetName);
+    }
+  });
 
-  return { working, offDay };
+  const offDay             = all.filter(u => offDaySet.has(`${u.userId}_${dateISO}`));
+  const deployedElsewhere  = all.filter(u => !offDaySet.has(`${u.userId}_${dateISO}`) && deployedMap.has(u.userId))
+                                .map(u => ({ ...u, targetPositionName: deployedMap.get(u.userId) }));
+  const working            = all.filter(u => !offDaySet.has(`${u.userId}_${dateISO}`) && !deployedMap.has(u.userId));
+
+  return { working, offDay, deployedElsewhere };
 }
 
 export default function FullSchedulePage() {
@@ -293,7 +317,8 @@ export default function FullSchedulePage() {
                           Shift 1
                         </td>
                         {dateLabels.map((dl) => {
-                          const { working, offDay } = getUsersOnDayWithOffDay(schedule, dl.date, 1, offDaySet);
+                          const backupsOnDay = backupsByDate.get(dl.date) || [];
+                          const { working, offDay, deployedElsewhere } = getUsersOnDayWithOffDay(schedule, dl.date, 1, offDaySet, backupsOnDay, position.id);
                           return (
                             <td
                               key={dl.date}
@@ -308,6 +333,16 @@ export default function FullSchedulePage() {
                                   ))}
                                 </ul>
                               )}
+                              {deployedElsewhere.length > 0 && (
+                                <ul className="space-y-0.5 mb-1">
+                                  {deployedElsewhere.map((u, i) => (
+                                    <li key={i} className="whitespace-nowrap text-purple-500 dark:text-purple-400 text-xs" title={`Sedang backup di ${u.targetPositionName}`}>
+                                      🔀 <span className="line-through">{u.name}</span>
+                                      <span className="ml-1 no-underline">→ {u.targetPositionName}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
                               {offDay.length > 0 && (
                                 <ul className="space-y-0.5">
                                   {offDay.map((u, i) => (
@@ -317,7 +352,7 @@ export default function FullSchedulePage() {
                                   ))}
                                 </ul>
                               )}
-                              {working.length === 0 && offDay.length === 0 && (
+                              {working.length === 0 && offDay.length === 0 && deployedElsewhere.length === 0 && (
                                 <span className="text-gray-400 text-xs">—</span>
                               )}
                             </td>
@@ -330,7 +365,8 @@ export default function FullSchedulePage() {
                           Shift 2
                         </td>
                         {dateLabels.map((dl) => {
-                          const { working, offDay } = getUsersOnDayWithOffDay(schedule, dl.date, 2, offDaySet);
+                          const backupsOnDay = backupsByDate.get(dl.date) || [];
+                          const { working, offDay, deployedElsewhere } = getUsersOnDayWithOffDay(schedule, dl.date, 2, offDaySet, backupsOnDay, position.id);
                           return (
                             <td
                               key={dl.date}
@@ -345,6 +381,16 @@ export default function FullSchedulePage() {
                                   ))}
                                 </ul>
                               )}
+                              {deployedElsewhere.length > 0 && (
+                                <ul className="space-y-0.5 mb-1">
+                                  {deployedElsewhere.map((u, i) => (
+                                    <li key={i} className="whitespace-nowrap text-purple-500 dark:text-purple-400 text-xs" title={`Sedang backup di ${u.targetPositionName}`}>
+                                      🔀 <span className="line-through">{u.name}</span>
+                                      <span className="ml-1 no-underline">→ {u.targetPositionName}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
                               {offDay.length > 0 && (
                                 <ul className="space-y-0.5">
                                   {offDay.map((u, i) => (
@@ -354,7 +400,7 @@ export default function FullSchedulePage() {
                                   ))}
                                 </ul>
                               )}
-                              {working.length === 0 && offDay.length === 0 && (
+                              {working.length === 0 && offDay.length === 0 && deployedElsewhere.length === 0 && (
                                 <span className="text-gray-400 text-xs">—</span>
                               )}
                             </td>
