@@ -62,6 +62,9 @@ export default function FullSchedulePage() {
   const [backupDate, setBackupDate] = useState(null);
   const [showBackupPanel, setShowBackupPanel] = useState(false);
 
+  // backupsByDate: Map<dateISO, backup[]> — backup aktif per tanggal minggu ini
+  const [backupsByDate, setBackupsByDate] = useState(new Map());
+
   // Bulan dari weekStart (untuk fetch off-days)
   const monthStr = useMemo(() => {
     const d = new Date(`${weekStart}T00:00:00Z`);
@@ -70,6 +73,7 @@ export default function FullSchedulePage() {
 
   useEffect(() => {
     fetchAll();
+    fetchBackupsForWeek();
   }, [weekStart]);
 
   useEffect(() => {
@@ -102,6 +106,31 @@ export default function FullSchedulePage() {
     } catch {
       // Non-critical — tampilkan jadwal meski off-day gagal dimuat
       setOffDaySet(new Set());
+    }
+  };
+
+  // Fetch backup untuk semua 7 hari dalam minggu aktif
+  const fetchBackupsForWeek = async () => {
+    try {
+      const start = new Date(`${weekStart}T00:00:00Z`);
+      const dates = Array.from({ length: 7 }, (_, i) => {
+        const d = new Date(start);
+        d.setUTCDate(start.getUTCDate() + i);
+        return toISO(d);
+      });
+      const results = await Promise.allSettled(
+        dates.map(date => rotationService.listBackups(date))
+      );
+      const map = new Map();
+      results.forEach((result, i) => {
+        if (result.status === 'fulfilled') {
+          const backups = result.value?.data?.data || [];
+          map.set(dates[i], backups);
+        }
+      });
+      setBackupsByDate(map);
+    } catch {
+      // Non-critical
     }
   };
 
@@ -177,20 +206,32 @@ export default function FullSchedulePage() {
             <div className="w-28 flex-shrink-0 text-xs font-semibold text-gray-500 dark:text-gray-400 flex items-center">
               Kelola Backup
             </div>
-            {dateLabels.map(dl => (
-              <button
-                key={dl.date}
-                onClick={() => openBackupPanel(dl.date)}
-                className={`flex-1 min-w-[90px] text-xs px-2 py-1.5 rounded-lg border transition-colors ${
-                  dl.isToday
-                    ? 'border-blue-400 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-semibold'
-                    : 'border-gray-200 dark:border-gray-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 text-gray-600 dark:text-gray-300'
-                }`}
-              >
-                <div>{dl.label}</div>
-                <div className="text-blue-500 mt-0.5">+ Backup</div>
-              </button>
-            ))}
+            {dateLabels.map(dl => {
+                const dateBackups = backupsByDate.get(dl.date) || [];
+                const hasBackup = dateBackups.length > 0;
+                return (
+                  <button
+                    key={dl.date}
+                    onClick={() => openBackupPanel(dl.date)}
+                    className={`flex-1 min-w-[90px] text-xs px-2 py-1.5 rounded-lg border transition-colors ${
+                      dl.isToday
+                        ? 'border-blue-400 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-semibold'
+                        : hasBackup
+                        ? 'border-green-400 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300'
+                        : 'border-gray-200 dark:border-gray-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 text-gray-600 dark:text-gray-300'
+                    }`}
+                  >
+                    <div>{dl.label}</div>
+                    {hasBackup ? (
+                      <div className="text-green-600 dark:text-green-400 mt-0.5 font-semibold">
+                        ✓ {dateBackups.length} backup
+                      </div>
+                    ) : (
+                      <div className="text-blue-500 mt-0.5">+ Backup</div>
+                    )}
+                  </button>
+                );
+              })}
           </div>
         </div>
       )}
@@ -350,6 +391,44 @@ export default function FullSchedulePage() {
                           })}
                         </tr>
                       )}
+                      {/* Row: Backup (tampil hanya jika ada backup untuk posisi ini di minggu ini) */}
+                      {weekDates.some(dateISO =>
+                        (backupsByDate.get(dateISO) || []).some(b => b.absentPositionId === position.id)
+                      ) && (
+                        <tr className="border-t-2 border-green-200 dark:border-green-800 bg-green-50/40 dark:bg-green-900/10">
+                          <td className="px-3 py-2 font-medium text-green-700 dark:text-green-400 whitespace-nowrap text-xs">
+                            🔄 Backup
+                          </td>
+                          {dateLabels.map((dl) => {
+                            const dayBackups = (backupsByDate.get(dl.date) || [])
+                              .filter(b => b.absentPositionId === position.id);
+                            return (
+                              <td
+                                key={dl.date}
+                                className={`px-3 py-2 text-xs align-top ${dl.isToday ? 'bg-blue-50/30 dark:bg-blue-900/5' : ''}`}
+                              >
+                                {dayBackups.length > 0 ? (
+                                  <ul className="space-y-1">
+                                    {dayBackups.map((b, i) => (
+                                      <li key={i} className="whitespace-nowrap">
+                                        <span className="text-orange-500 dark:text-orange-400 line-through">
+                                          {b.absentUser?.fullName || `#${b.absentUserId}`}
+                                        </span>
+                                        <span className="text-gray-400 mx-1">→</span>
+                                        <span className="text-green-700 dark:text-green-400 font-medium">
+                                          {b.backupUser?.fullName || `#${b.backupUserId}`}
+                                        </span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                ) : (
+                                  <span className="text-gray-300 dark:text-gray-700">—</span>
+                                )}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -367,6 +446,7 @@ export default function FullSchedulePage() {
           onClose={() => {
             setShowBackupPanel(false);
             setBackupDate(null);
+            fetchBackupsForWeek();
           }}
         />
       )}
