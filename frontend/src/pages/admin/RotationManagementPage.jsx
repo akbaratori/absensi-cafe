@@ -159,8 +159,8 @@ function BackupModal({ date, issues, roster, users, positionId, onClose, onSaved
   for (const u of (users || [])) nameMap[u.id] = getUserName(u);
   const resolveName = (id) => nameMap[id] || `#${id}`;
 
-  // Roster members per shift
-  const rosterByShift = (shiftNum) => (roster || []).filter((r) => (r.shift || 1) === shiftNum);
+  // Roster members per shift — use shiftNumber (from backend) OR shift (local state field)
+  const rosterByShift = (shiftNum) => (roster || []).filter((r) => (r.shiftNumber || r.shift || 1) === shiftNum);
   const rosterIdSet = new Set((roster || []).map((r) => r.userId));
 
   // Candidates for backup: all non-admin users
@@ -308,7 +308,7 @@ export default function RotationManagementPage() {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
-  const [understaffed, setUnderstaffed] = useState([]);
+  const [understaffed, setUnderstaffed] = useState(null); // null = belum generate, [] = sudah generate & tidak ada masalah
   const [generating, setGenerating] = useState(false);
 
   // Modals
@@ -323,7 +323,7 @@ export default function RotationManagementPage() {
   const currentStep = !positions.length ? 1
     : !selectedPosition ? 1
     : !roster.length ? 2
-    : selectedPosition && roster.length ? (understaffed.length ? 5 : 4)
+    : selectedPosition && roster.length ? ((understaffed && understaffed.length) ? 5 : 4)
     : 3;
 
   const fetchPositions = useCallback(async () => {
@@ -362,7 +362,7 @@ export default function RotationManagementPage() {
 
   const openPosition = useCallback(async (pos) => {
     setSelectedPosition(pos);
-    setUnderstaffed([]);
+    setUnderstaffed(null);
     setRoster(
       (pos.rosters || []).map((r, i) => ({
         ...r,
@@ -426,7 +426,7 @@ export default function RotationManagementPage() {
     try {
       await rotationService.deletePosition(pos.id);
       toast.success('Posisi dihapus');
-      if (selectedPosition?.id === pos.id) { setSelectedPosition(null); setRoster([]); setUnderstaffed([]); }
+      if (selectedPosition?.id === pos.id) { setSelectedPosition(null); setRoster([]); setUnderstaffed(null); }
       fetchPositions();
     } catch (err) {
       toast.error('Gagal hapus: ' + (err.response?.data?.message || err.message));
@@ -671,7 +671,7 @@ export default function RotationManagementPage() {
                 />
 
                 {/* Understaffed summary */}
-                {understaffed.length > 0 && (
+                {understaffed && understaffed.length > 0 && (
                   <div className="mt-4 p-4 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800">
                     <div className="flex items-center gap-2 mb-3">
                       <span className="text-red-500 text-lg">⚠️</span>
@@ -708,9 +708,14 @@ export default function RotationManagementPage() {
                   </div>
                 )}
 
-                {understaffed.length === 0 && month && (
+                {understaffed !== null && understaffed.length === 0 && month && (
                   <div className="mt-3 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-700 text-sm text-green-700 dark:text-green-300">
-                    ✅ Tidak ada kekurangan staff {understaffed !== null ? 'bulan ini.' : '— klik Generate untuk memeriksa.'}
+                    ✅ Tidak ada kekurangan staff bulan ini.
+                  </div>
+                )}
+                {understaffed === null && month && (
+                  <div className="mt-3 p-3 bg-gray-50 dark:bg-gray-700/30 rounded-lg border border-gray-200 dark:border-gray-700 text-sm text-gray-500 dark:text-gray-400">
+                    📅 Klik "Generate Jadwal" untuk memeriksa kekurangan staff bulan ini.
                   </div>
                 )}
               </div>

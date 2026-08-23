@@ -32,6 +32,19 @@ api.interceptors.response.use(
       localStorage.removeItem('refreshToken');
       window.location.href = '/login';
     }
+
+    // Network error — backend tidak bisa dijangkau (ECONNREFUSED / proxy 400/502/503)
+    // Vite dev proxy mengembalikan 400 ketika backend mati, bukan error jaringan murni
+    if (
+      !error.response ||
+      error.code === 'ERR_NETWORK' ||
+      error.code === 'ECONNREFUSED' ||
+      (error.response?.status === 400 &&
+        error.response?.data?.toString?.().includes?.('connect ECONNREFUSED'))
+    ) {
+      // Jangan redirect, biarkan komponen menangani dengan try/catch
+    }
+
     return Promise.reject(error);
   }
 );
