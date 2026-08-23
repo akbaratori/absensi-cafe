@@ -320,35 +320,41 @@ export default function ManualOffDayPanel({ roster }) {
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {HARI.map((h, dow) => {
+                    const isSunday = dow === 0;
                     const active = isDowFullyOn(focusUser, dow);
                     const lockedDow = getLockedDow(offDays, focusUser);
-                    // Hari ini dikunci untuk user lain jika semua tanggal dow tsb sudah ada yg libur
                     const isLockedForUser = lockedDow !== null && lockedDow !== dow;
+                    const isDisabled = isSunday || isLockedForUser;
                     const count = dates.filter((d) => new Date(d).getUTCDay() === dow).length;
                     return (
                       <button
                         key={dow}
-                        onClick={() => applyDayOfWeek(focusUser, dow, !active)}
-                        disabled={isLockedForUser}
+                        onClick={() => !isSunday && applyDayOfWeek(focusUser, dow, !active)}
+                        disabled={isDisabled}
                         className={`
                           flex flex-col items-center px-3 py-2 rounded-lg border text-xs font-medium transition select-none
-                          ${active
-                            ? 'bg-red-100 dark:bg-red-900/40 border-red-300 dark:border-red-700 text-red-700 dark:text-red-300'
-                            : isLockedForUser
-                              ? 'bg-gray-100 dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-gray-300 dark:text-gray-600 cursor-not-allowed opacity-50'
-                              : 'bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:border-blue-400'
+                          ${isSunday
+                            ? 'bg-gray-200 dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-400 dark:text-gray-600 cursor-not-allowed opacity-60'
+                            : active
+                              ? 'bg-red-100 dark:bg-red-900/40 border-red-300 dark:border-red-700 text-red-700 dark:text-red-300'
+                              : isLockedForUser
+                                ? 'bg-gray-100 dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-gray-300 dark:text-gray-600 cursor-not-allowed opacity-50'
+                                : 'bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:border-blue-400'
                           }
                         `}
                         title={
-                          isLockedForUser
-                            ? `Pegawai ini sudah terkunci di hari ${HARI_FULL[lockedDow]}`
-                            : `${active ? 'Hapus' : 'Tandai'} semua ${HARI_FULL[dow]} sebagai libur (${count} tanggal)`
+                          isSunday
+                            ? 'Minggu — tidak bisa dijadikan hari libur'
+                            : isLockedForUser
+                              ? `Pegawai ini sudah terkunci di hari ${HARI_FULL[lockedDow]}`
+                              : `${active ? 'Hapus' : 'Tandai'} semua ${HARI_FULL[dow]} sebagai libur (${count} tanggal)`
                         }
                       >
                         <span>{h}</span>
                         <span className="text-[10px] opacity-60">×{count}</span>
-                        {active && <span className="text-[10px] leading-none">🏖️</span>}
-                        {isLockedForUser && <span className="text-[10px] leading-none">🔒</span>}
+                        {isSunday && <span className="text-[10px] leading-none">🚫</span>}
+                        {!isSunday && active && <span className="text-[10px] leading-none">🏖️</span>}
+                        {!isSunday && isLockedForUser && <span className="text-[10px] leading-none">🔒</span>}
                       </button>
                     );
                   })}
@@ -374,36 +380,40 @@ export default function ManualOffDayPanel({ roster }) {
                       const today = new Date().toISOString().split('T')[0];
                       const isToday = dateStr === today;
                       const thisDow = new Date(dateStr).getUTCDay();
+                      const isSundayCell = thisDow === 0;
                       const lockedDow = getLockedDow(offDays, focusUser);
-                      // Siapa pegawai lain yang libur di hari ini?
                       const othersOff = whoIsOffOn(offDays, dateStr).filter((id) => id !== focusUser);
                       const blockedByOther = !off && othersOff.length > 0;
                       const blockedByDow = !off && lockedDow !== null && lockedDow !== thisDow;
-                      const blocked = blockedByOther || blockedByDow;
+                      const blocked = isSundayCell || blockedByOther || blockedByDow;
                       return (
                         <button
                           key={di}
-                          onClick={() => toggleOffDay(focusUser, dateStr)}
+                          onClick={() => !isSundayCell && toggleOffDay(focusUser, dateStr)}
                           disabled={blocked}
                           title={
-                            blockedByOther
-                              ? `${othersOff.map(getUserNameById).join(', ')} libur di hari ini`
-                              : blockedByDow
-                                ? `Hari tetap libur adalah ${HARI_FULL[lockedDow]}, tidak bisa pilih ${HARI_FULL[thisDow]}`
-                                : ''
+                            isSundayCell
+                              ? 'Minggu — tidak bisa libur'
+                              : blockedByOther
+                                ? `${othersOff.map(getUserNameById).join(', ')} libur di hari ini`
+                                : blockedByDow
+                                  ? `Hari tetap libur adalah ${HARI_FULL[lockedDow]}, tidak bisa pilih ${HARI_FULL[thisDow]}`
+                                  : ''
                           }
                           className={`
                             min-h-[44px] p-1 text-sm font-medium transition flex flex-col items-center justify-center gap-0.5
                             border-t border-l border-gray-100 dark:border-gray-700
-                            ${off ? 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 hover:bg-red-200' : ''}
-                            ${blocked ? 'bg-gray-100 dark:bg-gray-700/50 text-gray-300 dark:text-gray-600 cursor-not-allowed' : ''}
+                            ${isSundayCell ? 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-600 cursor-not-allowed' : ''}
+                            ${!isSundayCell && off ? 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 hover:bg-red-200' : ''}
+                            ${!isSundayCell && blocked ? 'bg-gray-100 dark:bg-gray-700/50 text-gray-300 dark:text-gray-600 cursor-not-allowed' : ''}
                             ${!off && !blocked ? 'hover:bg-blue-50 dark:hover:bg-blue-900/20 text-gray-700 dark:text-gray-200' : ''}
                             ${isToday ? 'ring-2 ring-inset ring-blue-500' : ''}
                           `}
                         >
                           <span>{day}</span>
-                          {off && <span className="text-xs leading-none">🏖️</span>}
-                          {blocked && <span className="text-[10px] leading-none opacity-50">🔒</span>}
+                          {isSundayCell && <span className="text-[10px] leading-none">🚫</span>}
+                          {!isSundayCell && off && <span className="text-xs leading-none">🏖️</span>}
+                          {!isSundayCell && blocked && <span className="text-[10px] leading-none opacity-50">🔒</span>}
                         </button>
                       );
                     })}
@@ -430,20 +440,30 @@ export default function ManualOffDayPanel({ roster }) {
                       {dates.map((dateStr) => {
                         const day = parseInt(dateStr.split('-')[2]);
                         const dow = new Date(dateStr).getUTCDay();
-                        const isWeekend = dow === 0 || dow === 6;
+                        const isSunday = dow === 0;
+                        const isSaturday = dow === 6;
+                        const isWeekend = isSunday || isSaturday;
                         const occupiedBy = whoIsOffOn(offDays, dateStr);
+                        const occupiedNames = occupiedBy.map(getUserNameById);
                         return (
                           <th
                             key={dateStr}
-                            className={`px-1 py-1 text-center min-w-[30px] select-none
-                              ${isWeekend ? 'bg-amber-50 dark:bg-amber-900/10 text-amber-700 dark:text-amber-400' : 'text-gray-500 dark:text-gray-400'}
-                              ${occupiedBy.length > 0 ? 'bg-red-50 dark:bg-red-900/10' : ''}
+                            className={`px-1 py-1 text-center min-w-[36px] select-none
+                              ${isSunday ? 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-600' : ''}
+                              ${isSaturday && !isSunday ? 'bg-amber-50 dark:bg-amber-900/10 text-amber-700 dark:text-amber-400' : ''}
+                              ${!isWeekend ? 'text-gray-500 dark:text-gray-400' : ''}
+                              ${occupiedBy.length > 0 && !isSunday ? 'bg-red-50 dark:bg-red-900/10' : ''}
                             `}
-                            title={occupiedBy.length > 0 ? `Libur: ${occupiedBy.map(getUserNameById).join(', ')}` : `${dateStr}`}
+                            title={isSunday ? 'Minggu — tidak bisa libur' : occupiedBy.length > 0 ? `Libur: ${occupiedNames.join(', ')}` : dateStr}
                           >
                             <div className="font-medium">{day}</div>
                             <div className="text-[10px]">{HARI[dow]}</div>
-                            {occupiedBy.length > 0 && <div className="text-[9px] text-red-400">●</div>}
+                            {isSunday && <div className="text-[9px] opacity-50">🚫</div>}
+                            {occupiedBy.length > 0 && !isSunday && (
+                              <div className="text-[9px] text-red-500 dark:text-red-400 leading-tight font-medium truncate max-w-[32px]" title={occupiedNames.join(', ')}>
+                                {occupiedNames.map(n => n.split(' ')[0]).join(',')}
+                              </div>
+                            )}
                           </th>
                         );
                       })}
@@ -477,30 +497,36 @@ export default function ManualOffDayPanel({ roster }) {
                           {dates.map((dateStr) => {
                             const off = isOff(r.userId, dateStr);
                             const dow = new Date(dateStr).getUTCDay();
-                            const isWeekend = dow === 0 || dow === 6;
+                            const isSunday = dow === 0;
+                            const isSaturday = dow === 6;
                             const othersOff = whoIsOffOn(offDays, dateStr).filter((id) => id !== r.userId);
                             const blockedByOther = !off && othersOff.length > 0;
                             const blockedByDow = !off && lockedDow !== null && lockedDow !== dow;
-                            const blocked = blockedByOther || blockedByDow;
+                            const blocked = isSunday || blockedByOther || blockedByDow;
                             return (
                               <td
                                 key={dateStr}
                                 className={`px-1 py-2 text-center select-none
-                                  ${isWeekend && !off && !blocked ? 'bg-amber-50/50 dark:bg-amber-900/5' : ''}
+                                  ${isSunday ? 'bg-gray-200 dark:bg-gray-700 cursor-not-allowed' : ''}
+                                  ${isSaturday && !off && !blocked ? 'bg-amber-50/50 dark:bg-amber-900/5' : ''}
                                   ${off ? 'bg-red-100 dark:bg-red-900/30 cursor-pointer' : ''}
-                                  ${blocked ? 'bg-gray-100 dark:bg-gray-700/40 cursor-not-allowed' : ''}
+                                  ${!isSunday && blocked ? 'bg-gray-100 dark:bg-gray-700/40 cursor-not-allowed' : ''}
                                   ${!off && !blocked ? 'cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900/10' : ''}
                                 `}
                                 onClick={() => !blocked && toggleOffDay(r.userId, dateStr)}
                                 title={
-                                  blockedByOther
-                                    ? `${othersOff.map(getUserNameById).join(', ')} sudah libur`
-                                    : blockedByDow
-                                      ? `Hari tetap libur ${getUserName(r)} adalah ${HARI_FULL[lockedDow]}`
-                                      : `${getUserName(r)} - ${dateStr}`
+                                  isSunday
+                                    ? 'Minggu — tidak bisa libur'
+                                    : blockedByOther
+                                      ? `${othersOff.map(getUserNameById).join(', ')} sudah libur`
+                                      : blockedByDow
+                                        ? `Hari tetap libur ${getUserName(r)} adalah ${HARI_FULL[lockedDow]}`
+                                        : `${getUserName(r)} - ${dateStr}`
                                 }
                               >
-                                {off ? (
+                                {isSunday ? (
+                                  <span className="text-gray-400 dark:text-gray-600 text-[10px]">🚫</span>
+                                ) : off ? (
                                   <span className="text-red-500 dark:text-red-400">✓</span>
                                 ) : blocked ? (
                                   <span className="text-gray-300 dark:text-gray-600 text-[10px]">🔒</span>
