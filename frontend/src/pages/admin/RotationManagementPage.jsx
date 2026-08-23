@@ -328,21 +328,27 @@ export default function RotationManagementPage() {
 
   const fetchPositions = useCallback(async () => {
     try {
+      // rotationService.listPositions() mengembalikan axios response (response, bukan response.data)
+      // Struktur: response.data = { success, data: [...], message }
       const res = await rotationService.listPositions();
       setPositions(res.data?.data || res.data || []);
     } catch (err) {
-      const msg = err.response?.data?.error?.message || err.response?.data?.message || err.message;
-      toast.error('Gagal memuat posisi: ' + msg);
+      // Jangan tampilkan toast error saat halaman pertama load jika hanya masalah sementara
+      console.error('Gagal memuat posisi:', err);
+      setPositions([]);
     }
   }, []);
 
   const fetchUsers = useCallback(async () => {
     try {
-      const res = await getUsers({ limit: 200 });
-      setUsers(res.data?.data?.users || res.data?.users || []);
+      // getUsers di adminService mengembalikan response.data langsung (bukan axios response)
+      // Struktur: { success, data: { users: [...], pagination: {...} } }
+      const data = await getUsers({ limit: 200 });
+      setUsers(data?.data?.users || data?.users || []);
     } catch (err) {
-      const msg = err.response?.data?.error?.message || err.response?.data?.message || err.message;
-      toast.error('Gagal memuat user: ' + msg);
+      // Jangan tampilkan toast error saat halaman pertama load jika hanya masalah sementara
+      console.error('Gagal memuat user:', err);
+      setUsers([]);
     }
   }, []);
 

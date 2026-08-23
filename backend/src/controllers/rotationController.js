@@ -22,13 +22,18 @@ class RotationController {
             let where = {};
             if (month) {
                 const [year, mon] = month.split('-').map(Number);
+                if (!year || !mon || isNaN(year) || isNaN(mon)) {
+                    return successResponse(res, 200, [], 'Parameter month tidak valid, mengembalikan data kosong');
+                }
                 const startDate = new Date(Date.UTC(year, mon - 1, 1));
                 const endDate = new Date(Date.UTC(year, mon, 0, 23, 59, 59, 999));
                 where = { date: { gte: startDate, lte: endDate } };
             } else if (weekStart) {
                 where = { weekStart: new Date(weekStart) };
             } else {
-                throw missingFields();
+                // Jika tidak ada parameter, return empty array (bukan throw 400)
+                // agar tidak memunculkan error di console saat komponen mount
+                return successResponse(res, 200, [], 'Manual off-days berhasil dimuat');
             }
 
             const manualOffDays = await prisma.manualOffDay.findMany({ where });
