@@ -81,11 +81,12 @@ export default function ManualOffDayPanel({ roster }) {
     return r ? getUserName(r) : `User ${userId}`;
   };
   const isOff = (userId, dateStr) => offDays.some((o) => o.userId === userId && o.date === dateStr);
+  const MAX_OFF_PER_MONTH = 4;
   const offCount = (userId) => offDays.filter((o) => o.userId === userId).length;
 
   /**
    * Toggle satu tanggal untuk satu pegawai.
-   * Aturan: max 1 pegawai libur per hari.
+   * Aturan: max 1 pegawai libur per hari, max 4 libur per bulan.
    */
   const toggleOffDay = (userId, dateStr) => {
     if (isOff(userId, dateStr)) {
@@ -98,6 +99,12 @@ export default function ManualOffDayPanel({ roster }) {
     if (othersOff.length > 0) {
       const names = othersOff.map(getUserNameById).join(', ');
       toast.error(`${names} sudah libur di tanggal ini. Hanya 1 pegawai boleh libur per hari.`);
+      return;
+    }
+    // Cek max 4 libur per bulan
+    if (offCount(userId) >= MAX_OFF_PER_MONTH) {
+      const name = getUserNameById(userId);
+      toast.error(`${name} sudah memiliki ${MAX_OFF_PER_MONTH} hari libur bulan ini. Batas maksimum tercapai.`);
       return;
     }
     setOffDays((prev) => [...prev, { userId, date: dateStr }]);
@@ -119,14 +126,19 @@ export default function ManualOffDayPanel({ roster }) {
       return;
     }
 
-    // Tambah libur, tapi skip tanggal yang sudah dipakai orang lain
+    // Tambah libur, tapi skip tanggal yang sudah dipakai orang lain atau melebihi kuota
+    const currentCount = offCount(userId);
+    const remaining = MAX_OFF_PER_MONTH - currentCount;
     const conflicts = [];
+    const quotaSkipped = [];
     const toAdd = [];
     targetDates.forEach((dateStr) => {
       if (isOff(userId, dateStr)) return; // sudah libur, skip
       const others = whoIsOffOn(offDays, dateStr).filter((id) => id !== userId);
       if (others.length > 0) {
         conflicts.push({ dateStr, names: others.map(getUserNameById).join(', ') });
+      } else if (toAdd.length >= remaining) {
+        quotaSkipped.push(dateStr);
       } else {
         toAdd.push({ userId, date: dateStr });
       }
@@ -135,14 +147,27 @@ export default function ManualOffDayPanel({ roster }) {
     if (toAdd.length > 0) {
       setOffDays((prev) => [...prev, ...toAdd]);
     }
+
+    const warnings = [];
     if (conflicts.length > 0) {
       const conflictDates = conflicts.map((c) => `${c.dateStr} (${c.names})`).join(', ');
-      toast(`⚠️ ${toAdd.length} hari ditambahkan. Dilewati ${conflicts.length} tanggal karena konflik: ${conflictDates}`, {
-        duration: 5000,
+      warnings.push(`${conflicts.length} konflik: ${conflictDates}`);
+    }
+    if (quotaSkipped.length > 0) {
+      const name = getUserNameById(userId);
+      warnings.push(`${quotaSkipped.length} dilewati karena ${name} sudah mencapai batas ${MAX_OFF_PER_MONTH}x/bulan`);
+    }
+
+    if (warnings.length > 0) {
+      toast(`⚠️ ${toAdd.length} hari ditambahkan. ${warnings.join('. ')}`, {
+        duration: 6000,
         icon: '⚠️',
       });
     } else if (toAdd.length > 0) {
       toast.success(`${toAdd.length} hari ${HARI_FULL[dow]} ditambahkan sebagai hari libur`);
+    } else if (remaining <= 0) {
+      const name = getUserNameById(userId);
+      toast.error(`${name} sudah mencapai batas maksimum ${MAX_OFF_PER_MONTH} hari libur bulan ini.`);
     }
   };
 
@@ -219,14 +244,24 @@ export default function ManualOffDayPanel({ roster }) {
           {/* ─── MODE: 1 pegawai — kalender + quick-assign ─── */}
           {focusUser ? (
             <div className="space-y-3">
-              {/* Info pegawai */}
+              {/* Info pegawai + kuota */}
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium text-gray-700 dark:text-gray-200">
                   {getUserName(displayRoster[0])}
                 </span>
-                <span className="text-xs text-gray-500 dark:text-gray-400">
-                  {offCount(focusUser)} hari libur
-                </span>
+                {(() => {
+                  const cnt = offCount(focusUser);
+                  const full = cnt >= MAX_OFF_PER_MONTH;
+                  return (
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                      full
+                        ? 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300'
+                        : 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300'
+                    }`}>
+                      {cnt}/{MAX_OFF_PER_MONTH} libur {full ? '(penuh)' : 'bulan ini'}
+                    </span>
+                  );
+                })()}
               </div>
 
               {/* Quick-assign per hari dalam seminggu */}
@@ -321,7 +356,7 @@ export default function ManualOffDayPanel({ roster }) {
                   <thead>
                     <tr className="bg-gray-50 dark:bg-gray-700/50">
                       <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300 sticky left-0 bg-gray-50 dark:bg-gray-700/50 z-10 min-w-[120px]">Pegawai</th>
-                      <th className="px-2 py-2 text-center font-medium text-gray-500 dark:text-gray-400 min-w-[40px]">Jml</th>
+                      <th className="px-2 py-2 text-center font-medium text-gray-500 dark:text-gray-400 min-w-[50px]">Libur<br/><span className="text-[9px] font-normal">maks {MAX_OFF_PER_MONTH}x</span></th>
                       {dates.map((dateStr) => {
                         const day = parseInt(dateStr.split('-')[2]);
                         const dow = new Date(dateStr).getUTCDay();
@@ -354,8 +389,12 @@ export default function ManualOffDayPanel({ roster }) {
                         >
                           {getUserName(r)}
                         </td>
-                        <td className="px-2 py-2 text-center text-gray-500 dark:text-gray-400 font-medium">
-                          {offCount(r.userId)}
+                        <td className={`px-2 py-2 text-center font-medium ${
+                          offCount(r.userId) >= MAX_OFF_PER_MONTH
+                            ? 'text-red-600 dark:text-red-400'
+                            : 'text-gray-500 dark:text-gray-400'
+                        }`}>
+                          {offCount(r.userId)}{offCount(r.userId) >= MAX_OFF_PER_MONTH ? '🔴' : ''}
                         </td>
                         {dates.map((dateStr) => {
                           const off = isOff(r.userId, dateStr);

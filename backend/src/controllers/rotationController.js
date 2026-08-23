@@ -45,6 +45,24 @@ class RotationController {
             if (!offDays) throw ErrorCodes.SCHEDULE_ERRORS.MISSING_REQUIRED_FIELDS;
             if (!month && !weekStart) throw ErrorCodes.SCHEDULE_ERRORS.MISSING_REQUIRED_FIELDS;
 
+            // Validate max 4 off-days per employee per month
+            const MAX_OFF_PER_MONTH = 4;
+            const countByUser = {};
+            for (const item of offDays) {
+                const uid = parseInt(item.userId);
+                countByUser[uid] = (countByUser[uid] || 0) + 1;
+            }
+            const violations = Object.entries(countByUser)
+                .filter(([, count]) => count > MAX_OFF_PER_MONTH)
+                .map(([uid, count]) => `User ID ${uid}: ${count} hari (maks ${MAX_OFF_PER_MONTH})`);
+            if (violations.length > 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Melebihi batas libur ${MAX_OFF_PER_MONTH}x per bulan: ${violations.join(', ')}`,
+                    code: 'VALIDATION_ERROR',
+                });
+            }
+
             // Helper: get Monday of the week containing a date
             const getMonday = (dateStr) => {
                 const d = new Date(dateStr);

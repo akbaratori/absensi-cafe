@@ -2,6 +2,7 @@ const cron = require('node-cron');
 const prisma = require('../utils/database');
 const { sendPushToUser } = require('../services/pushService');
 const auditService = require('../services/auditService');
+const rotationService = require('../services/rotationService');
 
 // WITA offset (UTC+8) in milliseconds
 const WITA_OFFSET_MS = 8 * 60 * 60 * 1000;
@@ -144,6 +145,43 @@ function initScheduler() {
     });
 
     console.log('[Scheduler] Rolling libur otomatis (bulanan) cron initialized');
+
+    // ROTASI SHIFT MINGGUAN: Setiap Senin jam 02:00 WITA, generate jadwal minggu ini untuk semua posisi aktif
+    cron.schedule('0 2 * * 1', async () => {
+        try {
+            const positions = await rotationService.listPositions();
+            if (!positions || positions.length === 0) {
+                console.log('[RotasiMingguan] Tidak ada posisi aktif, skip.');
+                return;
+            }
+
+            // Hitung weekStart = Senin hari ini (UTC)
+            const now = new Date();
+            now.setUTCHours(0, 0, 0, 0);
+            const day = now.getUTCDay();
+            const diff = day === 0 ? -6 : 1 - day;
+            now.setUTCDate(now.getUTCDate() + diff);
+            const weekStart = now.toISOString().split('T')[0];
+
+            let success = 0, failed = 0;
+            for (const pos of positions) {
+                try {
+                    await rotationService.generateWeek(pos.id, weekStart);
+                    success++;
+                } catch (err) {
+                    console.error(`[RotasiMingguan] Posisi ${pos.name} gagal: ${err.message}`);
+                    failed++;
+                }
+            }
+            console.log(`[RotasiMingguan] Selesai. ${success} posisi berhasil, ${failed} gagal. weekStart=${weekStart}`);
+        } catch (err) {
+            console.error('[RotasiMingguan] Cron error:', err.message);
+        }
+    }, {
+        timezone: 'Asia/Makassar',
+    });
+
+    console.log('[Scheduler] Rotasi shift mingguan (Senin 02:00 WITA) cron initialized');
 }
 
 module.exports = { initScheduler };
