@@ -143,11 +143,15 @@ function MonthCalendar({ month, understaffed, roster, users, positionId, onAssig
 }
 
 // ─── Backup Assign Modal ───────────────────────────────────────────────────────
+// Backend requires: { date, absentUserId, backupUserId, absentPositionId }
+// "issues" from generateMonth only contains { date, shiftNumber, missing } — no absentUserId
+// So we ask admin to pick: (1) who is absent from that shift's roster, (2) who will backup
 function BackupModal({ date, issues, roster, users, positionId, onClose, onSaved }) {
+  // Per shift: { absentUserId, backupUserId }
   const [assignments, setAssignments] = useState({});
   const [saving, setSaving] = useState(false);
 
-  const rosterIds = new Set((roster || []).map((r) => r.userId));
+  // Build name lookup
   const nameMap = {};
   for (const r of (roster || [])) {
     if (r.user) nameMap[r.userId] = getUserName(r.user);
@@ -155,26 +159,36 @@ function BackupModal({ date, issues, roster, users, positionId, onClose, onSaved
   for (const u of (users || [])) nameMap[u.id] = getUserName(u);
   const resolveName = (id) => nameMap[id] || `#${id}`;
 
-  // Off users on this date (from issues)
-  const offIds = new Set(issues.flatMap((i) => i.offUsers || []));
+  // Roster members per shift
+  const rosterByShift = (shiftNum) => (roster || []).filter((r) => (r.shift || 1) === shiftNum);
+  const rosterIdSet = new Set((roster || []).map((r) => r.userId));
 
-  // Candidates: all non-admin users not off on this date
-  const candidates = (users || []).filter(
-    (u) => u.role !== 'ADMIN' && !offIds.has(u.id)
-  );
+  // Candidates for backup: all non-admin users
+  const allCandidates = (users || []).filter((u) => u.role !== 'ADMIN');
+
+  const setField = (shiftNum, field, value) => {
+    setAssignments((prev) => ({
+      ...prev,
+      [shiftNum]: { ...(prev[shiftNum] || {}), [field]: value },
+    }));
+  };
 
   const handleSave = async () => {
-    const entries = Object.entries(assignments).filter(([, uid]) => uid);
-    if (!entries.length) return toast.error('Pilih pegawai backup terlebih dahulu');
+    const entries = Object.entries(assignments).filter(
+      ([, v]) => v?.absentUserId && v?.backupUserId
+    );
+    if (!entries.length) {
+      return toast.error('Lengkapi pilihan pegawai absen dan backup untuk minimal 1 shift');
+    }
     setSaving(true);
     try {
-      for (const [key, userId] of entries) {
-        const shiftNumber = parseInt(key.replace('shift', ''));
+      for (const [shiftNum, v] of entries) {
         await rotationService.createBackup({
           date,
-          userId: parseInt(userId),
-          positionId,
-          shiftNumber,
+          absentUserId: parseInt(v.absentUserId),
+          backupUserId: parseInt(v.backupUserId),
+          absentPositionId: positionId,
+          notes: `Backup shift ${shiftNum}`,
         });
       }
       toast.success('Backup berhasil disimpan');
@@ -187,11 +201,17 @@ function BackupModal({ date, issues, roster, users, positionId, onClose, onSaved
     }
   };
 
-  const fmt = (iso) => new Date(iso).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  const fmt = (iso) => {
+    // iso might be "YYYY-MM-DD" — parse as UTC to avoid timezone shift
+    const [y, mo, d] = iso.split('-').map(Number);
+    return new Date(Date.UTC(y, mo - 1, d)).toLocaleDateString('id-ID', {
+      weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC',
+    });
+  };
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-md">
+      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-lg max-h-[85vh] overflow-y-auto">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
           <div>
             <h2 className="font-semibold text-gray-800 dark:text-gray-100">Tugaskan Backup</h2>
@@ -200,32 +220,65 @@ function BackupModal({ date, issues, roster, users, positionId, onClose, onSaved
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl">✕</button>
         </div>
         <div className="px-5 py-4 space-y-4">
-          {issues.map((issue) => (
-            <div key={issue.shiftNumber} className="p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-red-700 dark:text-red-300">
-                  Shift {issue.shiftNumber} — Kurang {issue.missing} orang
-                </span>
-                {issue.offUsers?.length > 0 && (
-                  <span className="text-xs text-gray-500 dark:text-gray-400">
-                    Libur: {issue.offUsers.map(resolveName).join(', ')}
-                  </span>
-                )}
+          {issues.map((issue) => {
+            const shiftRoster = rosterByShift(issue.shiftNumber);
+            const cur = assignments[issue.shiftNumber] || {};
+            // Exclude selected absent user from backup candidates
+            const backupCandidates = allCandidates.filter((u) => String(u.id) !== String(cur.absentUserId));
+            return (
+              <div key={issue.shiftNumber} className="p-4 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 space-y-3">
+                <div className="text-sm font-semibold text-red-700 dark:text-red-300">
+                  Shift {issue.shiftNumber} — Kekurangan {issue.missing} orang
+                </div>
+
+                {/* Siapa yang absen */}
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">
+                    Siapa yang absen / libur?
+                  </label>
+                  {shiftRoster.length === 0 ? (
+                    <p className="text-xs text-gray-400 italic">Roster shift {issue.shiftNumber} kosong</p>
+                  ) : (
+                    <select
+                      value={cur.absentUserId || ''}
+                      onChange={(e) => setField(issue.shiftNumber, 'absentUserId', e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100"
+                    >
+                      <option value="">-- Pilih pegawai yang absen --</option>
+                      {shiftRoster.map((r) => (
+                        <option key={r.userId} value={r.userId}>
+                          {getUserName(r.user) || resolveName(r.userId)}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+
+                {/* Siapa yang backup */}
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">
+                    Siapa yang menggantikan (backup)?
+                  </label>
+                  <select
+                    value={cur.backupUserId || ''}
+                    onChange={(e) => setField(issue.shiftNumber, 'backupUserId', e.target.value)}
+                    disabled={!cur.absentUserId}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 disabled:opacity-50"
+                  >
+                    <option value="">-- Pilih pegawai backup --</option>
+                    {backupCandidates.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {getUserName(u)}{rosterIdSet.has(u.id) ? ' (roster)' : ' (luar posisi)'}
+                      </option>
+                    ))}
+                  </select>
+                  {!cur.absentUserId && (
+                    <p className="text-xs text-gray-400 mt-1">Pilih pegawai absen dulu</p>
+                  )}
+                </div>
               </div>
-              <select
-                value={assignments[`shift${issue.shiftNumber}`] || ''}
-                onChange={(e) => setAssignments({ ...assignments, [`shift${issue.shiftNumber}`]: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100"
-              >
-                <option value="">-- Pilih pegawai backup --</option>
-                {candidates.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {getUserName(u)}{rosterIds.has(u.id) ? ' (roster)' : ' (luar posisi)'}
-                  </option>
-                ))}
-              </select>
-            </div>
-          ))}
+            );
+          })}
         </div>
         <div className="flex justify-end gap-2 px-5 py-4 border-t border-gray-200 dark:border-gray-700">
           <button onClick={onClose} className="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg text-sm hover:bg-gray-200 dark:hover:bg-gray-600">
