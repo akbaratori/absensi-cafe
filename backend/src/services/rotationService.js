@@ -700,13 +700,14 @@ class RotationService {
     const year = parseInt(match[1], 10);
     const month = parseInt(match[2], 10) - 1;
 
-    // Collect all Mondays belonging to this month
+    // Collect all Mondays whose week OVERLAPS with this month.
+    // Start from the Monday of the week containing the 1st of the month,
+    // and include all Mondays until the week that contains the last day of the month.
     const mondays = [];
-    let cursor = new Date(Date.UTC(year, month, 1));
-    while (cursor.getUTCDay() !== 1) {
-      cursor.setUTCDate(cursor.getUTCDate() + 1);
-    }
-    while (cursor.getUTCMonth() === month) {
+    const firstDayOfMonth = new Date(Date.UTC(year, month, 1));
+    const lastDayOfMonth = new Date(Date.UTC(year, month + 1, 0)); // last day
+    let cursor = getMonday(firstDayOfMonth); // Monday of the week containing day 1
+    while (cursor <= lastDayOfMonth) {
       mondays.push(new Date(cursor));
       cursor.setUTCDate(cursor.getUTCDate() + 7);
     }
@@ -738,6 +739,8 @@ class RotationService {
 
       for (const date of weekDates) {
         const iso = toISO(date);
+        // Only flag understaffing for dates actually within the requested month
+        if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month) continue;
         const offUserIds = new Set();
         for (const [uid, set] of offMap.entries()) {
           if (set.has(iso)) offUserIds.add(uid);
