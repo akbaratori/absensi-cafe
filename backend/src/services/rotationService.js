@@ -555,13 +555,20 @@ class RotationService {
     });
     for (const r of offRequests) mark(toISO(r.offDate));
 
-    // 3. User.offDay (recurring weekly day-off index 0=Sun..6=Sat)
+    // 3. User.offDay (recurring weekly day-off index 1=Mon..6=Sat)
+    // Skip offDay=0 (Sunday) — Sunday is always a normal work day.
+    // The DB default is 0, so skipping it prevents users with unset offDay
+    // from being incorrectly marked as off every Sunday.
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { offDay: true },
     });
     for (const d of dates) {
-      if (user && user.offDay === d.getUTCDay()) mark(toISO(d));
+      const dow = d.getUTCDay();
+      // Only mark off if offDay is explicitly set to Mon-Sat (1-6) and matches
+      if (user && user.offDay >= 1 && user.offDay <= 6 && user.offDay === dow) {
+        mark(toISO(d));
+      }
     }
 
     // 4. PublicHoliday
@@ -647,7 +654,11 @@ class RotationService {
       mark(r.userId, toISO(r.offDate));
     }
 
-    // 3. User.offDay (recurring weekly day-off index: 0=Sun..6=Sat)
+    // 3. User.offDay (recurring weekly day-off index: 1=Mon..6=Sat)
+    // NOTE: offDay=0 (Sunday) is intentionally skipped — Sunday is always a regular
+    // work day per business rules. The DB schema uses Int @default(0), so users whose
+    // off-day has not been explicitly set would otherwise be incorrectly marked as
+    // off every Sunday. The ManualOffDayPanel UI also blocks Sunday selection.
     const users = await prisma.user.findMany({
       where: { id: { in: rosterUserIds } },
       select: { id: true, offDay: true },
@@ -655,8 +666,14 @@ class RotationService {
     const userOffDayMap = new Map(users.map((u) => [u.id, u.offDay]));
     for (const d of dates) {
       const dow = d.getUTCDay();
+      // Skip Sunday (dow=0): Sunday is a normal work day, not an off-day
+      if (dow === 0) continue;
       for (const uid of rosterUserIds) {
-        if (userOffDayMap.get(uid) === dow) mark(uid, toISO(d));
+        const userOffDay = userOffDayMap.get(uid);
+        // Only mark if user has an explicit off-day (1-6) matching this day
+        if (userOffDay && userOffDay >= 1 && userOffDay <= 6 && userOffDay === dow) {
+          mark(uid, toISO(d));
+        }
       }
     }
 
