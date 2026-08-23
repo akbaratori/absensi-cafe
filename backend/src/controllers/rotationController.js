@@ -49,6 +49,18 @@ class RotationController {
             if (!offDays) throw missingFields();
             if (!month && !weekStart) throw missingFields();
 
+            // Ambil semua userId unik untuk lookup nama
+            const allUids = [...new Set(offDays.map((item) => parseInt(item.userId)))];
+            const usersInDb = await prisma.user.findMany({
+                where: { id: { in: allUids } },
+                select: { id: true, fullName: true, username: true },
+            });
+            const nameMap = {};
+            for (const u of usersInDb) {
+                nameMap[u.id] = u.fullName || u.username || `#${u.id}`;
+            }
+            const userName = (uid) => nameMap[uid] || `#${uid}`;
+
             // Validate: each user must have all off-days on the same day-of-week within the month
             const userDowMap = {};
             for (const item of offDays) {
@@ -59,7 +71,7 @@ class RotationController {
                 } else if (userDowMap[uid] !== dow) {
                     return res.status(400).json({
                         success: false,
-                        message: `User ID ${uid} memiliki hari libur di hari yang berbeda dalam 1 bulan. Setiap pegawai harus libur di hari yang sama setiap minggunya.`,
+                        message: `${userName(uid)} memiliki hari libur di hari yang berbeda dalam 1 bulan. Setiap pegawai harus libur di hari yang sama setiap minggunya.`,
                         code: 'VALIDATION_ERROR',
                     });
                 }
@@ -74,7 +86,7 @@ class RotationController {
             }
             const violations = Object.entries(countByUser)
                 .filter(([, count]) => count > MAX_OFF_PER_MONTH)
-                .map(([uid, count]) => `User ID ${uid}: ${count} hari (maks ${MAX_OFF_PER_MONTH})`);
+                .map(([uid, count]) => `${userName(parseInt(uid))}: ${count} hari (maks ${MAX_OFF_PER_MONTH})`);
             if (violations.length > 0) {
                 return res.status(400).json({
                     success: false,
