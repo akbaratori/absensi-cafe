@@ -6,6 +6,9 @@ echo.
 
 cd backend
 
+echo Generating Prisma client...
+node node_modules\prisma\build\index.js generate --schema prisma\schema.prisma
+
 echo Starting backend server...
 start "Backend Server" cmd /k "npm run dev"
 

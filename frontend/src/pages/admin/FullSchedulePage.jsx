@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import rotationService from '../../services/rotationService';
 import BackupPanel from '../../components/admin/BackupPanel';
 
@@ -28,15 +28,22 @@ function toISO(date) {
 }
 
 /**
- * Untuk satu posisi + weekStart, ambil nama staff yang bertugas pada `dateISO` dan `shiftNum`.
- * WeeklySchedule hanya punya weekStart (bukan per-hari) — jadwal berlaku untuk semua 7 hari.
+ * Untuk satu posisi + weekStart, kembalikan daftar staff per shift DENGAN info off-day per tanggal.
+ * offDaySet: Set<"userId_YYYY-MM-DD"> — user yang libur pada tanggal tersebut.
+ *
+ * Returns: { working: [{name, userId}], offDay: [{name, userId}] }
  */
-function getUsersOnDay(schedule, dateISO, shiftNum) {
-  if (!schedule || !schedule.schedules?.length) return [];
-  return schedule.schedules
+function getUsersOnDayWithOffDay(schedule, dateISO, shiftNum, offDaySet) {
+  if (!schedule || !schedule.schedules?.length) return { working: [], offDay: [] };
+
+  const all = schedule.schedules
     .filter(s => s.shiftNumber === shiftNum)
-    .map(s => s.user?.fullName || `User #${s.userId}`)
-    .filter(Boolean);
+    .map(s => ({ name: s.user?.fullName || `User #${s.userId}`, userId: s.userId }));
+
+  const working = all.filter(u => !offDaySet.has(`${u.userId}_${dateISO}`));
+  const offDay = all.filter(u => offDaySet.has(`${u.userId}_${dateISO}`));
+
+  return { working, offDay };
 }
 
 export default function FullSchedulePage() {
@@ -48,13 +55,26 @@ export default function FullSchedulePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
+  // Manual off-days: Set<"userId_YYYY-MM-DD">
+  const [offDaySet, setOffDaySet] = useState(new Set());
+
   // Backup panel state
   const [backupDate, setBackupDate] = useState(null);
   const [showBackupPanel, setShowBackupPanel] = useState(false);
 
+  // Bulan dari weekStart (untuk fetch off-days)
+  const monthStr = useMemo(() => {
+    const d = new Date(`${weekStart}T00:00:00Z`);
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+  }, [weekStart]);
+
   useEffect(() => {
     fetchAll();
   }, [weekStart]);
+
+  useEffect(() => {
+    fetchOffDays();
+  }, [monthStr]);
 
   const fetchAll = async () => {
     setLoading(true);
@@ -66,6 +86,22 @@ export default function FullSchedulePage() {
       setError(err?.response?.data?.message || 'Gagal memuat jadwal');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchOffDays = async () => {
+    try {
+      const res = await rotationService.getManualOffDaysMonth(monthStr);
+      const raw = res.data?.data || [];
+      const set = new Set();
+      raw.forEach(item => {
+        const dateISO = new Date(item.date).toISOString().split('T')[0];
+        set.add(`${item.userId}_${dateISO}`);
+      });
+      setOffDaySet(set);
+    } catch {
+      // Non-critical — tampilkan jadwal meski off-day gagal dimuat
+      setOffDaySet(new Set());
     }
   };
 
@@ -216,21 +252,31 @@ export default function FullSchedulePage() {
                           Shift 1
                         </td>
                         {dateLabels.map((dl) => {
-                          const names = getUsersOnDay(schedule, dl.date, 1);
+                          const { working, offDay } = getUsersOnDayWithOffDay(schedule, dl.date, 1, offDaySet);
                           return (
                             <td
                               key={dl.date}
-                              className={`px-3 py-2 text-gray-600 dark:text-gray-300 ${
+                              className={`px-3 py-2 align-top ${
                                 dl.isToday ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''
                               }`}
                             >
-                              {names.length > 0 ? (
-                                <ul className="space-y-0.5">
-                                  {names.map((n, i) => (
-                                    <li key={i} className="whitespace-nowrap">{n}</li>
+                              {working.length > 0 && (
+                                <ul className="space-y-0.5 mb-1">
+                                  {working.map((u, i) => (
+                                    <li key={i} className="whitespace-nowrap text-gray-600 dark:text-gray-300">{u.name}</li>
                                   ))}
                                 </ul>
-                              ) : (
+                              )}
+                              {offDay.length > 0 && (
+                                <ul className="space-y-0.5">
+                                  {offDay.map((u, i) => (
+                                    <li key={i} className="whitespace-nowrap text-orange-500 dark:text-orange-400 text-xs line-through">
+                                      🏖️ {u.name}
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                              {working.length === 0 && offDay.length === 0 && (
                                 <span className="text-gray-400 text-xs">—</span>
                               )}
                             </td>
@@ -243,27 +289,67 @@ export default function FullSchedulePage() {
                           Shift 2
                         </td>
                         {dateLabels.map((dl) => {
-                          const names = getUsersOnDay(schedule, dl.date, 2);
+                          const { working, offDay } = getUsersOnDayWithOffDay(schedule, dl.date, 2, offDaySet);
                           return (
                             <td
                               key={dl.date}
-                              className={`px-3 py-2 text-gray-600 dark:text-gray-300 ${
+                              className={`px-3 py-2 align-top ${
                                 dl.isToday ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''
                               }`}
                             >
-                              {names.length > 0 ? (
-                                <ul className="space-y-0.5">
-                                  {names.map((n, i) => (
-                                    <li key={i} className="whitespace-nowrap">{n}</li>
+                              {working.length > 0 && (
+                                <ul className="space-y-0.5 mb-1">
+                                  {working.map((u, i) => (
+                                    <li key={i} className="whitespace-nowrap text-gray-600 dark:text-gray-300">{u.name}</li>
                                   ))}
                                 </ul>
-                              ) : (
+                              )}
+                              {offDay.length > 0 && (
+                                <ul className="space-y-0.5">
+                                  {offDay.map((u, i) => (
+                                    <li key={i} className="whitespace-nowrap text-orange-500 dark:text-orange-400 text-xs line-through">
+                                      🏖️ {u.name}
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                              {working.length === 0 && offDay.length === 0 && (
                                 <span className="text-gray-400 text-xs">—</span>
                               )}
                             </td>
                           );
                         })}
                       </tr>
+
+                      {/* Row: Libur hari ini (lintas shift) */}
+                      {weekDates.some(dateISO => {
+                        const allUsers = (schedule.schedules || []).map(s => s.userId);
+                        return allUsers.some(uid => offDaySet.has(`${uid}_${dateISO}`));
+                      }) && (
+                        <tr className="border-t border-orange-100 dark:border-orange-900/30 bg-orange-50/30 dark:bg-orange-900/10">
+                          <td className="px-3 py-2 font-medium text-orange-600 dark:text-orange-400 whitespace-nowrap text-xs">
+                            🏖️ Libur
+                          </td>
+                          {dateLabels.map((dl) => {
+                            const offUsers = (schedule.schedules || [])
+                              .filter(s => offDaySet.has(`${s.userId}_${dl.date}`))
+                              .map(s => s.user?.fullName || `User #${s.userId}`);
+                            return (
+                              <td key={dl.date} className={`px-3 py-2 text-xs ${dl.isToday ? 'bg-blue-50/30 dark:bg-blue-900/5' : ''}`}>
+                                {offUsers.length > 0 ? (
+                                  <ul className="space-y-0.5">
+                                    {offUsers.map((n, i) => (
+                                      <li key={i} className="text-orange-600 dark:text-orange-400 whitespace-nowrap">{n}</li>
+                                    ))}
+                                  </ul>
+                                ) : (
+                                  <span className="text-gray-300 dark:text-gray-700">—</span>
+                                )}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                 </div>
