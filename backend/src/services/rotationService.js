@@ -670,6 +670,19 @@ class RotationService {
       for (const iso of holidayDates) mark(uid, iso);
     }
 
+    // 5. ManualOffDay — admin-assigned off days (THIS IS THE KEY MISSING SOURCE)
+    const manualOffDays = await prisma.manualOffDay.findMany({
+      where: {
+        userId: { in: rosterUserIds },
+        date: { gte: minDate, lte: maxDate },
+      },
+      select: { userId: true, date: true },
+    });
+    for (const m of manualOffDays) {
+      const iso = toISO(m.date);
+      if (dateISOs.includes(iso)) mark(m.userId, iso);
+    }
+
     return offMap;
   }
 

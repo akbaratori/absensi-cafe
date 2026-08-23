@@ -1,7 +1,9 @@
 const rotationService = require('../services/rotationService');
 const prisma = require('../utils/database');
 const { successResponse } = require('../utils/response');
-const { ErrorCodes } = require('../utils/AppError');
+const { AppError } = require('../utils/AppError');
+
+const missingFields = () => new AppError('Field wajib tidak lengkap', 400, 'VALIDATION_ERROR');
 
 class RotationController {
     async listPositions(req, res, next) {
@@ -15,12 +17,10 @@ class RotationController {
 
     async getManualOffDays(req, res, next) {
         try {
-            // Support both month-based (YYYY-MM) and weekStart-based queries
             const { month, weekStart } = req.query;
 
             let where = {};
             if (month) {
-                // month = "YYYY-MM"
                 const [year, mon] = month.split('-').map(Number);
                 const startDate = new Date(Date.UTC(year, mon - 1, 1));
                 const endDate = new Date(Date.UTC(year, mon, 0, 23, 59, 59, 999));
@@ -28,7 +28,7 @@ class RotationController {
             } else if (weekStart) {
                 where = { weekStart: new Date(weekStart) };
             } else {
-                throw ErrorCodes.SCHEDULE_ERRORS.MISSING_REQUIRED_FIELDS;
+                throw missingFields();
             }
 
             const manualOffDays = await prisma.manualOffDay.findMany({ where });
@@ -40,10 +40,25 @@ class RotationController {
 
     async saveManualOffDays(req, res, next) {
         try {
-            // Support both month-based and weekStart-based saves
             const { month, weekStart, offDays } = req.body;
-            if (!offDays) throw ErrorCodes.SCHEDULE_ERRORS.MISSING_REQUIRED_FIELDS;
-            if (!month && !weekStart) throw ErrorCodes.SCHEDULE_ERRORS.MISSING_REQUIRED_FIELDS;
+            if (!offDays) throw missingFields();
+            if (!month && !weekStart) throw missingFields();
+
+            // Validate: each user must have all off-days on the same day-of-week within the month
+            const userDowMap = {};
+            for (const item of offDays) {
+                const uid = parseInt(item.userId);
+                const dow = new Date(item.date).getUTCDay();
+                if (userDowMap[uid] === undefined) {
+                    userDowMap[uid] = dow;
+                } else if (userDowMap[uid] !== dow) {
+                    return res.status(400).json({
+                        success: false,
+                        message: `User ID ${uid} memiliki hari libur di hari yang berbeda dalam 1 bulan. Setiap pegawai harus libur di hari yang sama setiap minggunya.`,
+                        code: 'VALIDATION_ERROR',
+                    });
+                }
+            }
 
             // Validate max 4 off-days per employee per month
             const MAX_OFF_PER_MONTH = 4;
@@ -63,7 +78,6 @@ class RotationController {
                 });
             }
 
-            // Helper: get Monday of the week containing a date
             const getMonday = (dateStr) => {
                 const d = new Date(dateStr);
                 d.setUTCHours(0, 0, 0, 0);
@@ -74,7 +88,6 @@ class RotationController {
             };
 
             if (month) {
-                // Delete all existing off-days for this month then recreate
                 const [year, mon] = month.split('-').map(Number);
                 const startDate = new Date(Date.UTC(year, mon - 1, 1));
                 const endDate = new Date(Date.UTC(year, mon, 0, 23, 59, 59, 999));
@@ -96,7 +109,6 @@ class RotationController {
                     }),
                 ]);
             } else {
-                // Legacy weekStart-based save
                 const weekStartDate = new Date(weekStart);
                 await prisma.$transaction([
                     prisma.manualOffDay.deleteMany({ where: { weekStart: weekStartDate } }),
@@ -119,7 +131,7 @@ class RotationController {
     async createPosition(req, res, next) {
         try {
             const { name, shift1Capacity, shift2Capacity } = req.body;
-            if (!name) throw ErrorCodes.SCHEDULE_ERRORS.MISSING_REQUIRED_FIELDS;
+            if (!name) throw missingFields();
             const position = await rotationService.createPosition({ name, shift1Capacity, shift2Capacity });
             return successResponse(res, 201, position, 'Posisi berhasil dibuat');
         } catch (err) {
@@ -161,7 +173,7 @@ class RotationController {
         try {
             const { roster, userIds } = req.body;
             const entries = Array.isArray(roster) ? roster : userIds;
-            if (!Array.isArray(entries)) throw ErrorCodes.SCHEDULE_ERRORS.MISSING_REQUIRED_FIELDS;
+            if (!Array.isArray(entries)) throw missingFields();
             const position = await rotationService.setRoster(parseInt(req.params.id), entries);
             return successResponse(res, 200, position, 'Roster berhasil diatur');
         } catch (err) {
@@ -172,7 +184,7 @@ class RotationController {
     async insertRosterMember(req, res, next) {
         try {
             const { userId, orderIndex } = req.body;
-            if (!userId) throw ErrorCodes.SCHEDULE_ERRORS.MISSING_REQUIRED_FIELDS;
+            if (!userId) throw missingFields();
             const result = await rotationService.insertRosterMember(
                 parseInt(req.params.id), parseInt(userId), orderIndex
             );
@@ -185,7 +197,7 @@ class RotationController {
     async removeRosterMember(req, res, next) {
         try {
             const { userId } = req.body;
-            if (!userId) throw ErrorCodes.SCHEDULE_ERRORS.MISSING_REQUIRED_FIELDS;
+            if (!userId) throw missingFields();
             const result = await rotationService.removeRosterMember(
                 parseInt(req.params.id), parseInt(userId)
             );
@@ -234,7 +246,7 @@ class RotationController {
     async generateMonth(req, res, next) {
         try {
             const { month } = req.body;
-            if (!month) throw ErrorCodes.SCHEDULE_ERRORS.MISSING_REQUIRED_FIELDS;
+            if (!month) throw missingFields();
             const result = await rotationService.generateMonth(parseInt(req.params.id), month);
             return successResponse(res, 200, result, 'Jadwal bulanan berhasil di-generate');
         } catch (err) {
@@ -245,7 +257,7 @@ class RotationController {
     async getAllSchedules(req, res, next) {
         try {
             const { weekStart } = req.query;
-            if (!weekStart) throw ErrorCodes.SCHEDULE_ERRORS.MISSING_REQUIRED_FIELDS;
+            if (!weekStart) throw missingFields();
 
             const positions = await rotationService.listPositions();
             const results = await Promise.all(
@@ -268,7 +280,7 @@ class RotationController {
         try {
             const userId = req.user.id;
             const { from, to } = req.query;
-            if (!from || !to) throw ErrorCodes.SCHEDULE_ERRORS.MISSING_REQUIRED_FIELDS;
+            if (!from || !to) throw missingFields();
             const result = await rotationService.getMySchedule(userId, from, to);
             return successResponse(res, 200, result, 'Jadwal karyawan berhasil dimuat');
         } catch (err) {

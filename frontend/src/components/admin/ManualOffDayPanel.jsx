@@ -46,6 +46,17 @@ function whoIsOffOn(offDays, dateStr) {
   return offDays.filter((o) => o.date === dateStr).map((o) => o.userId);
 }
 
+/**
+ * Dapatkan hari tetap (dow 0-6) yang sudah dikunci untuk userId ini di bulan ini.
+ * Jika belum ada libur sama sekali, return null (bebas pilih hari apa saja).
+ * Jika sudah ada, return dow pertama yang terdaftar.
+ */
+function getLockedDow(offDays, userId) {
+  const userOffDays = offDays.filter((o) => o.userId === userId);
+  if (userOffDays.length === 0) return null;
+  return new Date(userOffDays[0].date).getUTCDay();
+}
+
 export default function ManualOffDayPanel({ roster }) {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
@@ -86,7 +97,10 @@ export default function ManualOffDayPanel({ roster }) {
 
   /**
    * Toggle satu tanggal untuk satu pegawai.
-   * Aturan: max 1 pegawai libur per hari, max 4 libur per bulan.
+   * Aturan:
+   * 1. Max 1 pegawai libur per hari
+   * 2. Max 4 libur per bulan
+   * 3. Semua libur user dalam 1 bulan HARUS di hari yang sama (hari tetap)
    */
   const toggleOffDay = (userId, dateStr) => {
     if (isOff(userId, dateStr)) {
@@ -94,6 +108,19 @@ export default function ManualOffDayPanel({ roster }) {
       setOffDays((prev) => prev.filter((o) => !(o.userId === userId && o.date === dateStr)));
       return;
     }
+
+    // Cek aturan hari tetap: dow tanggal ini harus sama dengan dow libur yang sudah ada
+    const lockedDow = getLockedDow(offDays, userId);
+    const thisDow = new Date(dateStr).getUTCDay();
+    if (lockedDow !== null && lockedDow !== thisDow) {
+      const name = getUserNameById(userId);
+      toast.error(
+        `${name} sudah memiliki hari libur di hari ${HARI_FULL[lockedDow]}. ` +
+        `Dalam 1 bulan, pegawai hanya bisa libur di satu hari yang sama setiap minggunya.`
+      );
+      return;
+    }
+
     // Cek apakah sudah ada pegawai lain libur di hari ini
     const othersOff = whoIsOffOn(offDays, dateStr).filter((id) => id !== userId);
     if (othersOff.length > 0) {
@@ -101,18 +128,20 @@ export default function ManualOffDayPanel({ roster }) {
       toast.error(`${names} sudah libur di tanggal ini. Hanya 1 pegawai boleh libur per hari.`);
       return;
     }
+
     // Cek max 4 libur per bulan
     if (offCount(userId) >= MAX_OFF_PER_MONTH) {
       const name = getUserNameById(userId);
       toast.error(`${name} sudah memiliki ${MAX_OFF_PER_MONTH} hari libur bulan ini. Batas maksimum tercapai.`);
       return;
     }
+
     setOffDays((prev) => [...prev, { userId, date: dateStr }]);
   };
 
   /**
    * Bulk assign: set semua tanggal hari-dalam-minggu tertentu (dow 0-6) libur untuk userId.
-   * Cek konflik di setiap tanggal — skip tanggal yang sudah diisi pegawai lain.
+   * Aturan hari tetap: jika user sudah punya libur di dow lain, tolak seluruh operasi.
    */
   const applyDayOfWeek = (userId, dow, enable) => {
     const dates = getDatesInMonth(year, month);
@@ -122,6 +151,18 @@ export default function ManualOffDayPanel({ roster }) {
       // Hapus semua hari itu untuk user ini
       setOffDays((prev) =>
         prev.filter((o) => !(o.userId === userId && targetDates.includes(o.date)))
+      );
+      return;
+    }
+
+    // Cek aturan hari tetap terlebih dahulu
+    const lockedDow = getLockedDow(offDays, userId);
+    if (lockedDow !== null && lockedDow !== dow) {
+      const name = getUserNameById(userId);
+      toast.error(
+        `${name} sudah memiliki hari libur di hari ${HARI_FULL[lockedDow]}. ` +
+        `Tidak bisa menambah libur di hari ${HARI_FULL[dow]}. ` +
+        `Hapus dulu semua libur ${HARI_FULL[lockedDow]} jika ingin ganti hari.`
       );
       return;
     }
@@ -231,7 +272,7 @@ export default function ManualOffDayPanel({ roster }) {
         {fetching && <span className="text-xs text-gray-500 dark:text-gray-400">Memuat...</span>}
 
         <div className="ml-auto text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded px-2 py-1">
-          ⚠️ Maks. 1 pegawai libur per hari
+          ⚠️ 1 hari/pegawai per bulan (hari sama setiap minggu)
         </div>
       </div>
 
@@ -244,22 +285,30 @@ export default function ManualOffDayPanel({ roster }) {
           {/* ─── MODE: 1 pegawai — kalender + quick-assign ─── */}
           {focusUser ? (
             <div className="space-y-3">
-              {/* Info pegawai + kuota */}
-              <div className="flex items-center gap-2">
+              {/* Info pegawai + kuota + hari terkunci */}
+              <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm font-medium text-gray-700 dark:text-gray-200">
                   {getUserName(displayRoster[0])}
                 </span>
                 {(() => {
                   const cnt = offCount(focusUser);
                   const full = cnt >= MAX_OFF_PER_MONTH;
+                  const lockedDow = getLockedDow(offDays, focusUser);
                   return (
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                      full
-                        ? 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300'
-                        : 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300'
-                    }`}>
-                      {cnt}/{MAX_OFF_PER_MONTH} libur {full ? '(penuh)' : 'bulan ini'}
-                    </span>
+                    <>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                        full
+                          ? 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300'
+                          : 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300'
+                      }`}>
+                        {cnt}/{MAX_OFF_PER_MONTH} libur {full ? '(penuh)' : 'bulan ini'}
+                      </span>
+                      {lockedDow !== null && (
+                        <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">
+                          🔒 Hari tetap: {HARI_FULL[lockedDow]}
+                        </span>
+                      )}
+                    </>
                   );
                 })()}
               </div>
@@ -267,35 +316,45 @@ export default function ManualOffDayPanel({ roster }) {
               {/* Quick-assign per hari dalam seminggu */}
               <div className="p-3 bg-gray-50 dark:bg-gray-700/40 border border-gray-200 dark:border-gray-600 rounded-lg">
                 <p className="text-xs font-medium text-gray-600 dark:text-gray-300 mb-2">
-                  Atur cepat — centang hari untuk libur setiap minggu:
+                  Atur cepat — centang hari libur tetap per minggu:
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {HARI.map((h, dow) => {
                     const active = isDowFullyOn(focusUser, dow);
-                    // Hitung berapa tanggal hari itu ada di bulan ini
+                    const lockedDow = getLockedDow(offDays, focusUser);
+                    // Hari ini dikunci untuk user lain jika semua tanggal dow tsb sudah ada yg libur
+                    const isLockedForUser = lockedDow !== null && lockedDow !== dow;
                     const count = dates.filter((d) => new Date(d).getUTCDay() === dow).length;
                     return (
                       <button
                         key={dow}
                         onClick={() => applyDayOfWeek(focusUser, dow, !active)}
+                        disabled={isLockedForUser}
                         className={`
                           flex flex-col items-center px-3 py-2 rounded-lg border text-xs font-medium transition select-none
                           ${active
                             ? 'bg-red-100 dark:bg-red-900/40 border-red-300 dark:border-red-700 text-red-700 dark:text-red-300'
-                            : 'bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:border-blue-400'
+                            : isLockedForUser
+                              ? 'bg-gray-100 dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-gray-300 dark:text-gray-600 cursor-not-allowed opacity-50'
+                              : 'bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:border-blue-400'
                           }
                         `}
-                        title={`${active ? 'Hapus' : 'Tandai'} semua ${HARI_FULL[dow]} sebagai libur (${count} tanggal)`}
+                        title={
+                          isLockedForUser
+                            ? `Pegawai ini sudah terkunci di hari ${HARI_FULL[lockedDow]}`
+                            : `${active ? 'Hapus' : 'Tandai'} semua ${HARI_FULL[dow]} sebagai libur (${count} tanggal)`
+                        }
                       >
                         <span>{h}</span>
                         <span className="text-[10px] opacity-60">×{count}</span>
                         {active && <span className="text-[10px] leading-none">🏖️</span>}
+                        {isLockedForUser && <span className="text-[10px] leading-none">🔒</span>}
                       </button>
                     );
                   })}
                 </div>
                 <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1.5">
-                  Merah = semua {'{hari}'} di bulan ini sudah libur. Klik untuk toggle.
+                  Merah = semua hari ini sudah libur. 🔒 = tidak bisa dipilih (hari berbeda dari hari tetap).
                 </p>
               </div>
 
@@ -314,15 +373,25 @@ export default function ManualOffDayPanel({ roster }) {
                       const day = parseInt(dateStr.split('-')[2]);
                       const today = new Date().toISOString().split('T')[0];
                       const isToday = dateStr === today;
+                      const thisDow = new Date(dateStr).getUTCDay();
+                      const lockedDow = getLockedDow(offDays, focusUser);
                       // Siapa pegawai lain yang libur di hari ini?
                       const othersOff = whoIsOffOn(offDays, dateStr).filter((id) => id !== focusUser);
-                      const blocked = !off && othersOff.length > 0;
+                      const blockedByOther = !off && othersOff.length > 0;
+                      const blockedByDow = !off && lockedDow !== null && lockedDow !== thisDow;
+                      const blocked = blockedByOther || blockedByDow;
                       return (
                         <button
                           key={di}
                           onClick={() => toggleOffDay(focusUser, dateStr)}
                           disabled={blocked}
-                          title={blocked ? `${othersOff.map(getUserNameById).join(', ')} libur di hari ini` : ''}
+                          title={
+                            blockedByOther
+                              ? `${othersOff.map(getUserNameById).join(', ')} libur di hari ini`
+                              : blockedByDow
+                                ? `Hari tetap libur adalah ${HARI_FULL[lockedDow]}, tidak bisa pilih ${HARI_FULL[thisDow]}`
+                                : ''
+                          }
                           className={`
                             min-h-[44px] p-1 text-sm font-medium transition flex flex-col items-center justify-center gap-0.5
                             border-t border-l border-gray-100 dark:border-gray-700
@@ -342,7 +411,7 @@ export default function ManualOffDayPanel({ roster }) {
                 ))}
               </div>
               <p className="text-xs text-gray-400">
-                Klik tanggal untuk toggle. 🔒 = sudah dipakai pegawai lain.
+                Klik tanggal untuk toggle. 🔒 = tidak tersedia (pegawai lain / hari berbeda dari hari tetap).
               </p>
             </div>
           ) : (
@@ -356,6 +425,7 @@ export default function ManualOffDayPanel({ roster }) {
                   <thead>
                     <tr className="bg-gray-50 dark:bg-gray-700/50">
                       <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300 sticky left-0 bg-gray-50 dark:bg-gray-700/50 z-10 min-w-[120px]">Pegawai</th>
+                      <th className="px-2 py-2 text-center font-medium text-gray-500 dark:text-gray-400 min-w-[60px]">Hari<br/><span className="text-[9px] font-normal">tetap</span></th>
                       <th className="px-2 py-2 text-center font-medium text-gray-500 dark:text-gray-400 min-w-[50px]">Libur<br/><span className="text-[9px] font-normal">maks {MAX_OFF_PER_MONTH}x</span></th>
                       {dates.map((dateStr) => {
                         const day = parseInt(dateStr.split('-')[2]);
@@ -380,57 +450,74 @@ export default function ManualOffDayPanel({ roster }) {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                    {displayRoster.map((r) => (
-                      <tr key={r.userId} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
-                        <td
-                          className="px-3 py-2 font-medium text-gray-700 dark:text-gray-200 sticky left-0 bg-white dark:bg-gray-800 z-10 cursor-pointer hover:text-blue-600 dark:hover:text-blue-400"
-                          onClick={() => setFocusUser(r.userId)}
-                          title="Klik untuk tampilan kalender + atur cepat"
-                        >
-                          {getUserName(r)}
-                        </td>
-                        <td className={`px-2 py-2 text-center font-medium ${
-                          offCount(r.userId) >= MAX_OFF_PER_MONTH
-                            ? 'text-red-600 dark:text-red-400'
-                            : 'text-gray-500 dark:text-gray-400'
-                        }`}>
-                          {offCount(r.userId)}{offCount(r.userId) >= MAX_OFF_PER_MONTH ? '🔴' : ''}
-                        </td>
-                        {dates.map((dateStr) => {
-                          const off = isOff(r.userId, dateStr);
-                          const dow = new Date(dateStr).getUTCDay();
-                          const isWeekend = dow === 0 || dow === 6;
-                          const othersOff = whoIsOffOn(offDays, dateStr).filter((id) => id !== r.userId);
-                          const blocked = !off && othersOff.length > 0;
-                          return (
-                            <td
-                              key={dateStr}
-                              className={`px-1 py-2 text-center select-none
-                                ${isWeekend && !off && !blocked ? 'bg-amber-50/50 dark:bg-amber-900/5' : ''}
-                                ${off ? 'bg-red-100 dark:bg-red-900/30 cursor-pointer' : ''}
-                                ${blocked ? 'bg-gray-100 dark:bg-gray-700/40 cursor-not-allowed' : ''}
-                                ${!off && !blocked ? 'cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900/10' : ''}
-                              `}
-                              onClick={() => !blocked && toggleOffDay(r.userId, dateStr)}
-                              title={blocked ? `${othersOff.map(getUserNameById).join(', ')} sudah libur` : `${getUserName(r)} - ${dateStr}`}
-                            >
-                              {off ? (
-                                <span className="text-red-500 dark:text-red-400">✓</span>
-                              ) : blocked ? (
-                                <span className="text-gray-300 dark:text-gray-600 text-[10px]">🔒</span>
-                              ) : (
-                                <span className="text-gray-200 dark:text-gray-700">·</span>
-                              )}
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
+                    {displayRoster.map((r) => {
+                      const lockedDow = getLockedDow(offDays, r.userId);
+                      return (
+                        <tr key={r.userId} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
+                          <td
+                            className="px-3 py-2 font-medium text-gray-700 dark:text-gray-200 sticky left-0 bg-white dark:bg-gray-800 z-10 cursor-pointer hover:text-blue-600 dark:hover:text-blue-400"
+                            onClick={() => setFocusUser(r.userId)}
+                            title="Klik untuk tampilan kalender + atur cepat"
+                          >
+                            {getUserName(r)}
+                          </td>
+                          <td className="px-2 py-2 text-center text-gray-500 dark:text-gray-400">
+                            {lockedDow !== null
+                              ? <span className="text-blue-600 dark:text-blue-400 font-medium">{HARI[lockedDow]}</span>
+                              : <span className="text-gray-300 dark:text-gray-600">–</span>
+                            }
+                          </td>
+                          <td className={`px-2 py-2 text-center font-medium ${
+                            offCount(r.userId) >= MAX_OFF_PER_MONTH
+                              ? 'text-red-600 dark:text-red-400'
+                              : 'text-gray-500 dark:text-gray-400'
+                          }`}>
+                            {offCount(r.userId)}{offCount(r.userId) >= MAX_OFF_PER_MONTH ? '🔴' : ''}
+                          </td>
+                          {dates.map((dateStr) => {
+                            const off = isOff(r.userId, dateStr);
+                            const dow = new Date(dateStr).getUTCDay();
+                            const isWeekend = dow === 0 || dow === 6;
+                            const othersOff = whoIsOffOn(offDays, dateStr).filter((id) => id !== r.userId);
+                            const blockedByOther = !off && othersOff.length > 0;
+                            const blockedByDow = !off && lockedDow !== null && lockedDow !== dow;
+                            const blocked = blockedByOther || blockedByDow;
+                            return (
+                              <td
+                                key={dateStr}
+                                className={`px-1 py-2 text-center select-none
+                                  ${isWeekend && !off && !blocked ? 'bg-amber-50/50 dark:bg-amber-900/5' : ''}
+                                  ${off ? 'bg-red-100 dark:bg-red-900/30 cursor-pointer' : ''}
+                                  ${blocked ? 'bg-gray-100 dark:bg-gray-700/40 cursor-not-allowed' : ''}
+                                  ${!off && !blocked ? 'cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900/10' : ''}
+                                `}
+                                onClick={() => !blocked && toggleOffDay(r.userId, dateStr)}
+                                title={
+                                  blockedByOther
+                                    ? `${othersOff.map(getUserNameById).join(', ')} sudah libur`
+                                    : blockedByDow
+                                      ? `Hari tetap libur ${getUserName(r)} adalah ${HARI_FULL[lockedDow]}`
+                                      : `${getUserName(r)} - ${dateStr}`
+                                }
+                              >
+                                {off ? (
+                                  <span className="text-red-500 dark:text-red-400">✓</span>
+                                ) : blocked ? (
+                                  <span className="text-gray-300 dark:text-gray-600 text-[10px]">🔒</span>
+                                ) : (
+                                  <span className="text-gray-200 dark:text-gray-700">·</span>
+                                )}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
               <p className="text-xs text-gray-400 mt-2">
-                🔒 = tanggal sudah dipakai pegawai lain. Klik nama pegawai untuk atur cepat per hari.
+                🔒 = tidak tersedia (dipakai pegawai lain / hari berbeda dari hari tetap). Klik nama pegawai untuk atur cepat.
               </p>
             </div>
           )}
@@ -443,7 +530,8 @@ export default function ManualOffDayPanel({ roster }) {
                 <span className="ml-2 text-blue-500 dark:text-blue-400">
                   · {roster.map((r) => {
                     const c = offCount(r.userId);
-                    return c > 0 ? `${getUserName(r)}: ${c}` : null;
+                    const ldow = getLockedDow(offDays, r.userId);
+                    return c > 0 ? `${getUserName(r)}: ${c}x ${ldow !== null ? HARI_FULL[ldow] : ''}` : null;
                   }).filter(Boolean).join(', ')}
                 </span>
               )}
