@@ -396,9 +396,19 @@ const MySchedulePage = () => {
                                                 {/* Position Badge */}
                                                 {schedule.positionName && (
                                                     <div className="flex flex-col gap-1 mt-1">
-                                                        <div className="w-full text-[10px] leading-tight font-bold text-blue-700 bg-blue-50 dark:text-blue-300 dark:bg-blue-900/30 px-1.5 py-1 rounded border border-blue-100 dark:border-blue-800 text-center whitespace-normal break-words">
+                                                        {schedule.isBackup && (
+                                                            <div className="w-full text-[10px] leading-tight font-bold text-amber-700 bg-amber-50 dark:text-amber-300 dark:bg-amber-900/30 px-1.5 py-1 rounded border border-amber-200 dark:border-amber-700 text-center">
+                                                                🔄 Backup
+                                                            </div>
+                                                        )}
+                                                        <div className={"w-full text-[10px] leading-tight font-bold px-1.5 py-1 rounded border text-center whitespace-normal break-words " + (schedule.isBackup ? "text-amber-800 bg-amber-100 dark:text-amber-200 dark:bg-amber-900/40 border-amber-300 dark:border-amber-600" : "text-blue-700 bg-blue-50 dark:text-blue-300 dark:bg-blue-900/30 border-blue-100 dark:border-blue-800")}>
                                                             <span>{schedule.positionName}</span>
                                                         </div>
+                                                        {schedule.isBackup && schedule.originalPositionName && (
+                                                            <div className="w-full text-[10px] text-gray-400 dark:text-gray-500 text-center italic">
+                                                                Asli: {schedule.originalPositionName}
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 )}
 
@@ -455,10 +465,20 @@ const MySchedulePage = () => {
 
                                                 {schedule.positionName && (
                                                     <div className="mt-1 flex flex-wrap gap-1">
-                                                        <div className="inline-flex items-center gap-2 text-xs font-medium text-purple-700 bg-purple-50 dark:text-purple-300 dark:bg-purple-900/20 px-2 py-1 rounded border border-purple-100 dark:border-purple-800">
+                                                        {schedule.isBackup && (
+                                                            <div className="inline-flex items-center gap-1 text-xs font-bold text-amber-700 bg-amber-50 dark:text-amber-300 dark:bg-amber-900/30 px-2 py-1 rounded border border-amber-200 dark:border-amber-700">
+                                                                🔄 Backup
+                                                            </div>
+                                                        )}
+                                                        <div className={"inline-flex items-center gap-2 text-xs font-medium px-2 py-1 rounded border " + (schedule.isBackup ? "text-amber-800 bg-amber-100 dark:text-amber-200 dark:bg-amber-900/40 border-amber-300 dark:border-amber-600" : "text-purple-700 bg-purple-50 dark:text-purple-300 dark:bg-purple-900/20 border-purple-100 dark:border-purple-800")}>
                                                             <ChefHat className="w-3 h-3" />
                                                             <span>{schedule.positionName}</span>
                                                         </div>
+                                                        {schedule.isBackup && schedule.originalPositionName && (
+                                                            <div className="text-xs text-gray-400 dark:text-gray-500 italic w-full">
+                                                                Asli: {schedule.originalPositionName}
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 )}
                                             </div>

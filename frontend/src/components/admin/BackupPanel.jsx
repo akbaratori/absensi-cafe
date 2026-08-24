@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import rotationService from '../../services/rotationService';
 
@@ -113,11 +113,15 @@ export default function BackupPanel({ date, positions = [], onClose }) {
       toast.success('Backup berhasil ditambahkan');
       await fetchBackups();
 
-      // Cek apakah perlu backup chain
+      // Cek apakah perlu backup chain - pakai currentPositionId bukan name-match
+      // supaya tidak gagal karena perbedaan huruf besar/kecil atau typo nama posisi
       const chosen = candidates.find(c => c.id === parseInt(backupUserId));
-      const origin = positions.find(p => p.name === chosen?.currentPosition);
+      const originPositionId = chosen?.currentPositionId;
+      const origin = originPositionId
+        ? positions.find(p => p.id === originPositionId)
+        : null;
 
-      if (chosen?.currentPosition && origin && origin.id !== parseInt(selectedPositionId)) {
+      if (originPositionId && origin && origin.id !== parseInt(selectedPositionId)) {
         // Backup user punya posisi asal berbeda - masuk step 2
         const res = await rotationService.getBackupCandidates(date, origin.id);
         setChainInfo({

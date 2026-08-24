@@ -316,12 +316,16 @@ class BackupController {
         : [];
       const scheduleByUser = new Map();
       for (const s of otherSchedules) {
-        scheduleByUser.set(s.userId, s.position?.name || 'Posisi lain');
+        scheduleByUser.set(s.userId, {
+          name: s.position?.name || 'Posisi lain',
+          positionId: s.positionId,
+        });
       }
 
       const enriched = candidates.map(c => ({
         ...c,
-        currentPosition: scheduleByUser.get(c.id) || null,
+        currentPosition: scheduleByUser.get(c.id)?.name || null,
+        currentPositionId: scheduleByUser.get(c.id)?.positionId || null,
         isFromKitchen: c.department === 'KITCHEN',
       }));
 

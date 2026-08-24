@@ -588,15 +588,38 @@ class RotationService {
     });
     for (const m of manualOffDays) mark(toISO(m.date));
 
+    // 6. Backup assignments — if this user is acting as backup on a date,
+    //    override the displayed position with the backup position.
+    const backupAssignments = await prisma.backupAssignment.findMany({
+      where: {
+        backupUserId: userId,
+        date: { gte: from, lte: to },
+      },
+      include: { absentPosition: { select: { id: true, name: true } } },
+    });
+    // Map date ISO -> backup position info
+    const backupByDate = new Map();
+    for (const b of backupAssignments) {
+      backupByDate.set(toISO(b.date), {
+        positionName: b.absentPosition ? b.absentPosition.name : null,
+        positionId: b.absentPositionId,
+      });
+    }
+
     // Build final list
     return dateISOs.map((iso) => {
       const s = scheduleByDate.get(iso);
+      const backup = backupByDate.get(iso);
+      const originalPositionName = s && s.position ? s.position.name : null;
       return {
         date: iso,
         shiftNumber: s ? s.shiftNumber : null,
-        positionName: s && s.position ? s.position.name : null,
-        positionId: s ? s.positionId : null,
+        // If user is acting as backup today, show the backup position instead
+        positionName: backup ? backup.positionName : originalPositionName,
+        positionId: backup ? backup.positionId : (s ? s.positionId : null),
         isOffDay: offSet.has(iso),
+        isBackup: !!backup,
+        originalPositionName: backup ? originalPositionName : null,
       };
     });
   }
