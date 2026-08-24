@@ -11,11 +11,15 @@ if (!process.env.DATABASE_URL) {
 
 // Run pending migrations on cold start. prisma migrate deploy is idempotent —
 // it no-ops if all migrations are already applied — so this is safe every boot.
+// Use the locally-installed prisma binary — npx is not available in the Vercel
+// serverless sandbox (no home directory, no npm registry access at runtime).
 const { execSync } = require('child_process');
+const path = require('path');
+const prismaBin = path.join(__dirname, '..', 'backend', 'node_modules', '.bin', 'prisma');
+const schemaPath = path.join(__dirname, '..', 'backend', 'prisma', 'schema.prisma');
 try {
-  execSync('npx prisma migrate deploy --schema=./backend/prisma/schema.prisma', {
+  execSync(`"${prismaBin}" migrate deploy --schema="${schemaPath}"`, {
     stdio: 'inherit',
-    cwd: process.cwd(),
   });
 } catch (err) {
   // Log but don't crash the function — the app may still work if the DB is
