@@ -510,10 +510,13 @@ class RotationService {
     const dateISOs = dates.map((d) => toISO(d));
 
     // Weekly schedules covering the range (weekStart .. weekStart+7)
+    // Lower bound: weekStart >= from - 6 days, so a week starting just before
+    // `from` that still covers days within the range is not excluded.
+    const rangeStart = addDays(from, -6);
     const schedules = await prisma.weeklySchedule.findMany({
       where: {
         userId,
-        weekStart: { lte: to },
+        weekStart: { gte: rangeStart, lte: to },
       },
       include: { position: { select: { id: true, name: true } } },
     });
