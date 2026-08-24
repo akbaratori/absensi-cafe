@@ -310,7 +310,10 @@ const MySchedulePage = () => {
     const allDays = [...paddingDays, ...daysInMonth];
 
     const getScheduleForDay = (date) => {
-        return schedules.find(s => isSameDay(new Date(s.date), date));
+        // s.date is "YYYY-MM-DD" (UTC-produced). Appending T00:00:00 (no Z)
+        // makes the Date constructor treat it as local midnight, so isSameDay
+        // compares correctly regardless of the user's timezone offset.
+        return schedules.find(s => isSameDay(new Date(s.date + 'T00:00:00'), date));
     };
 
     return (
