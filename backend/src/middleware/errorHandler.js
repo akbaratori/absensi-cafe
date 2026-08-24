@@ -4,10 +4,16 @@ const { errorResponse } = require("../utils/response");
  * Global error handling middleware
  */
 const errorHandler = (err, req, res, next) => {
-  // Log error for debugging (in production, use proper logging service)
+  // Always log errors — visible in Vercel function logs regardless of NODE_ENV
+  console.error(`[ERROR] ${req.method} ${req.path}`, {
+    name: err.name,
+    code: err.code,
+    message: err.message,
+    stack: err.stack,
+  });
+
   if (process.env.NODE_ENV === "development") {
-    console.error("Error:", err);
-    // DEBUG: Write to file
+    // DEBUG: Write to file in dev
     const fs = require("fs");
     fs.appendFileSync("server_errors.log", `[${new Date().toISOString()}] ${err.stack}\n\n`);
   }
@@ -36,7 +42,7 @@ const errorHandler = (err, req, res, next) => {
         return errorResponse(res, 400, "INVALID_REFERENCE", "Invalid reference to related record");
 
       default:
-        return errorResponse(res, 500, "DATABASE_ERROR", "Database error occurred");
+        return errorResponse(res, 500, "DATABASE_ERROR", `Database error: ${err.message}`);
     }
   }
 
@@ -54,8 +60,8 @@ const errorHandler = (err, req, res, next) => {
     return errorResponse(res, 400, "VALIDATION_ERROR", err.message);
   }
 
-  // Generic server error
-  return errorResponse(res, 500, "INTERNAL_ERROR", process.env.NODE_ENV === "development" ? err.message : "An unexpected error occurred");
+  // Generic server error — always include message so Vercel logs are useful
+  return errorResponse(res, 500, "INTERNAL_ERROR", err.message || "An unexpected error occurred");
 };
 
 /**
