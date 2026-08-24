@@ -374,13 +374,14 @@ const DashboardPage = () => {
             </div>
           ) : (
             <>
-              {/* Backup duty banner */}
+              {/* Backup duty banner — shown above camera when user is covering for someone */}
               {todayData?.isBackup && (
                 <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-200 dark:border-blue-700 flex items-center gap-3">
                   <span className="text-2xl">🔄</span>
                   <div className="text-left">
                     <p className="text-sm font-semibold text-blue-800 dark:text-blue-200">
                       Kamu bertugas sebagai Backup hari ini
+                      {todayData?.backupPositionName ? ` — Posisi: ${todayData.backupPositionName}` : ''}
                     </p>
                     <p className="text-xs text-blue-600 dark:text-blue-400">
                       Silakan lakukan absensi masuk seperti biasa.
@@ -388,10 +389,7 @@ const DashboardPage = () => {
                   </div>
                 </div>
               )}
-            </>
-          )}
-          {!todayData?.isOffDay ? (
-            <>
+
               {/* Camera Section */}
               <div className="mb-6 flex flex-col items-center">
                 {!todayData?.clockOut && (todayData?.canClockIn || todayData?.canClockOut) ? (
