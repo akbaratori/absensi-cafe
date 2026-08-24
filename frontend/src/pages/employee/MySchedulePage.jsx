@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { getUserSchedule } from '../../services/scheduleService';
+import rotationService from '../../services/rotationService';
 import Card from '../../components/shared/Card';
 import Button from '../../components/shared/Button';
 import Badge from '../../components/shared/Badge';
@@ -279,11 +279,11 @@ const MySchedulePage = () => {
             const start = startOfMonth(currentDate);
             const end = endOfMonth(currentDate);
 
-            const response = await getUserSchedule(
-                user.id,
+            const response = await rotationService.getMySchedule(
                 format(start, 'yyyy-MM-dd'),
                 format(end, 'yyyy-MM-dd')
             );
+            // rotationService.getMySchedule returns { data: { data: [...] } }
             setSchedules(response.data.data || []);
         } catch (error) {
             console.error('Failed to fetch schedule:', error);
@@ -380,56 +380,25 @@ const MySchedulePage = () => {
                                                     <Coffee className="w-3 h-3" /> LIBUR
                                                 </div>
                                             </div>
-                                        ) : schedule.shift ? (
+                                        ) : schedule.shiftNumber ? (
                                             <div className="space-y-1.5">
                                                 {/* Shift Badge */}
-                                                <div className={`text-xs font-medium px-2 py-0.5 rounded text-center border ${schedule.shift.id === 1
+                                                <div className={`text-xs font-medium px-2 py-0.5 rounded text-center border ${schedule.shiftNumber === 1
                                                     ? 'bg-blue-50 text-blue-700 border-blue-100 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-800'
                                                     : 'bg-orange-50 text-orange-700 border-orange-100 dark:bg-orange-900/20 dark:text-orange-300 dark:border-orange-800'
                                                     }`}>
-                                                    {schedule.shift.name} {/* Pagi / Siang */}
+                                                    {schedule.shiftNumber === 1 ? 'Pagi' : 'Siang'}
                                                 </div>
 
-                                                {/* Kitchen Station (Full Display) */}
-                                                {/* Kitchen Station (Blue Badge) */}
-                                                {schedule.kitchenStation && (
+                                                {/* Position Badge */}
+                                                {schedule.positionName && (
                                                     <div className="flex flex-col gap-1 mt-1">
                                                         <div className="w-full text-[10px] leading-tight font-bold text-blue-700 bg-blue-50 dark:text-blue-300 dark:bg-blue-900/30 px-1.5 py-1 rounded border border-blue-100 dark:border-blue-800 text-center whitespace-normal break-words">
-                                                            {/* Display only Role Code & Name (A - Main Cook) */}
-                                                            <span>{schedule.kitchenStation.split(' + ')[0]}</span>
-
-                                                            {/* LOCKED SLOT INDICATOR for Role C */}
-                                                            {schedule.kitchenStation.startsWith('C') && (
-                                                                <div className="mt-0.5 pt-0.5 border-t border-blue-200 dark:border-blue-700 w-full flex items-center justify-center gap-0.5 text-[8px] font-extrabold text-red-600 dark:text-red-400">
-                                                                    <Clock className="w-2 h-2" />
-                                                                    <span>LOCK 14:00</span>
-                                                                </div>
-                                                            )}
+                                                            <span>{schedule.positionName}</span>
                                                         </div>
-
-                                                        {/* Control Role (Green Badge - Max 1) */}
-                                                        {schedule.isInventoryController ? (
-                                                            <div className="text-[9px] font-bold text-green-700 bg-green-100 border border-green-200 px-1 py-0.5 rounded text-center leading-none mx-auto w-fit">
-                                                                PIC STOK (SENIN)
-                                                            </div>
-                                                        ) : schedule.isShiftPic ? (
-                                                            <div className="text-[9px] font-bold text-green-700 bg-green-100 border border-green-200 px-1 py-0.5 rounded text-center leading-none mx-auto w-fit">
-                                                                SHIFT PIC
-                                                            </div>
-                                                        ) : schedule.isSanitationLead ? (
-                                                            <div className="text-[9px] font-bold text-white bg-teal-600 border border-teal-700 px-1 py-0.5 rounded text-center leading-none mx-auto w-fit">
-                                                                SANITATION {schedule.shift.id === 1 ? 'OPEN' : 'CLOSE'} (PRIORITY C)
-                                                            </div>
-                                                        ) : null}
-
-                                                        {/* Dishwasher Badge for Role D & E */}
-                                                        {(schedule.kitchenStation.startsWith('D') || schedule.kitchenStation.startsWith('E')) && (
-                                                            <div className="text-[9px] font-bold text-gray-700 bg-gray-100 border border-gray-300 px-1 py-0.5 rounded text-center leading-none mx-auto w-fit">
-                                                                DISHWASHER
-                                                            </div>
-                                                        )}
                                                     </div>
                                                 )}
+
                                             </div>
                                         ) : (
                                             <div className="text-xs text-gray-400 text-center italic mt-4">
@@ -473,43 +442,20 @@ const MySchedulePage = () => {
                                             <span className="text-red-600 dark:text-red-400 font-bold flex items-center gap-1 mt-1">
                                                 <Coffee className="w-4 h-4" /> LIBUR KERJA
                                             </span>
-                                        ) : schedule?.shift ? (
+                                        ) : schedule?.shiftNumber ? (
                                             <div className="grid grid-cols-1 gap-1">
                                                 <div className="flex justify-between items-center">
-                                                    <p className="font-semibold text-gray-900 dark:text-white">{schedule.shift.name}</p>
-                                                    <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
-                                                        <Clock className="w-3 h-3" />
-                                                        {schedule.shift.startTime.slice(0, 5)} - {schedule.shift.endTime.slice(0, 5)}
+                                                    <p className="font-semibold text-gray-900 dark:text-white">
+                                                        {schedule.shiftNumber === 1 ? 'Shift Pagi' : 'Shift Siang'}
                                                     </p>
                                                 </div>
 
-                                                {schedule.kitchenStation && (
+                                                {schedule.positionName && (
                                                     <div className="mt-1 flex flex-wrap gap-1">
                                                         <div className="inline-flex items-center gap-2 text-xs font-medium text-purple-700 bg-purple-50 dark:text-purple-300 dark:bg-purple-900/20 px-2 py-1 rounded border border-purple-100 dark:border-purple-800">
                                                             <ChefHat className="w-3 h-3" />
-                                                            <span>{schedule.kitchenStation}</span>
+                                                            <span>{schedule.positionName}</span>
                                                         </div>
-
-                                                        {schedule.isInventoryController && (
-                                                            <span className="inline-block text-[9px] font-bold text-white bg-green-600 px-1.5 py-0.5 rounded">
-                                                                PIC STOK
-                                                            </span>
-                                                        )}
-                                                        {schedule.isShiftPic && (
-                                                            <span className="inline-block text-[9px] font-bold text-white bg-indigo-600 px-1.5 py-0.5 rounded">
-                                                                SHIFT PIC
-                                                            </span>
-                                                        )}
-                                                        {schedule.isSanitationLead && (
-                                                            <span className="inline-block text-[9px] font-bold text-white bg-teal-600 px-1.5 py-0.5 rounded">
-                                                                SANITATION (PRIORITY)
-                                                            </span>
-                                                        )}
-                                                        {(schedule.kitchenStation.startsWith('D') || schedule.kitchenStation.startsWith('E')) && (
-                                                            <span className="inline-block text-[9px] font-bold text-gray-700 bg-gray-200 px-1.5 py-0.5 rounded border border-gray-300">
-                                                                DISHWASHER
-                                                            </span>
-                                                        )}
                                                     </div>
                                                 )}
                                             </div>
