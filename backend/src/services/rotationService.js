@@ -595,13 +595,24 @@ class RotationService {
         backupUserId: userId,
         date: { gte: from, lte: to },
       },
-      include: { absentPosition: { select: { id: true, name: true } } },
+      select: { date: true, absentPositionId: true },
     });
+
+    // Resolve position names for backup assignments
+    const backupPositionIds = [...new Set(backupAssignments.map(b => b.absentPositionId))];
+    const backupPositions = backupPositionIds.length > 0
+      ? await prisma.position.findMany({
+          where: { id: { in: backupPositionIds } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const backupPosMap = new Map(backupPositions.map(p => [p.id, p.name]));
+
     // Map date ISO -> backup position info
     const backupByDate = new Map();
     for (const b of backupAssignments) {
       backupByDate.set(toISO(b.date), {
-        positionName: b.absentPosition ? b.absentPosition.name : null,
+        positionName: backupPosMap.get(b.absentPositionId) || null,
         positionId: b.absentPositionId,
       });
     }
