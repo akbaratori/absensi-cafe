@@ -214,6 +214,13 @@ class AttendanceService {
         if (todaySchedule) return todaySchedule.isOffDay;
         // Jika tidak ada jadwal dinamis, cek apakah user sudah clock-in (berarti bukan libur)
         if (record) return false;
+        // Cek backup assignment — jika user bertugas sebagai backup hari ini, dia bukan libur
+        const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+        const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999);
+        const backupToday = await prisma.backupAssignment.findFirst({
+          where: { backupUserId: userId, date: { gte: todayStart, lte: todayEnd } },
+        });
+        if (backupToday) return false;
         // Fallback ke pengaturan statis user
         return await offDayService.isOffDay(userId, new Date());
       })(),

@@ -383,15 +383,17 @@ const MySchedulePage = () => {
                                                     <Coffee className="w-3 h-3" /> LIBUR
                                                 </div>
                                             </div>
-                                        ) : schedule.shiftNumber ? (
+                                        ) : schedule.shiftNumber || schedule.isBackup ? (
                                             <div className="space-y-1.5">
-                                                {/* Shift Badge */}
+                                                {/* Shift Badge — tersembunyi kalau backup tanpa shiftNumber */}
+                                                {schedule.shiftNumber && (
                                                 <div className={`text-xs font-medium px-2 py-0.5 rounded text-center border ${schedule.shiftNumber === 1
                                                     ? 'bg-blue-50 text-blue-700 border-blue-100 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-800'
                                                     : 'bg-orange-50 text-orange-700 border-orange-100 dark:bg-orange-900/20 dark:text-orange-300 dark:border-orange-800'
                                                     }`}>
                                                     {schedule.shiftNumber === 1 ? 'Pagi' : 'Siang'}
                                                 </div>
+                                                )}
 
                                                 {/* Position Badge */}
                                                 {schedule.positionName && (
@@ -455,11 +457,11 @@ const MySchedulePage = () => {
                                             <span className="text-red-600 dark:text-red-400 font-bold flex items-center gap-1 mt-1">
                                                 <Coffee className="w-4 h-4" /> LIBUR KERJA
                                             </span>
-                                        ) : schedule?.shiftNumber ? (
+                                        ) : schedule?.shiftNumber || schedule?.isBackup ? (
                                             <div className="grid grid-cols-1 gap-1">
                                                 <div className="flex justify-between items-center">
                                                     <p className="font-semibold text-gray-900 dark:text-white">
-                                                        {schedule.shiftNumber === 1 ? 'Shift Pagi' : 'Shift Siang'}
+                                                        {schedule.shiftNumber === 1 ? 'Shift Pagi' : schedule.shiftNumber === 2 ? 'Shift Siang' : '🔄 Backup'}
                                                     </p>
                                                 </div>
 
