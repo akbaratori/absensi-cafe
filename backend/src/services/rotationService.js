@@ -496,9 +496,9 @@ class RotationService {
    * and ManualOffDay.
    * Returns [{ date, shiftNumber, positionName, isOffDay }] sorted by date.
    */
-  async getMySchedule(userId, fromISO, toISO) {
-    const from = new Date(`${fromISO}T00:00:00Z`);
-    const to = new Date(`${toISO}T00:00:00Z`);
+  async getMySchedule(userId, fromStr, toStr) {
+    const from = new Date(`${fromStr}T00:00:00Z`);
+    const to = new Date(`${toStr}T00:00:00Z`);
 
     // Build the list of dates in range
     const dates = [];
@@ -529,7 +529,7 @@ class RotationService {
         const day = new Date(ws);
         day.setUTCDate(day.getUTCDate() + i);
         const iso = toISO(day);
-        if (iso >= fromISO && iso <= toISO) {
+        if (iso >= fromStr && iso <= toStr) {
           scheduleByDate.set(iso, s);
         }
       }
