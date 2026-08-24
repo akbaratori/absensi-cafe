@@ -381,7 +381,9 @@ const DashboardPage = () => {
                   <div className="text-left">
                     <p className="text-sm font-semibold text-blue-800 dark:text-blue-200">
                       Kamu bertugas sebagai Backup hari ini
-                      {todayData?.backupPositionName ? ` — Posisi: ${todayData.backupPositionName}` : ''}
+                      {todayData?.backupPositionName && (
+                        <span> &mdash; Posisi: {todayData.backupPositionName}</span>
+                      )}
                     </p>
                     <p className="text-xs text-blue-600 dark:text-blue-400">
                       Silakan lakukan absensi masuk seperti biasa.
