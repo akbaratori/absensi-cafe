@@ -17,21 +17,30 @@ class AttendanceService {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    // UNIFIED OFF-DAY CHECK: UserSchedule is primary source of truth
+    // UNIFIED OFF-DAY CHECK: Backup assignment overrides schedule off-day
     const scheduleService = require('./scheduleService');
     const todaySchedule = await scheduleService.getTodaySchedule(userId);
 
-    if (todaySchedule && todaySchedule.isOffDay) {
-      // Schedule explicitly says off day — this is the definitive source
-      throw ErrorCodes.ATTENDANCE_ERRORS.OFF_DAY_WORK;
-    } else if (!todaySchedule) {
-      // No schedule exists — fallback to static offDayService (User.offDay + OffDayRequest)
-      const isOffDay = await offDayService.isOffDay(userId, today);
-      if (isOffDay) {
+    // Check backup assignment first — if user is on duty as backup today, never block clock-in
+    const clockInTodayStart = new Date(today); clockInTodayStart.setHours(0, 0, 0, 0);
+    const clockInTodayEnd = new Date(today); clockInTodayEnd.setHours(23, 59, 59, 999);
+    const backupTodayClockIn = await prisma.backupAssignment.findFirst({
+      where: { backupUserId: userId, date: { gte: clockInTodayStart, lte: clockInTodayEnd } },
+    });
+
+    if (!backupTodayClockIn) {
+      if (todaySchedule && todaySchedule.isOffDay) {
+        // Schedule explicitly says off day and no backup override — block clock-in
         throw ErrorCodes.ATTENDANCE_ERRORS.OFF_DAY_WORK;
+      } else if (!todaySchedule) {
+        // No schedule exists — fallback to static offDayService (User.offDay + OffDayRequest)
+        const isOffDay = await offDayService.isOffDay(userId, today);
+        if (isOffDay) {
+          throw ErrorCodes.ATTENDANCE_ERRORS.OFF_DAY_WORK;
+        }
       }
     }
-    // If todaySchedule exists and isOffDay=false → working day, proceed
+    // If backup exists, or todaySchedule exists with isOffDay=false → working day, proceed
 
     // Validate Location (Geofencing)
     const config = await getAttendanceConfig(prisma);
@@ -207,22 +216,32 @@ class AttendanceService {
       shift: record ? record.user.shift : null,
       canClockIn: !record,
       canClockOut: record && !record.clockOut,
-      // Check dynamic schedule for off day status
+      // Check dynamic schedule for off day status — backup assignment always overrides
       isOffDay: await (async () => {
-        const scheduleService = require('./scheduleService');
-        const todaySchedule = await scheduleService.getTodaySchedule(userId);
-        if (todaySchedule) return todaySchedule.isOffDay;
-        // Jika tidak ada jadwal dinamis, cek apakah user sudah clock-in (berarti bukan libur)
-        if (record) return false;
-        // Cek backup assignment — jika user bertugas sebagai backup hari ini, dia bukan libur
+        // 1. Check backup assignment first — backup duty overrides any schedule off-day
         const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
         const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999);
         const backupToday = await prisma.backupAssignment.findFirst({
           where: { backupUserId: userId, date: { gte: todayStart, lte: todayEnd } },
         });
         if (backupToday) return false;
-        // Fallback ke pengaturan statis user
+        // 2. Check dynamic schedule
+        const scheduleService = require('./scheduleService');
+        const todaySchedule = await scheduleService.getTodaySchedule(userId);
+        if (todaySchedule) return todaySchedule.isOffDay;
+        // 3. Already clocked in → not an off day
+        if (record) return false;
+        // 4. Fallback ke pengaturan statis user
         return await offDayService.isOffDay(userId, new Date());
+      })(),
+      // True if user is on backup duty today
+      isBackup: await (async () => {
+        const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+        const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999);
+        const backupToday = await prisma.backupAssignment.findFirst({
+          where: { backupUserId: userId, date: { gte: todayStart, lte: todayEnd } },
+        });
+        return !!backupToday;
       })(),
       // Add shift info if available
       schedule: await (async () => {
