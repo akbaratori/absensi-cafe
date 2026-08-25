@@ -245,10 +245,8 @@ class AttendanceService {
         isOffDay = true;
       } else if (todaySchedule) {
         isOffDay = todaySchedule.isOffDay;
-      } else if (!record) {
-        // No schedule and no existing record — fallback to static off-day config
-        isOffDay = await offDayService.isOffDay(userId, now);
       }
+      // If no schedule and no record → noSchedule flag handles this below (not an off day)
       // If record exists but no schedule, user already clocked in → not an off day
     }
 

@@ -26,6 +26,7 @@ const DashboardPage = () => {
   const [showInboxModal, setShowInboxModal] = useState(false);
   const [showOffDayModal, setShowOffDayModal] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const webcamRef = useRef(null);
 
@@ -48,8 +49,10 @@ const DashboardPage = () => {
     try {
       const response = await getTodayAttendance();
       setTodayData(response.data);
+      setFetchError(false);
     } catch (error) {
       console.error('Failed to fetch today\'s attendance:', error);
+      setFetchError(true);
     } finally {
       setLoading(false);
     }
@@ -295,8 +298,8 @@ const DashboardPage = () => {
               {(() => {
                 // Jika hari libur — jangan tampilkan shift apapun
                 if (todayData?.isOffDay) return 'Hari Libur';
-                // Jika tidak ada jadwal — tampilkan peringatan
-                if (todayData?.noSchedule) return 'Belum Dijadwalkan';
+                // Jika tidak ada jadwal atau gagal fetch — tampilkan peringatan
+                if (todayData?.noSchedule || fetchError) return 'Belum Dijadwalkan';
                 // Cek dari jadwal harian (UserSchedule) dulu — paling akurat
                 if (todayData?.schedule && typeof todayData.schedule === 'object' && todayData.schedule.name) {
                   return `Shift: ${todayData.schedule.name} (${todayData.schedule.startTime?.slice(0, 5)} - ${todayData.schedule.endTime?.slice(0, 5)})`;
@@ -376,7 +379,7 @@ const DashboardPage = () => {
                 </Button>
               </div>
             </div>
-          ) : todayData?.noSchedule ? (
+          ) : (todayData?.noSchedule || fetchError) ? (
             <div className="p-6 bg-yellow-50 dark:bg-yellow-900/20 rounded-xl border border-yellow-200 dark:border-yellow-800 text-center">
               <div className="mb-4">
                 <span className="text-4xl">📋</span>
