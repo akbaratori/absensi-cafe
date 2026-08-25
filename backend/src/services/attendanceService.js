@@ -39,11 +39,8 @@ class AttendanceService {
         // Schedule explicitly says off day — block clock-in
         throw ErrorCodes.ATTENDANCE_ERRORS.OFF_DAY_WORK;
       } else if (!todaySchedule) {
-        // No schedule exists — fallback to static offDayService (User.offDay + OffDayRequest)
-        const isOffDay = await offDayService.isOffDay(userId, now);
-        if (isOffDay) {
-          throw ErrorCodes.ATTENDANCE_ERRORS.OFF_DAY_WORK;
-        }
+        // No schedule exists — block clock-in entirely
+        throw ErrorCodes.ATTENDANCE_ERRORS.NO_SCHEDULE;
       }
     }
     // If backup exists, or no ManualOffDay and todaySchedule.isOffDay=false → working day, proceed
@@ -255,10 +252,10 @@ class AttendanceService {
       // If record exists but no schedule, user already clocked in → not an off day
     }
 
-    // Resolve shift for display: use schedule shift when available and not off-day,
-    // otherwise fallback to the shift locked in the attendance record, then user default.
-    // When isOffDay === true, schedule shift is null (shiftId: null in DB) — correct.
-    const shift = isOffDay
+    // Resolve shift for display: use schedule shift when available and not off-day.
+    // When noSchedule === true, shift is null and canClockIn is false.
+    const noSchedule = !backupToday && !todaySchedule && !record;
+    const shift = isOffDay || noSchedule
       ? null
       : (todaySchedule?.shift ?? record?.user?.shift ?? null);
 
@@ -270,9 +267,10 @@ class AttendanceService {
       clockOut: record?.clockOut || null,
       status: record ? formatStatus(record.status) : null,
       shift: shift,
-      canClockIn: !record && !isOffDay,
+      canClockIn: !record && !isOffDay && !noSchedule,
       canClockOut: !!(record && !record.clockOut),
       isOffDay,
+      noSchedule,
       isBackup: !!backupToday,
       // Position name the backup user is covering, e.g. "Kasir" or "Barista"
       backupPositionName,

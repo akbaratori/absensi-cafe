@@ -37,6 +37,7 @@ class ErrorCodes {
     get ATTENDANCE_NOT_FOUND() { return new AppError('Attendance record not found', 404, 'ATTENDANCE_NOT_FOUND'); },
     get INVALID_LOCATION() { return new AppError('Invalid location', 400, 'INVALID_LOCATION'); },
     get OFF_DAY_WORK() { return new AppError('Hari ini adalah hari libur Anda. Gunakan fitur Tukar Libur jika ingin bekerja.', 400, 'OFF_DAY_WORK'); },
+    get NO_SCHEDULE() { return new AppError('Anda tidak memiliki jadwal untuk hari ini. Hubungi admin untuk mendaftarkan jadwal.', 400, 'NO_SCHEDULE'); },
   };
 
   static USER_ERRORS = {

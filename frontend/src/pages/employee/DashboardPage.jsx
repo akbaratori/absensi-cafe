@@ -295,6 +295,8 @@ const DashboardPage = () => {
               {(() => {
                 // Jika hari libur — jangan tampilkan shift apapun
                 if (todayData?.isOffDay) return 'Hari Libur';
+                // Jika tidak ada jadwal — tampilkan peringatan
+                if (todayData?.noSchedule) return 'Belum Dijadwalkan';
                 // Cek dari jadwal harian (UserSchedule) dulu — paling akurat
                 if (todayData?.schedule && typeof todayData.schedule === 'object' && todayData.schedule.name) {
                   return `Shift: ${todayData.schedule.name} (${todayData.schedule.startTime?.slice(0, 5)} - ${todayData.schedule.endTime?.slice(0, 5)})`;
@@ -373,6 +375,18 @@ const DashboardPage = () => {
                   📅 Ajukan Tukar Libur
                 </Button>
               </div>
+            </div>
+          ) : todayData?.noSchedule ? (
+            <div className="p-6 bg-yellow-50 dark:bg-yellow-900/20 rounded-xl border border-yellow-200 dark:border-yellow-800 text-center">
+              <div className="mb-4">
+                <span className="text-4xl">📋</span>
+              </div>
+              <h3 className="text-xl font-bold text-yellow-800 dark:text-yellow-200 mb-2">
+                Belum Dijadwalkan
+              </h3>
+              <p className="text-gray-600 dark:text-gray-300">
+                Anda tidak memiliki jadwal kerja untuk hari ini. Hubungi admin untuk mendaftarkan jadwal Anda.
+              </p>
             </div>
           ) : (
             <>
