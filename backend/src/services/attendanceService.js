@@ -23,6 +23,9 @@ class AttendanceService {
       where: { backupUserId: userId, date: { gte: todayUTCStart, lte: todayUTCEnd } },
     });
 
+    // Declare todaySchedule at function scope so it's accessible for shift resolution below
+    let todaySchedule = null;
+
     if (!backupTodayClockIn) {
       // ManualOffDay takes priority — check before UserSchedule
       const manualOffTodayClockIn = await prisma.manualOffDay.findFirst({
@@ -34,7 +37,7 @@ class AttendanceService {
 
       // No backup override — check schedule
       const scheduleService = require('./scheduleService');
-      const todaySchedule = await scheduleService.getTodaySchedule(userId);
+      todaySchedule = await scheduleService.getTodaySchedule(userId);
       if (todaySchedule && todaySchedule.isOffDay) {
         // Schedule explicitly says off day — block clock-in
         throw ErrorCodes.ATTENDANCE_ERRORS.OFF_DAY_WORK;
