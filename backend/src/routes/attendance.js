@@ -34,8 +34,10 @@ router.get('/my-penalty', authenticate, authorize('EMPLOYEE', 'ADMIN'), asyncHan
   const monthStr = req.query.month || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
   const [year, month] = monthStr.split('-').map(Number);
-  const startDate = new Date(year, month - 1, 1);
-  const endDate = new Date(year, month, 0, 23, 59, 59, 999);
+  // Gunakan WITA (UTC+8) agar range bulan konsisten dengan data yang disimpan
+  const startDate = new Date(`${year}-${String(month).padStart(2, '0')}-01T00:00:00+08:00`);
+  const lastDay = new Date(year, month, 0).getDate(); // hari terakhir bulan
+  const endDate = new Date(`${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}T23:59:59+08:00`);
 
   // Config denda dan grace period
   const configs = await prisma.systemConfig.findMany({
@@ -95,7 +97,9 @@ router.get('/my-penalty', authenticate, authorize('EMPLOYEE', 'ADMIN'), asyncHan
 
     const shiftStartMins = parseMins(shiftStart);
     const ci = new Date(r.clockIn);
-    const clockInMins = ci.getHours() * 60 + ci.getMinutes();
+    // Konversi ke WITA (UTC+8) sebelum ambil jam:menit, agar konsisten dengan shiftStart yang dalam WITA
+    const ciWITA = new Date(ci.getTime() + 8 * 60 * 60 * 1000);
+    const clockInMins = ciWITA.getUTCHours() * 60 + ciWITA.getUTCMinutes();
     const minutesLate = Math.max(1, clockInMins - shiftStartMins - effectiveGrace);
     const penalty = minutesLate > 30 ? penaltyHigh : penaltyLow;
 

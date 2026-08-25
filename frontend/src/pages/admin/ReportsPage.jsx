@@ -64,14 +64,13 @@ const ReportsPage = () => {
           };
         }
       } else {
-        // Monthly Report supports server-side filtering
-        response = await getMonthlyReport({ month: selectedMonth, ...params });
+        // Monthly Report supports server-side filtering.
+        // Pass userId only when an employee is actually selected — never pass an empty string
+        // or undefined (which Axios serialises as the literal string "undefined" in some versions).
+        const monthlyParams = { month: selectedMonth };
+        if (selectedEmployee) monthlyParams.userId = selectedEmployee;
 
-        // Normalize single user response (which has dailyBreakdown) to match table format (records)
-        response = await getMonthlyReport({
-          month: selectedMonth,
-          userId: selectedEmployee || undefined // Monthly report requires userId usually, or we default?
-        });
+        response = await getMonthlyReport(monthlyParams);
 
         // Standardize structure: backend returns 'dailyBreakdown', frontend expects 'records'
         if (response.data && response.data.dailyBreakdown) {

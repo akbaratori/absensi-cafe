@@ -54,14 +54,20 @@ const LatePenaltyWidget = ({ compact = false }) => {
     if (loading) return <div className="animate-pulse bg-gray-100 dark:bg-gray-800 rounded-xl h-20" />;
     if (!data) return null;
 
-    const isGood = data.lateCount === 0;
+    const isGood    = data.lateCount === 0;
+    const isWarning = data.lateCount > 0 && data.totalDeduction === 0;
+    // isGood    → green:  no late records at all
+    // isWarning → yellow: late 1–2× but below penalty threshold (totalDeduction still 0)
+    // otherwise → red:    penalty applied
 
     // ── COMPACT (dashboard) ────────────────────────────────────────────────
     if (compact) {
         return (
             <div className={`rounded-xl p-4 h-full ${isGood
                 ? 'bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800'
-                : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'}`}>
+                : isWarning
+                    ? 'bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800'
+                    : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'}`}>
                 {/* Month nav */}
                 <div className="flex items-center justify-between mb-2">
                     <button onClick={prevMonth} className="p-1 rounded hover:bg-black/10 transition-colors">
@@ -76,10 +82,20 @@ const LatePenaltyWidget = ({ compact = false }) => {
                 <div className="flex items-center gap-3">
                     {isGood
                         ? <CheckCircle className="w-7 h-7 text-emerald-500 flex-shrink-0" />
-                        : <AlertTriangle className="w-7 h-7 text-red-500 flex-shrink-0" />}
+                        : isWarning
+                            ? <AlertTriangle className="w-7 h-7 text-yellow-500 flex-shrink-0" />
+                            : <AlertTriangle className="w-7 h-7 text-red-500 flex-shrink-0" />}
                     <div className="min-w-0">
-                        <p className={`font-bold text-sm ${isGood ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-700 dark:text-red-300'}`}>
-                            {isGood ? '✅ Tidak ada keterlambatan' : `Terlambat ${data.lateCount}x — ${formatRp(data.totalDeduction)}`}
+                        <p className={`font-bold text-sm ${isGood
+                            ? 'text-emerald-700 dark:text-emerald-300'
+                            : isWarning
+                                ? 'text-yellow-700 dark:text-yellow-300'
+                                : 'text-red-700 dark:text-red-300'}`}>
+                            {isGood
+                                ? '✅ Tidak ada keterlambatan'
+                                : isWarning
+                                    ? `⚠️ Terlambat ${data.lateCount}x — belum kena denda`
+                                    : `Terlambat ${data.lateCount}x — ${formatRp(data.totalDeduction)}`}
                         </p>
                         {!isGood && (
                             <p className="text-xs text-gray-400 mt-0.5">
@@ -96,16 +112,22 @@ const LatePenaltyWidget = ({ compact = false }) => {
     return (
         <div className={`rounded-xl border overflow-hidden ${isGood
             ? 'border-emerald-200 dark:border-emerald-800'
-            : 'border-red-200 dark:border-red-800'}`}>
+            : isWarning
+                ? 'border-yellow-200 dark:border-yellow-800'
+                : 'border-red-200 dark:border-red-800'}`}>
 
             {/* Header with month nav */}
             <div className={`px-5 py-4 flex items-center justify-between ${isGood
                 ? 'bg-emerald-50 dark:bg-emerald-900/20'
-                : 'bg-red-50 dark:bg-red-900/20'}`}>
+                : isWarning
+                    ? 'bg-yellow-50 dark:bg-yellow-900/20'
+                    : 'bg-red-50 dark:bg-red-900/20'}`}>
                 <div className="flex items-center gap-3">
                     {isGood
                         ? <CheckCircle className="w-6 h-6 text-emerald-500 flex-shrink-0" />
-                        : <AlertTriangle className="w-6 h-6 text-red-500 flex-shrink-0" />}
+                        : isWarning
+                            ? <AlertTriangle className="w-6 h-6 text-yellow-500 flex-shrink-0" />
+                            : <AlertTriangle className="w-6 h-6 text-red-500 flex-shrink-0" />}
                     <div>
                         {/* Month navigator */}
                         <div className="flex items-center gap-1 mb-0.5">
@@ -126,19 +148,25 @@ const LatePenaltyWidget = ({ compact = false }) => {
                     </div>
                 </div>
                 <div className="text-right ml-4">
-                    <p className={`text-xl font-bold ${isGood ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                    <p className={`text-xl font-bold ${isGood
+                        ? 'text-emerald-600 dark:text-emerald-400'
+                        : isWarning
+                            ? 'text-yellow-600 dark:text-yellow-400'
+                            : 'text-red-600 dark:text-red-400'}`}>
                         {isGood ? 'Rp 0' : formatRp(data.totalDeduction)}
                     </p>
                     <p className="text-xs text-gray-500">{data.lateCount}x terlambat</p>
                 </div>
             </div>
 
-            {/* Detail toggle */}
+            {/* Detail toggle — show for any late record, even if no deduction yet */}
             {!isGood && (
                 <>
                     <button
                         onClick={() => setShowDetail(v => !v)}
-                        className="w-full px-5 py-2.5 flex items-center justify-between text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors border-t border-red-100 dark:border-red-900"
+                        className={`w-full px-5 py-2.5 flex items-center justify-between text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors border-t ${isWarning
+                            ? 'border-yellow-100 dark:border-yellow-900'
+                            : 'border-red-100 dark:border-red-900'}`}
                     >
                         <span>{showDetail ? 'Sembunyikan detail' : 'Lihat detail keterlambatan'}</span>
                         {showDetail ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
@@ -166,14 +194,22 @@ const LatePenaltyWidget = ({ compact = false }) => {
                                             <p className="text-xs text-gray-500">Masuk jam {formatTime(r.clockIn)}</p>
                                         </div>
                                     </div>
-                                    <span className="text-sm font-semibold text-red-600 dark:text-red-400">
-                                        -{formatRp(r.penalty)}
+                                    <span className={`text-sm font-semibold ${r.penalty > 0
+                                        ? 'text-red-600 dark:text-red-400'
+                                        : 'text-yellow-600 dark:text-yellow-400'}`}>
+                                        {r.penalty > 0 ? `-${formatRp(r.penalty)}` : 'Belum denda'}
                                     </span>
                                 </div>
                             ))}
-                            <div className="px-5 py-3 flex justify-between bg-red-50 dark:bg-red-900/10">
+                            <div className={`px-5 py-3 flex justify-between ${isWarning
+                                ? 'bg-yellow-50 dark:bg-yellow-900/10'
+                                : 'bg-red-50 dark:bg-red-900/10'}`}>
                                 <span className="text-sm font-bold text-gray-700 dark:text-gray-300">Total Potongan</span>
-                                <span className="text-sm font-bold text-red-600 dark:text-red-400">{formatRp(data.totalDeduction)}</span>
+                                <span className={`text-sm font-bold ${isWarning
+                                    ? 'text-yellow-600 dark:text-yellow-400'
+                                    : 'text-red-600 dark:text-red-400'}`}>
+                                    {formatRp(data.totalDeduction)}
+                                </span>
                             </div>
                         </div>
                     )}

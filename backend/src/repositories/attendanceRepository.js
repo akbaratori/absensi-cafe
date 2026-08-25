@@ -410,8 +410,10 @@ class AttendanceRepository {
   async getMonthlyReport(userId, month) {
     const [year, monthNum] = month.split('-').map(Number);
 
-    const startDate = new Date(year, monthNum - 1, 1);
-    const endDate = new Date(year, monthNum, 0, 23, 59, 59, 999);
+    // Gunakan WITA (UTC+8) agar range bulan konsisten dengan data yang disimpan sebagai DATETIME
+    const lastDay = new Date(year, monthNum, 0).getDate();
+    const startDate = new Date(`${year}-${String(monthNum).padStart(2, '0')}-01T00:00:00+08:00`);
+    const endDate = new Date(`${year}-${String(monthNum).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}T23:59:59+08:00`);
 
     const records = await prisma.attendance.findMany({
       where: {
