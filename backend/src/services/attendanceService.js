@@ -223,11 +223,13 @@ class AttendanceService {
       backupPositionName = pos?.name ?? null;
     }
 
+    // Single getTodaySchedule call — reused for both isOffDay and shift resolution
+    const scheduleService = require('./scheduleService');
+    const todaySchedule = await scheduleService.getTodaySchedule(userId);
+
     // Determine off-day status — backup duty always overrides schedule off-day
     let isOffDay = false;
     if (!backupToday) {
-      const scheduleService = require('./scheduleService');
-      const todaySchedule = await scheduleService.getTodaySchedule(userId);
       if (todaySchedule) {
         isOffDay = todaySchedule.isOffDay;
       } else if (!record) {
@@ -237,10 +239,12 @@ class AttendanceService {
       // If record exists but no schedule, user already clocked in → not an off day
     }
 
-    // Resolve shift info from schedule or existing record
-    const scheduleService = require('./scheduleService');
-    const todaySchedule = await scheduleService.getTodaySchedule(userId);
-    const shift = todaySchedule ? todaySchedule.shift : (record?.user.shift ?? null);
+    // Resolve shift for display: use schedule shift when available and not off-day,
+    // otherwise fallback to the shift locked in the attendance record, then user default.
+    // When isOffDay === true, schedule shift is null (shiftId: null in DB) — correct.
+    const shift = isOffDay
+      ? null
+      : (todaySchedule?.shift ?? record?.user?.shift ?? null);
 
     const response = {
       id: record?.id || null,
@@ -249,8 +253,8 @@ class AttendanceService {
       clockIn: record?.clockIn || null,
       clockOut: record?.clockOut || null,
       status: record ? formatStatus(record.status) : null,
-      shift: record ? record.user.shift : null,
-      canClockIn: !record,
+      shift: shift,
+      canClockIn: !record && !isOffDay,
       canClockOut: !!(record && !record.clockOut),
       isOffDay,
       isBackup: !!backupToday,

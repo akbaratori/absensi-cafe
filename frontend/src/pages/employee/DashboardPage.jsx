@@ -293,11 +293,13 @@ const DashboardPage = () => {
           <div className="inline-flex flex-wrap items-center gap-2">
             <span className="px-3 py-1 rounded-full text-sm font-medium bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300">
               {(() => {
+                // Jika hari libur — jangan tampilkan shift apapun
+                if (todayData?.isOffDay) return 'Hari Libur';
                 // Cek dari jadwal harian (UserSchedule) dulu — paling akurat
                 if (todayData?.schedule && typeof todayData.schedule === 'object' && todayData.schedule.name) {
                   return `Shift: ${todayData.schedule.name} (${todayData.schedule.startTime?.slice(0, 5)} - ${todayData.schedule.endTime?.slice(0, 5)})`;
                 }
-                // Fallback ke shift default user (object dari relasi Prisma User.shift)
+                // Fallback ke shift default user — hanya jika tidak libur
                 if (user?.shift && typeof user.shift === 'object' && user.shift.name) {
                   return `Shift: ${user.shift.name} (${user.shift.startTime?.slice(0, 5)} - ${user.shift.endTime?.slice(0, 5)})`;
                 }
