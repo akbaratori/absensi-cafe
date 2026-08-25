@@ -211,8 +211,17 @@ class AttendanceService {
     const todayUTCEnd   = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
     const backupToday = await prisma.backupAssignment.findFirst({
       where: { backupUserId: userId, date: { gte: todayUTCStart, lte: todayUTCEnd } },
-      include: { absentPosition: { select: { name: true } } },
     });
+
+    // Resolve the position name the backup user is covering (separate query — no relation in schema)
+    let backupPositionName = null;
+    if (backupToday?.absentPositionId) {
+      const pos = await prisma.position.findUnique({
+        where: { id: backupToday.absentPositionId },
+        select: { name: true },
+      });
+      backupPositionName = pos?.name ?? null;
+    }
 
     // Determine off-day status — backup duty always overrides schedule off-day
     let isOffDay = false;
@@ -246,7 +255,7 @@ class AttendanceService {
       isOffDay,
       isBackup: !!backupToday,
       // Position name the backup user is covering, e.g. "Kasir" or "Barista"
-      backupPositionName: backupToday?.absentPosition?.name ?? null,
+      backupPositionName,
       schedule: shift,
     };
 
