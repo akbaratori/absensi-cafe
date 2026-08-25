@@ -81,7 +81,7 @@ class AttendanceService {
 
     // Get User Shift (Priority: Active Swap > User Schedule > User Default Shift)
     // 1. Check for Active Swap
-    const activeSwapShift = await swapService.getActiveSwap(userId, today);
+    const activeSwapShift = await swapService.getActiveSwap(userId, now);
 
     if (activeSwapShift) {
       config.workStartTime = activeSwapShift.startTime;
