@@ -536,7 +536,20 @@ class ScheduleService {
         // Fallback: if no schedule rows exist for this user in the requested range,
         // auto-generate them from the user's configured shift pattern so "Jadwal Saya"
         // is never empty when the rolling schedule has not been persisted yet.
+        // GUARD: only auto-generate for users registered in PositionRoster.
+        // Users not in PositionRoster (e.g. unregistered employees) must be scheduled
+        // manually by admin — do not silently create a default Shift 1 schedule for them.
         if (schedules.length === 0) {
+            const inRoster = await prisma.positionRoster.findFirst({
+                where: { userId },
+                select: { id: true }
+            });
+
+            if (!inRoster) {
+                // Not in rotation system — return empty, dashboard will show noSchedule
+                return [];
+            }
+
             const startDateStr = startDate.toISOString().slice(0, 10);
             const months = Math.max(1, Math.ceil(
                 (endDate.getTime() - startDate.getTime()) / (30 * 24 * 60 * 60 * 1000)
@@ -573,6 +586,15 @@ class ScheduleService {
     }
 
     async getTodaySchedule(userId) {
+        // Guard: if user is not in PositionRoster, they have no managed schedule.
+        // Return null immediately — do not query UserSchedule (which may have stale
+        // auto-generated rows from the old fallback in getUserSchedule).
+        const inRoster = await prisma.positionRoster.findFirst({
+            where: { userId },
+            select: { id: true }
+        });
+        if (!inRoster) return null;
+
         // Gunakan WITA (UTC+8) untuk menentukan rentang "hari ini"
         const WITA_OFFSET_MS = 8 * 60 * 60 * 1000;
         const nowWITA = new Date(Date.now() + WITA_OFFSET_MS);
