@@ -73,6 +73,13 @@ module.exports = async function handler(req, res) {
         select: { id: true, offDay: true }
       });
 
+      // Only mark ABSENT for employees registered in position_rosters.
+      // Unscheduled users (not in any roster) are skipped — same guard as scheduleService.
+      const rosterRows = await prisma.positionRoster.findMany({
+        select: { userId: true }
+      });
+      const rosteredUserIds = new Set(rosterRows.map(r => r.userId));
+
       const attendanceToday = await prisma.attendance.findMany({
         where: { date: { gte: todayStart, lte: todayEnd } },
         select: { userId: true }
@@ -94,6 +101,7 @@ module.exports = async function handler(req, res) {
       const dayOfWeek = nowWITA.getDay();
 
       for (const emp of employees) {
+        if (!rosteredUserIds.has(emp.id)) continue;  // skip unscheduled employees
         if (clockedInUserIds.has(emp.id)) continue;
         if (onLeaveUserIds.has(emp.id)) continue;
         if (offDayUserIds.has(emp.id)) continue;
