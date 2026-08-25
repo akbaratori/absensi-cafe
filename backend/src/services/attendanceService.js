@@ -24,6 +24,14 @@ class AttendanceService {
     });
 
     if (!backupTodayClockIn) {
+      // ManualOffDay takes priority — check before UserSchedule
+      const manualOffTodayClockIn = await prisma.manualOffDay.findFirst({
+        where: { userId, date: { gte: todayUTCStart, lte: todayUTCEnd } },
+      });
+      if (manualOffTodayClockIn) {
+        throw ErrorCodes.ATTENDANCE_ERRORS.OFF_DAY_WORK;
+      }
+
       // No backup override — check schedule
       const scheduleService = require('./scheduleService');
       const todaySchedule = await scheduleService.getTodaySchedule(userId);
@@ -38,7 +46,7 @@ class AttendanceService {
         }
       }
     }
-    // If backup exists, or todaySchedule.isOffDay=false → working day, proceed
+    // If backup exists, or no ManualOffDay and todaySchedule.isOffDay=false → working day, proceed
 
     // Validate Location (Geofencing)
     const config = await getAttendanceConfig(prisma);
@@ -227,10 +235,18 @@ class AttendanceService {
     const scheduleService = require('./scheduleService');
     const todaySchedule = await scheduleService.getTodaySchedule(userId);
 
-    // Determine off-day status — backup duty always overrides schedule off-day
+    // Check ManualOffDay — created after schedule generation so not reflected in UserSchedule.isOffDay
+    const manualOffToday = await prisma.manualOffDay.findFirst({
+      where: { userId, date: { gte: todayUTCStart, lte: todayUTCEnd } },
+    });
+
+    // Determine off-day status — backup duty always overrides any off-day source
     let isOffDay = false;
     if (!backupToday) {
-      if (todaySchedule) {
+      if (manualOffToday) {
+        // ManualOffDay takes priority — may exist even when UserSchedule.isOffDay=false
+        isOffDay = true;
+      } else if (todaySchedule) {
         isOffDay = todaySchedule.isOffDay;
       } else if (!record) {
         // No schedule and no existing record — fallback to static off-day config
