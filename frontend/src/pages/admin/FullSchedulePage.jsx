@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+﻿import { useState, useEffect, useMemo } from 'react';
 import rotationService from '../../services/rotationService';
 import BackupPanel from '../../components/admin/BackupPanel';
 
@@ -150,7 +150,6 @@ export default function FullSchedulePage() {
       date: dateISO,
       label: d.toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }),
       isToday: dateISO === new Date().toISOString().split('T')[0],
-      isSunday: d.getUTCDay() === 0,
     };
   });
 
@@ -207,7 +206,7 @@ export default function FullSchedulePage() {
                 <tr className="bg-gray-50 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
                   <th className="px-3 py-2 text-left w-24">Shift</th>
                   {dLabels.map(dl => (
-                    <th key={dl.date} className={`px-3 py-2 text-left whitespace-nowrap ${dl.isSunday ? 'bg-red-50 dark:bg-red-900/20 text-red-500 dark:text-red-400' : dl.isToday ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : ''}`}>{dl.label}</th>
+                    <th key={dl.date} className={`px-3 py-2 text-left whitespace-nowrap ${dl.isToday ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : ''}`}>{dl.label}</th>
                   ))}
                 </tr>
               </thead>
@@ -219,17 +218,11 @@ export default function FullSchedulePage() {
                       const backupsOnDay = backupsByDate.get(dl.date) || [];
                       const { working, offDay, deployedElsewhere } = getUsersOnDayWithOffDay(schedule, dl.date, shiftNum, offDaySet, backupsOnDay, position.id);
                       return (
-                        <td key={dl.date} className={`px-3 py-2 align-top ${dl.isSunday ? 'bg-red-50/40 dark:bg-red-900/10' : dl.isToday ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''}`}>
-                          {dl.isSunday ? (
-                            <span className="text-xs text-red-400 dark:text-red-500 italic">— Libur</span>
-                          ) : (
-                            <>
-                              {working.length > 0 && <ul className="space-y-0.5 mb-1">{working.map((u,i) => <li key={i} className="whitespace-nowrap text-gray-600 dark:text-gray-300">{u.name}</li>)}</ul>}
-                              {deployedElsewhere.length > 0 && <ul className="space-y-0.5 mb-1">{deployedElsewhere.map((u,i) => <li key={i} className="whitespace-nowrap text-purple-500 dark:text-purple-400 text-xs">&#128256; <span className="line-through">{u.name}</span> &rarr; {u.targetPositionName}</li>)}</ul>}
-                              {offDay.length > 0 && <ul className="space-y-0.5">{offDay.map((u,i) => <li key={i} className="whitespace-nowrap text-orange-500 dark:text-orange-400 text-xs line-through">&#127958; {u.name}</li>)}</ul>}
-                              {working.length === 0 && offDay.length === 0 && deployedElsewhere.length === 0 && <span className="text-gray-400 text-xs">&mdash;</span>}
-                            </>
-                          )}
+                        <td key={dl.date} className={`px-3 py-2 align-top ${dl.isToday ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''}`}>
+                          {working.length > 0 && <ul className="space-y-0.5 mb-1">{working.map((u,i) => <li key={i} className="whitespace-nowrap text-gray-600 dark:text-gray-300">{u.name}</li>)}</ul>}
+                          {deployedElsewhere.length > 0 && <ul className="space-y-0.5 mb-1">{deployedElsewhere.map((u,i) => <li key={i} className="whitespace-nowrap text-purple-500 dark:text-purple-400 text-xs">&#128256; <span className="line-through">{u.name}</span> &rarr; {u.targetPositionName}</li>)}</ul>}
+                          {offDay.length > 0 && <ul className="space-y-0.5">{offDay.map((u,i) => <li key={i} className="whitespace-nowrap text-orange-500 dark:text-orange-400 text-xs line-through">&#127958; {u.name}</li>)}</ul>}
+                          {working.length === 0 && offDay.length === 0 && deployedElsewhere.length === 0 && <span className="text-gray-400 text-xs">&mdash;</span>}
                         </td>
                       );
                     })}
