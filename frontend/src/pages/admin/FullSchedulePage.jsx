@@ -123,7 +123,7 @@ export default function FullSchedulePage() {
       const res = await rotationService.getManualOffDaysMonth(mon);
       const raw = res.data?.data || [];
       const set = new Set();
-      raw.forEach(item => set.add(`${item.userId}_${new Date(item.date).toISOString().split('T')[0]}`));
+      raw.forEach(item => set.add(`${item.userId}_${String(item.date).slice(0, 10)}`));
       setOffDaySet(set);
     } catch { setOffDaySet(new Set()); }
   };
@@ -149,7 +149,7 @@ export default function FullSchedulePage() {
     return {
       date: dateISO,
       label: d.toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }),
-      isToday: dateISO === new Date().toISOString().split('T')[0],
+      isToday: dateISO === (() => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}`; })(),
     };
   });
 
