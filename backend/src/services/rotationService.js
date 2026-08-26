@@ -314,15 +314,17 @@ class RotationService {
       throw new AppError('Data Shift 1 dan Shift 2 belum ada di database', 500, 'INTERNAL_ERROR');
     }
 
-    // Gunakan shiftNumber yang tersimpan pada tiap anggota roster (manual assignment).
-    // Rotate roster sehingga startIndex di depan, lalu kelompokkan per shiftNumber.
-    const rotated = [...roster.slice(startIndex % roster.length), ...roster.slice(0, startIndex % roster.length)];
-    const shift1UserIds = rotated.filter((r) => (r.shiftNumber || 1) === 1).map((r) => r.userId);
-    const shift2UserIds = rotated.filter((r) => (r.shiftNumber || 1) === 2).map((r) => r.userId);
+    // Rotasi berdasarkan posisi di roster (circular), bukan shiftNumber yang tersimpan.
+    // Setiap minggu startIndex maju sebesar shift1Capacity, sehingga orang yang minggu
+    // sebelumnya ada di Shift 2 akan berpindah ke Shift 1 dan sebaliknya.
+    const idx = startIndex % roster.length;
+    const rotated = [...roster.slice(idx), ...roster.slice(0, idx)];
+    const shift1Members = rotated.slice(0, position.shift1Capacity);
+    const shift2Members = rotated.slice(position.shift1Capacity);
 
     const assignments = [
-      ...shift1UserIds.map((userId) => ({ userId, shiftNumber: 1, shiftId: shift1.id })),
-      ...shift2UserIds.map((userId) => ({ userId, shiftNumber: 2, shiftId: shift2.id })),
+      ...shift1Members.map(({ userId }) => ({ userId, shiftNumber: 1, shiftId: shift1.id })),
+      ...shift2Members.map(({ userId }) => ({ userId, shiftNumber: 2, shiftId: shift2.id })),
     ];
 
     // Dedupe by userId (a user should only be assigned once per week).

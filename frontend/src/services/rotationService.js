@@ -29,6 +29,10 @@ const rotationService = {
   getAllSchedules: (weekStart) =>
     api.get('/rotation/all-schedules', { params: { weekStart } }),
 
+  // Semua jadwal posisi untuk satu bulan (FullSchedulePage - mode bulan)
+  getAllSchedulesMonth: (month) =>
+    api.get('/rotation/all-schedules', { params: { month } }),
+
   // Jadwal milik karyawan (skema rotasi baru)
   getMySchedule: (from, to) =>
     api.get('/rotation/my-schedule', { params: { from, to } }),

@@ -273,9 +273,51 @@ class RotationController {
 
     async getAllSchedules(req, res, next) {
         try {
-            const { weekStart } = req.query;
-            if (!weekStart) throw missingFields();
+            const { weekStart, month } = req.query;
 
+            // Mode bulan: kembalikan jadwal semua posisi untuk setiap Senin dalam bulan tsb
+            if (month) {
+                const [year, mon] = month.split('-').map(Number);
+                if (!year || !mon || isNaN(year) || isNaN(mon)) {
+                    throw new AppError('Parameter month tidak valid', 400, 'VALIDATION_ERROR');
+                }
+
+                // Cari semua Senin dalam bulan
+                const mondays = [];
+                const firstDay = new Date(Date.UTC(year, mon - 1, 1));
+                const lastDay = new Date(Date.UTC(year, mon, 0));
+                const cursor = new Date(firstDay);
+                // Mundur ke Senin pertama yang meliput tanggal 1
+                const dow = cursor.getUTCDay();
+                const diff = dow === 0 ? -6 : 1 - dow;
+                cursor.setUTCDate(cursor.getUTCDate() + diff);
+                while (cursor <= lastDay) {
+                    mondays.push(cursor.toISOString().split('T')[0]);
+                    cursor.setUTCDate(cursor.getUTCDate() + 7);
+                }
+
+                const positions = await rotationService.listPositions();
+                // Untuk setiap Senin, fetch jadwal semua posisi
+                const weekResults = await Promise.all(
+                    mondays.map(async (ws) => {
+                        const posSchedules = await Promise.all(
+                            positions.map(async (pos) => {
+                                try {
+                                    const schedule = await rotationService.getSchedule(pos.id, ws);
+                                    return { position: pos, schedule };
+                                } catch {
+                                    return { position: pos, schedule: null };
+                                }
+                            })
+                        );
+                        return { weekStart: ws, positions: posSchedules };
+                    })
+                );
+                return successResponse(res, 200, { mode: 'month', month, weeks: weekResults }, 'Jadwal bulanan berhasil dimuat');
+            }
+
+            // Mode minggu (default)
+            if (!weekStart) throw missingFields();
             const positions = await rotationService.listPositions();
             const results = await Promise.all(
                 positions.map(async (pos) => {
