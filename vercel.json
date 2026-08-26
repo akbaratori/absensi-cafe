@@ -3,20 +3,10 @@
   "installCommand": "npm install && cd backend && npm install && cd ../frontend && npm install --include=dev",
   "buildCommand": "cd frontend && npm run build && cd ../backend && npx prisma generate --schema=./prisma/schema.prisma",
   "outputDirectory": "frontend/dist",
-  "crons": [
-    {
-      "path": "/api/cron/daily-cleanup",
-      "schedule": "55 15 * * *"
-    }
-  ],
   "functions": {
     "api/index.js": {
       "maxDuration": 60,
       "includeFiles": "backend/src/**,backend/node_modules/.prisma/**,backend/node_modules/@prisma/client/**,backend/prisma/schema.prisma,backend/prisma/migrations/**,backend/package.json"
-    },
-    "api/cron/daily-cleanup.js": {
-      "maxDuration": 300,
-      "includeFiles": "backend/node_modules/.prisma/**,backend/node_modules/@prisma/**,backend/node_modules/**,backend/prisma/schema.prisma,backend/prisma/migrations/**"
     }
   },
   "rewrites": [
