@@ -50,7 +50,7 @@ const createUserSchema = Joi.object({
   employeeId: Joi.string().max(20).optional().allow('', null),
   hourlyRate: Joi.number().min(0).default(0),
   department: Joi.string().valid('BAR', 'KITCHEN').default('BAR'),
-  offDay: Joi.number().min(0).max(6).default(0),
+  offDay: Joi.number().integer().min(0).max(6).optional().allow(null),
 });
 
 const updateUserSchema = Joi.object({
@@ -67,7 +67,7 @@ const updateUserSchema = Joi.object({
   employeeId: Joi.string().max(20).optional().allow('', null),
   hourlyRate: Joi.number().min(0).optional(),
   department: Joi.string().valid('BAR', 'KITCHEN').optional(),
-  offDay: Joi.number().min(0).max(6).optional(),
+  offDay: Joi.number().integer().min(0).max(6).optional().allow(null),
 });
 
 // Admin Validators

@@ -19,7 +19,7 @@ model User {
   shiftId      Int?      @map("shift_id")
   shift        Shift?    @relation(fields: [shiftId], references: [id])
   department   String    @default("BAR")
-  offDay       Int       @default(0) @map("off_day")
+  offDay       Int?      @map("off_day")
   isActive     Boolean   @default(true) @map("is_active")
   hourlyRate   Int       @default(0) @map("hourly_rate")
   createdAt    DateTime  @default(now()) @map("created_at")
