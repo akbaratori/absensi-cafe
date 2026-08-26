@@ -206,7 +206,7 @@ export default function FullSchedulePage() {
                 <tr className="bg-gray-50 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
                   <th className="px-3 py-2 text-left w-24">Shift</th>
                   {dLabels.map(dl => (
-                    <th key={dl.date} className={`px-3 py-2 text-left whitespace-nowrap ${dl.isToday ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : '}`}>{dl.label}</th>
+                    <th key={dl.date} className={`px-3 py-2 text-left whitespace-nowrap ${dl.isToday ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : ''}`}>{dl.label}</th>
                   ))}
                 </tr>
               </thead>
