@@ -41,6 +41,35 @@ function buildCalendarGrid(year, month) {
   return grid;
 }
 
+/**
+ * Parse tanggal YYYY-MM-DD ke hari-dalam-minggu (0=Min, 1=Sen, ..., 6=Sab)
+ * tanpa melalui Date constructor agar tidak kena timezone shift.
+ * new Date('2025-09-05') diparsed sebagai UTC midnight, lalu dikonversi ke
+ * lokal bisa menghasilkan hari sebelumnya di timezone UTC+7 (WIB).
+ */
+function dowFromDateStr(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  // Zeller / formula sederhana: gunakan Date.UTC agar selalu UTC
+  return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+}
+
+/**
+ * Normalisasi tanggal dari backend ke string YYYY-MM-DD yang aman timezone.
+ * Backend bisa kirim ISO string dengan offset (+07:00) atau UTC (Z).
+ * Jika string sudah format YYYY-MM-DD (10 karakter), gunakan langsung.
+ * Jika ISO string panjang, ambil bagian tanggal dari sisi lokal backend
+ * dengan parsing manual agar tidak geser hari.
+ */
+function normalizeDateStr(raw) {
+  if (!raw) return '';
+  const s = String(raw);
+  // Sudah format YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  // ISO string: ambil 10 karakter pertama (YYYY-MM-DD) — ini adalah
+  // tanggal lokal yang dimaksud backend sebelum ditambah offset
+  return s.substring(0, 10);
+}
+
 /** Siapa yang libur di tanggal tertentu (userId list) */
 function whoIsOffOn(offDays, dateStr) {
   return offDays.filter((o) => o.date === dateStr).map((o) => o.userId);
@@ -49,12 +78,14 @@ function whoIsOffOn(offDays, dateStr) {
 /**
  * Dapatkan hari tetap (dow 0-6) yang sudah dikunci untuk userId ini di bulan ini.
  * Jika belum ada libur sama sekali, return null (bebas pilih hari apa saja).
- * Jika sudah ada, return dow pertama yang terdaftar.
+ * Jika sudah ada, return dow dari tanggal pertama (sorted ascending).
  */
 function getLockedDow(offDays, userId) {
   const userOffDays = offDays.filter((o) => o.userId === userId);
   if (userOffDays.length === 0) return null;
-  return new Date(userOffDays[0].date).getUTCDay();
+  // Sort ascending agar selalu ambil tanggal libur paling awal sebagai referensi
+  const sorted = [...userOffDays].sort((a, b) => a.date.localeCompare(b.date));
+  return dowFromDateStr(sorted[0].date);
 }
 
 export default function ManualOffDayPanel({ roster }) {
@@ -77,7 +108,10 @@ export default function ManualOffDayPanel({ roster }) {
       const raw = res.data?.data || [];
       setOffDays(raw.map((item) => ({
         userId: item.userId,
-        date: new Date(item.date).toISOString().split('T')[0],
+        // Gunakan normalizeDateStr agar tidak kena timezone shift.
+        // new Date(isoString).toISOString() pada string ber-offset +07:00
+        // akan menggeser tanggal mundur 1 hari (misal Jumat → Kamis).
+        date: normalizeDateStr(item.date),
       })));
     } catch (err) {
       toast.error('Gagal memuat data libur: ' + (err.response?.data?.message || err.message));
@@ -111,7 +145,7 @@ export default function ManualOffDayPanel({ roster }) {
 
     // Cek aturan hari tetap: dow tanggal ini harus sama dengan dow libur yang sudah ada
     const lockedDow = getLockedDow(offDays, userId);
-    const thisDow = new Date(dateStr).getUTCDay();
+    const thisDow = dowFromDateStr(dateStr);
     if (lockedDow !== null && lockedDow !== thisDow) {
       const name = getUserNameById(userId);
       toast.error(
@@ -145,7 +179,7 @@ export default function ManualOffDayPanel({ roster }) {
    */
   const applyDayOfWeek = (userId, dow, enable) => {
     const dates = getDatesInMonth(year, month);
-    const targetDates = dates.filter((d) => new Date(d).getUTCDay() === dow);
+    const targetDates = dates.filter((d) => dowFromDateStr(d) === dow);
 
     if (!enable) {
       // Hapus semua hari itu untuk user ini
@@ -217,7 +251,7 @@ export default function ManualOffDayPanel({ roster }) {
    */
   const isDowFullyOn = (userId, dow) => {
     const dates = getDatesInMonth(year, month);
-    const targetDates = dates.filter((d) => new Date(d).getUTCDay() === dow);
+    const targetDates = dates.filter((d) => dowFromDateStr(d) === dow);
     return targetDates.length > 0 && targetDates.every((d) => isOff(userId, d));
   };
 
@@ -324,7 +358,7 @@ export default function ManualOffDayPanel({ roster }) {
                     const lockedDow = getLockedDow(offDays, focusUser);
                     const isLockedForUser = lockedDow !== null && lockedDow !== dow;
                     const isDisabled = isLockedForUser;
-                    const count = dates.filter((d) => new Date(d).getUTCDay() === dow).length;
+                    const count = dates.filter((d) => dowFromDateStr(d) === dow).length;
                     return (
                       <button
                         key={dow}
@@ -373,7 +407,7 @@ export default function ManualOffDayPanel({ roster }) {
                       const day = parseInt(dateStr.split('-')[2]);
                       const today = new Date().toISOString().split('T')[0];
                       const isToday = dateStr === today;
-                      const thisDow = new Date(dateStr).getUTCDay();
+                      const thisDow = dowFromDateStr(dateStr);
                       const lockedDow = getLockedDow(offDays, focusUser);
                       const othersOff = whoIsOffOn(offDays, dateStr).filter((id) => id !== focusUser);
                       const blockedByOther = !off && othersOff.length > 0;
@@ -428,7 +462,7 @@ export default function ManualOffDayPanel({ roster }) {
                       <th className="px-2 py-2 text-center font-medium text-gray-500 dark:text-gray-400 min-w-[50px]">Libur<br/><span className="text-[9px] font-normal">maks {MAX_OFF_PER_MONTH}x</span></th>
                       {dates.map((dateStr) => {
                         const day = parseInt(dateStr.split('-')[2]);
-                        const dow = new Date(dateStr).getUTCDay();
+                        const dow = dowFromDateStr(dateStr);
                         const isSaturday = dow === 6;
                         const occupiedBy = whoIsOffOn(offDays, dateStr);
                         const occupiedNames = occupiedBy.map(getUserNameById);
@@ -480,7 +514,7 @@ export default function ManualOffDayPanel({ roster }) {
                           </td>
                           {dates.map((dateStr) => {
                             const off = isOff(r.userId, dateStr);
-                            const dow = new Date(dateStr).getUTCDay();
+                            const dow = dowFromDateStr(dateStr);
                             const isSaturday = dow === 6;
                             const othersOff = whoIsOffOn(offDays, dateStr).filter((id) => id !== r.userId);
                             const blockedByOther = !off && othersOff.length > 0;
