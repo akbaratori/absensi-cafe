@@ -429,26 +429,21 @@ export default function ManualOffDayPanel({ roster }) {
                       {dates.map((dateStr) => {
                         const day = parseInt(dateStr.split('-')[2]);
                         const dow = new Date(dateStr).getUTCDay();
-                        const isSunday = dow === 0;
                         const isSaturday = dow === 6;
-                        const isWeekend = isSunday || isSaturday;
                         const occupiedBy = whoIsOffOn(offDays, dateStr);
                         const occupiedNames = occupiedBy.map(getUserNameById);
                         return (
                           <th
                             key={dateStr}
                             className={`px-1 py-1 text-center min-w-[36px] select-none
-                              ${isSunday ? 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-600' : ''}
-                              ${isSaturday && !isSunday ? 'bg-amber-50 dark:bg-amber-900/10 text-amber-700 dark:text-amber-400' : ''}
-                              ${!isWeekend ? 'text-gray-500 dark:text-gray-400' : ''}
-                              ${occupiedBy.length > 0 && !isSunday ? 'bg-red-50 dark:bg-red-900/10' : ''}
+                              ${isSaturday ? 'bg-amber-50 dark:bg-amber-900/10 text-amber-700 dark:text-amber-400' : 'text-gray-500 dark:text-gray-400'}
+                              ${occupiedBy.length > 0 ? 'bg-red-50 dark:bg-red-900/10' : ''}
                             `}
-                            title={isSunday ? 'Minggu — tidak bisa libur' : occupiedBy.length > 0 ? `Libur: ${occupiedNames.join(', ')}` : dateStr}
+                            title={occupiedBy.length > 0 ? `Libur: ${occupiedNames.join(', ')}` : dateStr}
                           >
                             <div className="font-medium">{day}</div>
                             <div className="text-[10px]">{HARI[dow]}</div>
-                            {isSunday && <div className="text-[9px] opacity-50">🚫</div>}
-                            {occupiedBy.length > 0 && !isSunday && (
+                            {occupiedBy.length > 0 && (
                               <div className="text-[9px] text-red-500 dark:text-red-400 leading-tight font-medium truncate max-w-[32px]" title={occupiedNames.join(', ')}>
                                 {occupiedNames.map(n => n.split(' ')[0]).join(',')}
                               </div>
