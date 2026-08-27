@@ -48,28 +48,34 @@ class AttendanceService {
     }
     // If backup exists, or no ManualOffDay and todaySchedule.isOffDay=false → working day, proceed
 
-    // Validate Location (Geofencing)
+    // Get config before geofencing (needed for shift calculation later)
     const config = await getAttendanceConfig(prisma);
-    const cafeLocation = {
-      latitude: config.cafeLatitude || -6.2088,
-      longitude: config.cafeLongitude || 106.8456,
-    };
-    const maxDistance = config.radiusMeters || 100; // 100 meters
 
-    if (location && location.latitude && location.longitude) {
-      const distance = calculateDistance(location, cafeLocation);
-      if (distance > maxDistance) {
-        const error = ErrorCodes.ATTENDANCE_ERRORS.INVALID_LOCATION;
-        error.message = `Terlalu jauh! Jarak: ${Math.round(distance)}m. Maks: ${maxDistance}m.\nLokasi Anda: ${location.latitude}, ${location.longitude}\nLokasi Cafe: ${cafeLocation.latitude}, ${cafeLocation.longitude}`;
+    // Validate Location (Geofencing) - bypass for Telegram Bot
+    const isTelegramBot = location === 'Telegram Bot' || (typeof location === 'string' && location.includes('Telegram'));
+    
+    if (!isTelegramBot) {
+      const cafeLocation = {
+        latitude: config.cafeLatitude || -6.2088,
+        longitude: config.cafeLongitude || 106.8456,
+      };
+      const maxDistance = config.radiusMeters || 100; // 100 meters
+
+      if (location && location.latitude && location.longitude) {
+        const distance = calculateDistance(location, cafeLocation);
+        if (distance > maxDistance) {
+          const error = ErrorCodes.ATTENDANCE_ERRORS.INVALID_LOCATION;
+          error.message = `Terlalu jauh! Jarak: ${Math.round(distance)}m. Maks: ${maxDistance}m.\nLokasi Anda: ${location.latitude}, ${location.longitude}\nLokasi Cafe: ${cafeLocation.latitude}, ${cafeLocation.longitude}`;
+          throw error;
+        }
+      } else {
+        // MANDATORY: Reject if no location provided (except Telegram)
+        const error = new Error('Izin lokasi diperlukan untuk absensi masuk. Aktifkan GPS dan izinkan akses lokasi.');
+        error.statusCode = 400;
+        error.code = 'LOCATION_REQUIRED';
+        error.isOperational = true;
         throw error;
       }
-    } else {
-      // MANDATORY: Reject if no location provided
-      const error = new Error('Izin lokasi diperlukan untuk absensi masuk. Aktifkan GPS dan izinkan akses lokasi.');
-      error.statusCode = 400;
-      error.code = 'LOCATION_REQUIRED';
-      error.isOperational = true;
-      throw error;
     }
 
     const existingRecord = await attendanceRepository.findTodayByUserId(userId);

@@ -8,6 +8,7 @@ const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
 const { apiLimiter, adminLimiter } = require('./middleware/rateLimiter');
 const swaggerDocs = require('./utils/swagger');
 const prisma = require('./utils/database');
+const { initBot } = require('./services/telegramBotService');
 
 // Create Express app
 const app = express();
@@ -24,6 +25,23 @@ const app = express();
 // resolved, so the await in the middleware below is instant (no added latency).
 // ---------------------------------------------------------------------------
 const ddlReady = (async () => {
+  // Add telegram_user_id column if not exists (MySQL-safe via INFORMATION_SCHEMA)
+  try {
+    const cols = await prisma.$queryRawUnsafe(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'telegram_user_id'`
+    );
+    if (!cols || cols.length === 0) {
+      await prisma.$executeRawUnsafe(
+        `ALTER TABLE \`users\` ADD COLUMN \`telegram_user_id\` VARCHAR(191) NULL UNIQUE AFTER \`employee_id\``
+      );
+      console.log('[DDL] Column telegram_user_id added');
+    }
+  } catch (error) {
+    console.error('DDL telegram_user_id guard error:', error.message);
+  }
+
+  // Original DDL guards below
   try {
     await prisma.$executeRawUnsafe(`
       CREATE TABLE IF NOT EXISTS \`manual_off_days\` (
@@ -163,5 +181,15 @@ app.use(notFoundHandler);
 
 // Global error handler
 app.use(errorHandler);
+
+// Initialize Telegram Bot (after all routes registered)
+if (process.env.TELEGRAM_BOT_TOKEN) {
+  try {
+    initBot();
+    console.log('✅ Telegram bot auto-initialized');
+  } catch (error) {
+    console.error('⚠️ Telegram bot init failed:', error.message);
+  }
+}
 
 module.exports = app;
