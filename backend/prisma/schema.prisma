@@ -9,23 +9,22 @@ datasource db {
 }
 
 model User {
-  id             Int       @id @default(autoincrement())
-  username       String    @unique
-  passwordHash   String    @map("password_hash")
-  email          String?
-  fullName       String    @map("full_name")
-  role           String    @default("EMPLOYEE")
-  employeeId     String?   @unique @map("employee_id")
-  telegramUserId String?   @unique @map("telegram_user_id")
-  shiftId        Int?      @map("shift_id")
-  shift          Shift?    @relation(fields: [shiftId], references: [id])
-  department     String    @default("BAR")
-  offDay         Int       @default(0) @map("off_day")
-  isActive       Boolean   @default(true) @map("is_active")
-  hourlyRate     Int       @default(0) @map("hourly_rate")
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
-  lastLoginAt    DateTime? @map("last_login_at")
+  id           Int       @id @default(autoincrement())
+  username     String    @unique
+  passwordHash String    @map("password_hash")
+  email        String?
+  fullName     String    @map("full_name")
+  role         String    @default("EMPLOYEE")
+  employeeId   String?   @unique @map("employee_id")
+  shiftId      Int?      @map("shift_id")
+  shift        Shift?    @relation(fields: [shiftId], references: [id])
+  department   String    @default("BAR")
+  offDay       Int?      @map("off_day")
+  isActive     Boolean   @default(true) @map("is_active")
+  hourlyRate   Int       @default(0) @map("hourly_rate")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  lastLoginAt  DateTime? @map("last_login_at")
 
   attendances   Attendance[]
   leaves        Leave[]
@@ -47,7 +46,6 @@ model User {
   @@index([isActive])
   @@index([role])
   @@index([shiftId])
-  @@index([telegramUserId])
   @@map("users")
 }
 
@@ -67,7 +65,7 @@ model Shift {
 model Attendance {
   id               Int       @id @default(autoincrement())
   userId           Int       @map("user_id")
-  date             DateTime
+  date             DateTime 
   clockIn          DateTime  @map("clock_in")
   clockOut         DateTime? @map("clock_out")
   clockInLocation  String?   @map("clock_in_location")
@@ -223,7 +221,7 @@ model UserSchedule {
   isShiftPic           Boolean @default(false) @map("is_shift_pic")
   isSanitationLead     Boolean @default(false) @map("is_sanitation_lead")
   isManualOverride     Boolean @default(false) @map("is_manual_override")
-  temporaryDepartment  String? @map("temporary_department")
+  temporaryDepartment  String? @map("temporary_department") // BAR, KITCHEN — override for this day only
 
   user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   shift   Shift? @relation(fields: [shiftId], references: [id])
@@ -270,7 +268,7 @@ model Overtime {
   endTime     DateTime @map("end_time")
   durationHours Float   @map("duration_hours")
   reason      String?
-  status      String   @default("PENDING")
+  status      String   @default("PENDING") // PENDING, APPROVED, REJECTED
   approvedById Int?    @map("approved_by_id")
   approvedAt  DateTime? @map("approved_at")
   notes       String?
