@@ -164,4 +164,12 @@ app.use(notFoundHandler);
 // Global error handler
 app.use(errorHandler);
 
+// Initialize Telegram bot
+try {
+  const { initBot } = require('./services/telegramService');
+  initBot();
+} catch (err) {
+  console.error('Telegram bot init failed:', err.message);
+}
+
 module.exports = app;
