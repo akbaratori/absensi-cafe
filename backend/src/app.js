@@ -165,11 +165,13 @@ app.use(notFoundHandler);
 app.use(errorHandler);
 
 // Initialize Telegram bot
-try {
-  const { initBot } = require('./services/telegramService');
-  initBot();
-} catch (err) {
-  console.error('Telegram bot init failed:', err.message);
-}
+// NOTE: Polling disabled — Hermes profile absensi-bot handles all Telegram messages
+// initBot() removed to avoid token conflict with Hermes gateway
+// try {
+//   const { initBot } = require('./services/telegramService');
+//   initBot();
+// } catch (err) {
+//   console.error('Telegram bot init failed:', err.message);
+// }
 
 module.exports = app;
