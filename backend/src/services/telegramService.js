@@ -132,13 +132,31 @@ const registerCommands = () => {
         };
       }
       
-      // Resolve DB user via telegramUserId mapping
-      const dbUser = await prisma.user.findFirst({
-        where: { telegramUserId: String(state.userId) },
-        select: { id: true }
-      });
+      // Resolve DB user via Telegram username or chatId mapping
+      const telegramUsername = msg.from.username || '';
+      let dbUser = telegramUsername
+        ? await prisma.user.findFirst({
+            where: { username: telegramUsername },
+            select: { id: true }
+          })
+        : null;
+      // Fallback: match by chatId stored in env mapping TELEGRAM_USER_MAP=chatId:username,...
       if (!dbUser) {
-        throw new Error('Akun Telegram belum terhubung. Hubungi admin.');
+        const userMap = {};
+        (process.env.TELEGRAM_USER_MAP || '').split(',').forEach(pair => {
+          const [cid, uname] = pair.split(':');
+          if (cid && uname) userMap[cid.trim()] = uname.trim();
+        });
+        const mappedUsername = userMap[String(state.userId)];
+        if (mappedUsername) {
+          dbUser = await prisma.user.findFirst({
+            where: { username: mappedUsername },
+            select: { id: true }
+          });
+        }
+      }
+      if (!dbUser) {
+        throw new Error(`Akun Telegram @${telegramUsername || state.userId} belum terhubung ke DB. Hubungi admin.`);
       }
       const userId = dbUser.id;
       
