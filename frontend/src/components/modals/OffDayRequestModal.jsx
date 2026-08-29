@@ -32,7 +32,8 @@ const OffDayRequestModal = ({ onClose, onSuccess }) => {
 
   const getDayNameFromDate = (dateStr) => {
     if (!dateStr) return "";
-    const date = new Date(dateStr);
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const date = new Date(y, m - 1, d);
     return getDayName(date.getDay());
   };
 

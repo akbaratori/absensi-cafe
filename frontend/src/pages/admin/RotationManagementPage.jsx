@@ -94,8 +94,6 @@ function MonthCalendar({ month, understaffed, roster, users, positionId, onAssig
             {week.map((dateStr, di) => {
               if (!dateStr) return <div key={di} className="min-h-[60px] bg-gray-50 dark:bg-gray-900/20" />;
               const day = parseInt(dateStr.split('-')[2]);
-              const dow = new Date(dateStr).getDay();
-              const isWeekend = dow === 0 || dow === 6;
               const isToday = dateStr === today;
               const issues = understaffedMap[dateStr] || [];
               const hasIssue = issues.length > 0;
@@ -105,13 +103,12 @@ function MonthCalendar({ month, understaffed, roster, users, positionId, onAssig
                   key={di}
                   className={`min-h-[60px] p-1.5 border-r border-gray-100 dark:border-gray-800 last:border-0 flex flex-col gap-0.5
                     ${isToday ? 'ring-2 ring-inset ring-blue-500' : ''}
-                    ${hasIssue ? 'bg-red-50 dark:bg-red-900/20' : isWeekend ? 'bg-amber-50/50 dark:bg-amber-900/5' : 'bg-white dark:bg-gray-800'}
+                    ${hasIssue ? 'bg-red-50 dark:bg-red-900/20' : 'bg-white dark:bg-gray-800'}
                   `}
                 >
                   <span className={`text-xs font-semibold ${
                     isToday ? 'text-blue-600 dark:text-blue-400'
                     : hasIssue ? 'text-red-600 dark:text-red-400'
-                    : isWeekend ? 'text-amber-600 dark:text-amber-400'
                     : 'text-gray-700 dark:text-gray-300'
                   }`}>{day}</span>
                   {issues.map((issue, ii) => (
@@ -135,7 +132,6 @@ function MonthCalendar({ month, understaffed, roster, users, positionId, onAssig
       </div>
       <div className="flex items-center gap-4 mt-2 text-xs text-gray-500 dark:text-gray-400">
         <span className="flex items-center gap-1"><span className="w-3 h-3 bg-red-100 dark:bg-red-900/40 rounded border border-red-200 dark:border-red-800 inline-block" /> Kekurangan staff</span>
-        <span className="flex items-center gap-1"><span className="w-3 h-3 bg-amber-50 dark:bg-amber-900/20 rounded border border-amber-200 dark:border-amber-800 inline-block" /> Akhir pekan</span>
         <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400">S1 = Shift 1, S2 = Shift 2, angka = kurang berapa orang</span>
       </div>
     </div>
