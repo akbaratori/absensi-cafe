@@ -44,4 +44,9 @@ router.post('/:id/generate-month', authorize('ADMIN'), rotationController.genera
 router.get('/:id/schedule', authorize('ADMIN', 'EMPLOYEE'), rotationController.getSchedule);
 router.get('/:id/schedules', authorize('ADMIN', 'EMPLOYEE'), rotationController.listSchedules);
 
+// Monthly schedule view & manual override (edit hasil generate)
+router.get('/:id/month-schedule', authorize('ADMIN'), rotationController.getMonthSchedule);
+router.put('/:id/schedule-assignment', authorize('ADMIN'), rotationController.setScheduleAssignment);
+router.delete('/:id/schedule-assignment', authorize('ADMIN'), rotationController.removeScheduleAssignment);
+
 module.exports = router;

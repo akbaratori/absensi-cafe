@@ -25,6 +25,14 @@ const rotationService = {
   listSchedules: (id, startWeek, endWeek) =>
     api.get(`/rotation/${id}/schedules`, { params: { startWeek, endWeek } }),
 
+  // Jadwal bulanan per posisi + override manual (edit hasil generate)
+  getMonthSchedule: (id, month) =>
+    api.get(`/rotation/${id}/month-schedule`, { params: { month } }),
+  setScheduleAssignment: (id, data) =>
+    api.put(`/rotation/${id}/schedule-assignment`, data),
+  removeScheduleAssignment: (id, data) =>
+    api.delete(`/rotation/${id}/schedule-assignment`, { data }),
+
   // Semua jadwal posisi untuk satu minggu (FullSchedulePage)
   getAllSchedules: (weekStart) =>
     api.get('/rotation/all-schedules', { params: { weekStart } }),

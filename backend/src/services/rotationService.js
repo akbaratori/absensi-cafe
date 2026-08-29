@@ -835,6 +835,177 @@ class RotationService {
       understaffed,
     };
   }
+
+  /**
+   * Get the full monthly schedule for a position, flattened per date.
+   * Reads WeeklySchedule (per week) and expands to Mon–Sat days,
+   * then overlays any per-date manual overrides stored in UserSchedule.
+   * Returns [{ date, userId, shiftNumber, isOffDay, isManualOverride, user }]
+   * sorted by date then shift.
+   */
+  async getMonthSchedule(positionId, monthISO) {
+    const match = /^(\d{4})-(\d{2})$/.exec(monthISO);
+    if (!match) throw new AppError('Format bulan harus YYYY-MM', 400, 'VALIDATION_ERROR');
+    const year = parseInt(match[1], 10);
+    const month = parseInt(match[2], 10) - 1;
+
+    const mondays = [];
+    const firstDayOfMonth = new Date(Date.UTC(year, month, 1));
+    const lastDayOfMonth = new Date(Date.UTC(year, month + 1, 0));
+    let cursor = getMonday(firstDayOfMonth);
+    while (cursor <= lastDayOfMonth) {
+      mondays.push(new Date(cursor));
+      cursor = addDays(cursor, 7);
+    }
+
+    const startWeek = mondays[0];
+    const endWeek = mondays[mondays.length - 1];
+    const position = await prisma.position.findUnique({
+      where: { id: positionId },
+      include: { rosters: true },
+    });
+    if (!position) throw new AppError('Posisi tidak ditemukan', 404, 'NOT_FOUND');
+
+    const weekly = await prisma.weeklySchedule.findMany({
+      where: {
+        positionId,
+        weekStart: { gte: startWeek, lte: endWeek },
+      },
+    });
+
+    const rosterUserIds = position.rosters.map((r) => r.userId);
+    const users = rosterUserIds.length
+      ? await prisma.user.findMany({
+          where: { id: { in: rosterUserIds } },
+          select: { id: true, fullName: true, username: true, department: true },
+        })
+      : [];
+    const userMap = new Map(users.map((u) => [u.id, u]));
+
+    const overrides = await prisma.userSchedule.findMany({
+      where: {
+        userId: { in: rosterUserIds },
+        isManualOverride: true,
+        date: { gte: firstDayOfMonth, lte: lastDayOfMonth },
+      },
+    });
+    const overrideByUserDate = new Map(
+      overrides.map((o) => [`${o.userId}|${toISO(o.date)}`, o]),
+    );
+
+    const result = [];
+    for (const monday of mondays) {
+      for (let i = 0; i < 7; i++) {
+        const day = addDays(monday, i);
+        const dateISO = toISO(day);
+        if (day.getUTCMonth() !== month) continue;
+        const isSunday = day.getUTCDay() === 0;
+
+        const weekMap = new Map();
+        for (const w of weekly) {
+          if (toISO(w.weekStart) === toISO(monday)) {
+            weekMap.set(w.userId, w.shiftNumber);
+          }
+        }
+
+        for (const userId of rosterUserIds) {
+          const override = overrideByUserDate.get(`${userId}|${dateISO}`);
+          let shiftNumber = null;
+          let isOffDay = isSunday;
+          let isManualOverride = false;
+
+          if (override) {
+            isManualOverride = true;
+            if (override.isOffDay) {
+              isOffDay = true;
+              shiftNumber = null;
+            } else if (override.shiftId) {
+              shiftNumber = override.shiftId === 1 ? 1 : 2;
+              isOffDay = false;
+            }
+          } else if (!isSunday && weekMap.has(userId)) {
+            shiftNumber = weekMap.get(userId);
+            isOffDay = false;
+          }
+
+          result.push({
+            date: dateISO,
+            userId,
+            shiftNumber,
+            isOffDay,
+            isManualOverride,
+            user: userMap.get(userId) || null,
+          });
+        }
+      }
+    }
+
+    result.sort((a, b) =>
+      a.date === b.date
+        ? (a.shiftNumber || 0) - (b.shiftNumber || 0)
+        : a.date.localeCompare(b.date),
+    );
+    return result;
+  }
+
+  /**
+   * Override (or assign) a single user's shift on a specific date.
+   * shiftNumber: 1 or 2; or null/0 for OFF.
+   */
+  async setScheduleAssignment(positionId, { date, userId, shiftNumber }) {
+    const position = await prisma.position.findUnique({
+      where: { id: positionId },
+      include: { rosters: true },
+    });
+    if (!position) throw new AppError('Posisi tidak ditemukan', 404, 'NOT_FOUND');
+    if (!position.rosters.some((r) => r.userId === userId)) {
+      throw new AppError('User tidak ada di roster posisi ini', 400, 'VALIDATION_ERROR');
+    }
+
+    const dateObj = toDateOnly(date);
+    const dateISO = toISO(dateObj);
+
+    const isOff = !shiftNumber || shiftNumber === 0;
+    const shiftId = isOff ? null : shiftNumber;
+
+    const department = position.name === 'Kitchen' ? 'KITCHEN' : 'BAR';
+
+    await prisma.userSchedule.upsert({
+      where: { userId_date: { userId, date: dateObj } },
+      update: {
+        shiftId,
+        isOffDay: isOff,
+        isManualOverride: true,
+        temporaryDepartment: department,
+      },
+      create: {
+        userId,
+        date: dateObj,
+        shiftId,
+        isOffDay: isOff,
+        isManualOverride: true,
+        temporaryDepartment: department,
+      },
+    });
+
+    return { date: dateISO, userId, shiftNumber: isOff ? null : shiftNumber, isOffDay: isOff };
+  }
+
+  /**
+   * Remove a manual override for a user on a specific date.
+   */
+  async removeScheduleAssignment(positionId, { date, userId }) {
+    const dateObj = toDateOnly(date);
+    const existing = await prisma.userSchedule.findUnique({
+      where: { userId_date: { userId, date: dateObj } },
+    });
+    if (existing && existing.isManualOverride) {
+      await prisma.userSchedule.delete({
+        where: { userId_date: { userId, date: dateObj } },
+      });
+    }
+    return { date: toISO(dateObj), userId, removed: !!existing?.isManualOverride };
+  }
 }
 
 module.exports = new RotationService();

@@ -53,7 +53,7 @@ function StepIndicator({ currentStep }) {
 }
 
 // ─── Monthly Calendar with understaffed highlights ────────────────────────────
-function MonthCalendar({ month, understaffed, roster, users, positionId, onAssignBackup }) {
+function MonthCalendar({ month, understaffed, roster, users, positionId, onAssignBackup, monthSchedule, onEditDate }) {
   if (!month) return null;
   const [y, m] = month.split('-').map(Number);
   const days = getDaysInMonth(y, m);
@@ -62,6 +62,13 @@ function MonthCalendar({ month, understaffed, roster, users, positionId, onAssig
   for (const u of (understaffed || [])) {
     if (!understaffedMap[u.date]) understaffedMap[u.date] = [];
     understaffedMap[u.date].push(u);
+  }
+
+  // Build per-date schedule map from the generated monthly schedule.
+  const scheduleMap = {};
+  for (const s of (monthSchedule || [])) {
+    if (!scheduleMap[s.date]) scheduleMap[s.date] = [];
+    scheduleMap[s.date].push(s);
   }
 
   // Build calendar grid (Mon-first)
@@ -97,11 +104,13 @@ function MonthCalendar({ month, understaffed, roster, users, positionId, onAssig
               const isToday = dateStr === today;
               const issues = understaffedMap[dateStr] || [];
               const hasIssue = issues.length > 0;
+              const assignments = scheduleMap[dateStr] || [];
 
               return (
                 <div
                   key={di}
-                  className={`min-h-[60px] p-1.5 border-r border-gray-100 dark:border-gray-800 last:border-0 flex flex-col gap-0.5
+                  onClick={() => onEditDate && onEditDate(dateStr)}
+                  className={`min-h-[60px] p-1.5 border-r border-gray-100 dark:border-gray-800 last:border-0 flex flex-col gap-0.5 cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900/10
                     ${isToday ? 'ring-2 ring-inset ring-blue-500' : ''}
                     ${hasIssue ? 'bg-red-50 dark:bg-red-900/20' : 'bg-white dark:bg-gray-800'}
                   `}
@@ -116,9 +125,32 @@ function MonthCalendar({ month, understaffed, roster, users, positionId, onAssig
                       S{issue.shiftNumber} -{issue.missing}
                     </div>
                   ))}
+                  {assignments.map((a, ai) => {
+                    const name = a.user ? getUserName(a.user) : resolveName(a.userId);
+                    const label = a.isOffDay ? 'OFF' : `S${a.shiftNumber}`;
+                    const isManual = a.isManualOverride;
+                    return (
+                      <div
+                        key={ai}
+                        className={`text-[9px] leading-tight truncate ${
+                          a.isOffDay
+                            ? 'text-gray-400 dark:text-gray-500'
+                            : a.shiftNumber === 1
+                            ? 'text-emerald-600 dark:text-emerald-400'
+                            : 'text-indigo-600 dark:text-indigo-400'
+                        }`}
+                        title={`${name} — ${label}${isManual ? ' (manual)' : ''}`}
+                      >
+                        {name} · {label}{isManual ? ' ✎' : ''}
+                      </div>
+                    );
+                  })}
+                  {assignments.length === 0 && !hasIssue && (
+                    <div className="text-[9px] text-gray-300 dark:text-gray-600">—</div>
+                  )}
                   {hasIssue && (
                     <button
-                      onClick={() => onAssignBackup(dateStr, issues)}
+                      onClick={(e) => { e.stopPropagation(); onAssignBackup(dateStr, issues); }}
                       className="mt-auto text-[9px] bg-red-100 dark:bg-red-900/40 hover:bg-red-200 dark:hover:bg-red-900/60 text-red-700 dark:text-red-300 rounded px-1 py-0.5 font-medium w-full text-center"
                     >
                       + Backup
@@ -293,6 +325,146 @@ function BackupModal({ date, issues, roster, users, positionId, onClose, onSaved
   );
 }
 
+// ─── Modal Edit Hasil Generate (per tanggal) ──────────────────────────────────
+function EditScheduleModal({ date, assignments, roster, onClose, onSave, onReset }) {
+  const [savingId, setSavingId] = useState(null);
+
+  const assignmentMap = new Map((assignments || []).map((a) => [a.userId, a]));
+  const rosterUsers = roster.map((r) => {
+    const a = assignmentMap.get(r.userId);
+    return {
+      userId: r.userId,
+      name: getUserName(r.user),
+      shiftNumber: a ? a.shiftNumber : r.shift,
+      isOffDay: a ? a.isOffDay : false,
+      isManualOverride: a ? a.isManualOverride : false,
+    };
+  });
+
+  const handleSet = async (userId, shiftNumber) => {
+    setSavingId(userId);
+    try {
+      await onSave(date, userId, shiftNumber);
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  const handleReset = async (userId) => {
+    setSavingId(userId);
+    try {
+      await onReset(date, userId);
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  const prettyDate = new Date(date + 'T00:00:00').toLocaleDateString('id-ID', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-6 w-full max-w-md max-h-[85vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold text-gray-800 dark:text-gray-100">
+            Edit Jadwal — {prettyDate}
+          </h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none">
+            ×
+          </button>
+        </div>
+
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+          Ubah shift atau tandai OFF untuk tiap pegawai. Perubahan ditandai ✎ (manual) dan tidak tertimpa saat generate ulang.
+        </p>
+
+        {rosterUsers.length === 0 ? (
+          <div className="text-sm text-gray-500 dark:text-gray-400 text-center py-8">
+            Roster masih kosong. Isi roster posisi terlebih dahulu.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {rosterUsers.map((ru) => (
+              <div
+                key={ru.userId}
+                className="flex items-center gap-2 p-2 rounded-lg border border-gray-200 dark:border-gray-700"
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm text-gray-800 dark:text-gray-100 truncate">
+                    {ru.name}
+                  </div>
+                  <div className="text-[10px] text-gray-400 dark:text-gray-500">
+                    {ru.isManualOverride ? 'Manual ✎' : 'Generate'}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => handleSet(ru.userId, 1)}
+                    disabled={savingId === ru.userId}
+                    className={`px-2 py-1 text-xs rounded font-medium border ${
+                      !ru.isOffDay && ru.shiftNumber === 1
+                        ? 'bg-emerald-600 text-white border-emerald-600'
+                        : 'text-emerald-600 border-emerald-300 hover:bg-emerald-50 dark:border-emerald-700'
+                    } disabled:opacity-50`}
+                  >
+                    S1
+                  </button>
+                  <button
+                    onClick={() => handleSet(ru.userId, 2)}
+                    disabled={savingId === ru.userId}
+                    className={`px-2 py-1 text-xs rounded font-medium border ${
+                      !ru.isOffDay && ru.shiftNumber === 2
+                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        : 'text-indigo-600 border-indigo-300 hover:bg-indigo-50 dark:border-indigo-700'
+                    } disabled:opacity-50`}
+                  >
+                    S2
+                  </button>
+                  <button
+                    onClick={() => handleSet(ru.userId, 0)}
+                    disabled={savingId === ru.userId}
+                    className={`px-2 py-1 text-xs rounded font-medium border ${
+                      ru.isOffDay
+                        ? 'bg-gray-500 text-white border-gray-500'
+                        : 'text-gray-500 border-gray-300 hover:bg-gray-50 dark:border-gray-600'
+                    } disabled:opacity-50`}
+                  >
+                    OFF
+                  </button>
+                  {ru.isManualOverride && (
+                    <button
+                      onClick={() => handleReset(ru.userId)}
+                      disabled={savingId === ru.userId}
+                      className="px-2 py-1 text-xs rounded font-medium border border-amber-300 text-amber-600 hover:bg-amber-50 dark:border-amber-700 disabled:opacity-50"
+                      title="Hapus override, pulihkan jadwal generate"
+                    >
+                      ↩
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="mt-4 flex justify-end">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg text-sm hover:bg-gray-300 dark:hover:bg-gray-600 font-medium"
+          >
+            Tutup
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function RotationManagementPage() {
   const [positions, setPositions] = useState([]);
@@ -314,6 +486,8 @@ export default function RotationManagementPage() {
   const [editModal, setEditModal] = useState(false);
   const [editForm, setEditForm] = useState({ name: '', shift1Capacity: 2, shift2Capacity: 3 });
   const [backupModal, setBackupModal] = useState(null); // { date, issues }
+  const [monthSchedule, setMonthSchedule] = useState([]); // hasil generate bulanan (per tanggal per user)
+  const [editDate, setEditDate] = useState(null); // tanggal yang sedang diedit (string YYYY-MM-DD)
 
   // Current step detection
   const currentStep = !positions.length ? 1
@@ -359,6 +533,8 @@ export default function RotationManagementPage() {
   const openPosition = useCallback(async (pos) => {
     setSelectedPosition(pos);
     setUnderstaffed(null);
+    setMonthSchedule([]);
+    setEditDate(null);
     setRoster(
       (pos.rosters || []).map((r, i) => ({
         ...r,
@@ -450,6 +626,13 @@ export default function RotationManagementPage() {
       const data = res.data.data || {};
       const us = data.understaffed || [];
       setUnderstaffed(us);
+      // Muat jadwal bulanan (hasil generate) untuk ditampilkan & diedit di kalender.
+      try {
+        const schedRes = await rotationService.getMonthSchedule(selectedPosition.id, month);
+        setMonthSchedule(schedRes.data?.data || []);
+      } catch {
+        setMonthSchedule([]);
+      }
       if (us.length) {
         toast(`⚠️ Jadwal dibuat, tapi ada ${us.length} shift kekurangan staff`, { icon: '⚠️', duration: 5000 });
       } else {
@@ -459,6 +642,34 @@ export default function RotationManagementPage() {
       toast.error('Gagal generate: ' + (err.response?.data?.error?.message || err.response?.data?.message || err.message));
     } finally {
       setGenerating(false);
+    }
+  };
+
+  const handleEditDate = (date) => setEditDate(date);
+
+  const handleSaveEdit = async (date, userId, shiftNumber) => {
+    try {
+      await rotationService.setScheduleAssignment(selectedPosition.id, {
+        date,
+        userId,
+        shiftNumber,
+      });
+      toast.success('Penugasan diperbarui');
+      const res = await rotationService.getMonthSchedule(selectedPosition.id, month);
+      setMonthSchedule(res.data?.data || []);
+    } catch (err) {
+      toast.error('Gagal menyimpan: ' + (err.response?.data?.message || err.message));
+    }
+  };
+
+  const handleResetOverride = async (date, userId) => {
+    try {
+      await rotationService.removeScheduleAssignment(selectedPosition.id, { date, userId });
+      toast.success('Override dihapus, jadwal generate dipulihkan');
+      const res = await rotationService.getMonthSchedule(selectedPosition.id, month);
+      setMonthSchedule(res.data?.data || []);
+    } catch (err) {
+      toast.error('Gagal menghapus override: ' + (err.response?.data?.message || err.message));
     }
   };
 
@@ -664,6 +875,8 @@ export default function RotationManagementPage() {
                   users={users}
                   positionId={selectedPosition.id}
                   onAssignBackup={(date, issues) => setBackupModal({ date, issues })}
+                  monthSchedule={monthSchedule}
+                  onEditDate={handleEditDate}
                 />
 
                 {/* Understaffed summary */}
@@ -885,6 +1098,18 @@ export default function RotationManagementPage() {
             // Remove solved understaffed
             setUnderstaffed((prev) => prev.filter((u) => u.date !== backupModal.date));
           }}
+        />
+      )}
+
+      {/* ─── Modal Edit Hasil Generate (per tanggal) ─── */}
+      {editDate && (
+        <EditScheduleModal
+          date={editDate}
+          assignments={(monthSchedule || []).filter((s) => s.date === editDate)}
+          roster={roster}
+          onClose={() => setEditDate(null)}
+          onSave={handleSaveEdit}
+          onReset={handleResetOverride}
         />
       )}
     </div>

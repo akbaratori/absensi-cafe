@@ -346,6 +346,45 @@ class RotationController {
             next(err);
         }
     }
+
+    async getMonthSchedule(req, res, next) {
+        try {
+            const { month } = req.query;
+            if (!month) throw missingFields();
+            const result = await rotationService.getMonthSchedule(parseInt(req.params.id), month);
+            return successResponse(res, 200, result, 'Jadwal bulanan berhasil dimuat');
+        } catch (err) {
+            next(err);
+        }
+    }
+
+    async setScheduleAssignment(req, res, next) {
+        try {
+            const { date, userId, shiftNumber } = req.body;
+            if (!date || !userId) throw missingFields();
+            const result = await rotationService.setScheduleAssignment(
+                parseInt(req.params.id),
+                { date, userId: parseInt(userId), shiftNumber },
+            );
+            return successResponse(res, 200, result, 'Penugasan berhasil diperbarui');
+        } catch (err) {
+            next(err);
+        }
+    }
+
+    async removeScheduleAssignment(req, res, next) {
+        try {
+            const { date, userId } = req.body;
+            if (!date || !userId) throw missingFields();
+            const result = await rotationService.removeScheduleAssignment(
+                parseInt(req.params.id),
+                { date, userId: parseInt(userId) },
+            );
+            return successResponse(res, 200, result, 'Override penugasan berhasil dihapus');
+        } catch (err) {
+            next(err);
+        }
+    }
 }
 
 module.exports = new RotationController();
