@@ -96,3 +96,41 @@
     @apply bg-gray-100 text-gray-800;
   }
 }
+
+/* ===== Print styles for Jadwal Lengkap (share as PDF) ===== */
+@media print {
+  aside,
+  header,
+  .print\:hidden {
+    display: none !important;
+  }
+
+  .lg\:ml-64 {
+    margin-left: 0 !important;
+  }
+
+  main.pt-16 {
+    padding-top: 0 !important;
+  }
+
+  main > div.px-4 {
+    padding: 0 !important;
+  }
+
+  body {
+    background: #fff !important;
+  }
+
+  .shadow,
+  .shadow-sm,
+  .shadow-md,
+  .shadow-lg,
+  .shadow-xl {
+    box-shadow: none !important;
+  }
+
+  .rounded-xl,
+  .rounded-lg {
+    border-radius: 0 !important;
+  }
+}

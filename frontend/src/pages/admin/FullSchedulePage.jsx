@@ -66,6 +66,7 @@ function getUsersOnDayWithOffDay(schedule, dateISO, shiftNum, offDaySet, backups
 }
 export default function FullSchedulePage() {
   const [viewMode, setViewMode] = useState('week');
+  const [copied, setCopied] = useState(false);
   const [weekStart, setWeekStart] = useState(() => getMondayISO(new Date().toISOString().split('T')[0]));
   const [monthView, setMonthView] = useState(() => {
     const t = new Date();
@@ -303,6 +304,79 @@ export default function FullSchedulePage() {
     );
   };
 
+  // Build a clean, share-friendly text of the current schedule (week or month).
+  const buildShareText = () => {
+    const fmtDay = (iso) => new Date(`${iso}T00:00:00Z`).toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+    const lines = [];
+    if (viewMode === 'week') {
+      lines.push(`🗓 JADWAL MINGGUAN — ${fmtDay(weekStart)} s.d. ${fmtDay(getWeekDates(weekStart)[6])}`);
+      lines.push('');
+      const weekDates = getWeekDates(weekStart);
+      data.forEach(({ position, schedule }) => {
+        lines.push(`▸ ${position.name}`);
+        if (!schedule || !schedule.schedules?.length) {
+          lines.push('   (belum ada jadwal)');
+        } else {
+          const byShift = { 1: [], 2: [] };
+          weekDates.forEach((dateISO) => {
+            const dayLabel = fmtDay(dateISO);
+            [1, 2].forEach((shiftNum) => {
+              const { working } = getUsersOnDayWithOffDay(schedule, dateISO, shiftNum, offDaySet, backupsByDate.get(dateISO) || [], position.id);
+              const names = working.map((w) => w.name).filter(Boolean);
+              if (names.length) byShift[shiftNum].push(`${dayLabel}: ${names.join(', ')}`);
+            });
+          });
+          [1, 2].forEach((shiftNum) => {
+            if (byShift[shiftNum].length) lines.push(`   Shift ${shiftNum}: ${byShift[shiftNum].join(' | ')}`);
+          });
+        }
+        lines.push('');
+      });
+    } else {
+      lines.push(`🗓 JADWAL BULANAN — ${monthView}`);
+      lines.push('');
+      monthData?.weeks?.forEach(({ weekStart: ws, positions: posSchedules }) => {
+        const wStart = new Date(`${ws}T00:00:00Z`);
+        const wEnd = new Date(`${ws}T00:00:00Z`);
+        wEnd.setUTCDate(wEnd.getUTCDate() + 6);
+        const fmt = (d) => d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+        lines.push(`── Minggu ${fmt(wStart)} – ${fmt(wEnd)} ──`);
+        posSchedules.forEach(({ position, schedule }) => {
+          lines.push(`▸ ${position.name}`);
+          if (!schedule || !schedule.schedules?.length) {
+            lines.push('   (belum ada jadwal)');
+          } else {
+            const byShift = { 1: [], 2: [] };
+            getWeekDates(ws).forEach((dateISO) => {
+              const dayLabel = fmtDay(dateISO);
+              [1, 2].forEach((shiftNum) => {
+                const { working } = getUsersOnDayWithOffDay(schedule, dateISO, shiftNum, offDaySet, backupsByDate.get(dateISO) || [], position.id);
+                const names = working.map((w) => w.name).filter(Boolean);
+                if (names.length) byShift[shiftNum].push(`${dayLabel}: ${names.join(', ')}`);
+              });
+            });
+            [1, 2].forEach((shiftNum) => {
+              if (byShift[shiftNum].length) lines.push(`   Shift ${shiftNum}: ${byShift[shiftNum].join(' | ')}`);
+            });
+          }
+        });
+        lines.push('');
+      });
+    }
+    return lines.join('\n');
+  };
+
+  const handleCopyShare = async () => {
+    try {
+      const text = buildShareText();
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      alert('Gagal menyalin. Browser mungkin memblokir akses clipboard.');
+    }
+  };
+
   return (
     <div className="p-4 md:p-6 max-w-full">
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
@@ -316,6 +390,16 @@ export default function FullSchedulePage() {
             </button>
           ))}
         </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 mb-2 print:hidden">
+        <button onClick={handleCopyShare}
+          className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium shadow-sm transition-colors">
+          {copied ? '✓ Tersalin!' : '📋 Salin Teks (Bagikan)'}
+        </button>
+        <button onClick={() => window.print()}
+          className="px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 text-sm font-medium transition-colors">
+          🖨️ Cetak / Simpan PDF
+        </button>
       </div>
       <div className="flex items-center gap-2 mb-6">
         {viewMode === 'week' ? (
