@@ -2,6 +2,12 @@ const prisma = require('../utils/database');
 const { successResponse } = require('../utils/response');
 const { AppError } = require('../utils/AppError');
 
+// Deteksi error Prisma akibat kolom shift_number belum dimigrasikan.
+// P2022 = "The column does not exist in the current database."
+const isMissingShiftColumn = (err) =>
+  err?.code === 'P2022' ||
+  /shift_number|Unknown column/i.test(err?.message || '');
+
 /**
  * BackupController
  * Mengelola assignment backup ketika staff libur/tidak hadir.
@@ -23,10 +29,30 @@ class BackupController {
 
       const dateObj = new Date(`${date}T00:00:00Z`);
 
-      const backups = await prisma.backupAssignment.findMany({
-        where: { date: dateObj },
-        orderBy: { createdAt: 'asc' },
-      });
+      let backups;
+      try {
+        backups = await prisma.backupAssignment.findMany({
+          where: { date: dateObj },
+          orderBy: { createdAt: 'asc' },
+        });
+      } catch (err) {
+        // Jika kolom shift_number belum dimigrasikan, fallback tanpa kolom itu
+        // agar halaman tetap berfungsi (bukan 500 total).
+        if (isMissingShiftColumn(err)) {
+          console.warn('[backup] Kolom shift_number belum ada — jalankan prisma migrate deploy. Fallback tanpa shift.');
+          backups = await prisma.backupAssignment.findMany({
+            where: { date: dateObj },
+            orderBy: { createdAt: 'asc' },
+            select: {
+              id: true, date: true, absentUserId: true, backupUserId: true,
+              absentPositionId: true, backupUserOriginalDepartment: true,
+              notes: true, createdAt: true,
+            },
+          });
+        } else {
+          throw err;
+        }
+      }
 
       // Ambil detail user untuk absent dan backup
       const userIds = [...new Set([
@@ -61,6 +87,7 @@ class BackupController {
 
       return successResponse(res, 200, enriched, 'Data backup berhasil dimuat');
     } catch (err) {
+      console.error('[backup] listBackups gagal:', err?.code, err?.message);
       next(err);
     }
   }
