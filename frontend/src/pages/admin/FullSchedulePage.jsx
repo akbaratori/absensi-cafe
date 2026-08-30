@@ -105,6 +105,7 @@ export default function FullSchedulePage() {
       const res = await rotationService.getAllSchedules(weekStart);
       setData(res.data.data || []);
     } catch (err) {
+      console.error('[FullSchedule] fetchWeek failed:', err?.response?.status, err?.response?.data || err?.message);
       setError(err?.response?.data?.message || 'Gagal memuat jadwal');
     } finally { setLoading(false); }
   };
@@ -115,6 +116,8 @@ export default function FullSchedulePage() {
       const res = await rotationService.getAllSchedulesMonth(monthView);
       setMonthData(res.data.data || null);
     } catch (err) {
+      // Log full details so the real cause (401/403/500/network) is visible in the console.
+      console.error('[FullSchedule] fetchMonth failed:', err?.response?.status, err?.response?.data || err?.message);
       setError(err?.response?.data?.message || 'Gagal memuat jadwal bulanan');
     } finally { setLoading(false); }
   };
@@ -129,14 +132,18 @@ export default function FullSchedulePage() {
     } catch { setOffDaySet(new Set()); }
   };
 
-  const fetchBackupsForDates = async (dates) => {
+  // Batch requests to avoid flooding the backend / exhausting the DB connection pool.
+  // In month mode this can be ~28-31 dates; firing them all at once (Promise.all)
+  // can trigger "Too many connections" / timeouts. Run them in small chunks.
+  const fetchBackupsForDates = async (dates, chunkSize = 5) => {
     try {
-      const results = await Promise.allSettled(dates.map(d => rotationService.listBackups(d)));
-      setBackupsByDate(prev => {
-        const map = new Map(prev);
-        results.forEach((r, i) => { if (r.status === 'fulfilled') map.set(dates[i], r.value?.data?.data || []); });
-        return map;
-      });
+      const map = new Map();
+      for (let i = 0; i < dates.length; i += chunkSize) {
+        const chunk = dates.slice(i, i + chunkSize);
+        const results = await Promise.allSettled(chunk.map(d => rotationService.listBackups(d)));
+        results.forEach((r, j) => { if (r.status === 'fulfilled') map.set(chunk[j], r.value?.data?.data || []); });
+      }
+      setBackupsByDate(prev => new Map([...prev, ...map]));
     } catch { /* non-critical */ }
   };
 
@@ -295,7 +302,7 @@ export default function FullSchedulePage() {
               </div>
               <BackupBar ws={ws} />
               <div className="space-y-4">
-                {posSchedules.map(({ position, schedule }) => renderPositionTable(position, schedule, ws))}
+                {(Array.isArray(posSchedules) ? posSchedules : []).map(({ position, schedule }) => renderPositionTable(position, schedule, ws))}
               </div>
             </div>
           );
