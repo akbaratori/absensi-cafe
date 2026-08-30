@@ -704,8 +704,10 @@ class RotationService {
       const dow = d.getUTCDay();
       for (const uid of rosterUserIds) {
         const userOffDay = userOffDayMap.get(uid);
-        // Mark off if offDay is explicitly set (0-6) and matches this day
-        if (userOffDay !== null && userOffDay !== undefined && userOffDay === dow) {
+        // Mark off only if offDay is explicitly set to a valid work day (1-6 = Mon-Sat).
+        // Sunday (0) is a normal work day per business rules, and legacy rows use 0 as
+        // "unset", so 0 must never be treated as an off day here.
+        if (userOffDay !== null && userOffDay !== undefined && userOffDay >= 1 && userOffDay <= 6 && userOffDay === dow) {
           mark(uid, toISO(d));
         }
       }
@@ -899,7 +901,6 @@ class RotationService {
         const day = addDays(monday, i);
         const dateISO = toISO(day);
         if (day.getUTCMonth() !== month) continue;
-        const isSunday = day.getUTCDay() === 0;
 
         const weekMap = new Map();
         for (const w of weekly) {
@@ -911,7 +912,7 @@ class RotationService {
         for (const userId of rosterUserIds) {
           const override = overrideByUserDate.get(`${userId}|${dateISO}`);
           let shiftNumber = null;
-          let isOffDay = isSunday;
+          let isOffDay = false;
           let isManualOverride = false;
 
           if (override) {
@@ -923,7 +924,7 @@ class RotationService {
               shiftNumber = override.shiftId === 1 ? 1 : 2;
               isOffDay = false;
             }
-          } else if (!isSunday && weekMap.has(userId)) {
+          } else if (weekMap.has(userId)) {
             shiftNumber = weekMap.get(userId);
             isOffDay = false;
           }
