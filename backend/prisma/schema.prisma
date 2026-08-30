@@ -366,6 +366,7 @@ model BackupAssignment {
   absentUserId                Int      @map("absent_user_id")
   backupUserId                Int      @map("backup_user_id")
   absentPositionId            Int      @map("absent_position_id")
+  shiftNumber                 Int      @default(1) @map("shift_number")
   backupUserOriginalDepartment String  @default("BAR") @map("backup_user_original_department")
   notes                       String?  @db.VarChar(500)
   createdAt                   DateTime @default(now()) @map("created_at")

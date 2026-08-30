@@ -75,11 +75,14 @@ class BackupController {
    */
   async createBackup(req, res, next) {
     try {
-      const { date, absentUserId, backupUserId, absentPositionId, notes } = req.body;
+      const { date, absentUserId, backupUserId, absentPositionId, shiftNumber, notes } = req.body;
 
       if (!date || !absentUserId || !backupUserId || !absentPositionId) {
         throw new AppError('Field date, absentUserId, backupUserId, absentPositionId wajib diisi', 400, 'VALIDATION_ERROR');
       }
+
+      // Shift yang membutuhkan backup (default 1). Bisa 2 jika backup diambil dari shift 1.
+      const shiftNum = parseInt(shiftNumber) || 1;
 
       const dateObj = new Date(`${date}T00:00:00Z`);
 
@@ -126,6 +129,7 @@ class BackupController {
           data: {
             backupUserId: parseInt(backupUserId),
             absentPositionId: parseInt(absentPositionId),
+            shiftNumber: shiftNum,
             backupUserOriginalDepartment: backupUser.department,
             notes: notes || null,
           },
@@ -137,6 +141,7 @@ class BackupController {
             absentUserId: parseInt(absentUserId),
             backupUserId: parseInt(backupUserId),
             absentPositionId: parseInt(absentPositionId),
+            shiftNumber: shiftNum,
             backupUserOriginalDepartment: backupUser.department,
             notes: notes || null,
           },
@@ -264,10 +269,11 @@ class BackupController {
    */
   async getBackupCandidates(req, res, next) {
     try {
-      const { date, absentPositionId } = req.query;
+      const { date, absentPositionId, shiftNumber } = req.query;
       if (!date) throw new AppError('Parameter date wajib diisi', 400, 'VALIDATION_ERROR');
 
       const dateObj = new Date(`${date}T00:00:00Z`);
+      const shiftNum = parseInt(shiftNumber) || 1;
 
       // Hitung weekStart
       const day = dateObj.getUTCDay();
@@ -283,14 +289,29 @@ class BackupController {
         orderBy: { fullName: 'asc' },
       });
 
-      // Cari user yang sedang dijadwalkan di posisi absent minggu ini
+      // Cari user yang sedang dijadwalkan di posisi absent minggu ini (beserta shift-nya)
       const scheduledInPosition = absentPositionId
         ? await prisma.weeklySchedule.findMany({
             where: { positionId: parseInt(absentPositionId), weekStart },
-            select: { userId: true },
+            select: { userId: true, shiftNumber: true },
           })
         : [];
-      const scheduledUserIds = new Set(scheduledInPosition.map(s => s.userId));
+
+      // User yang terjadwal di posisi yang sama PADA SHIFT YANG SAMA tidak bisa jadi backup.
+      // User di posisi yang sama tapi BEDA SHIFT (misal shift 1 saat shift 2 butuh backup)
+      // TETAP BISA jadi backup — inilah pengkondisian "ambil dari shift 1".
+      const scheduledUserIds = new Set(
+        scheduledInPosition
+          .filter(s => (s.shiftNumber || 1) === shiftNum)
+          .map(s => s.userId)
+      );
+
+      // User di posisi yang sama tapi shift lebih awal (lebih kecil) → diprioritaskan.
+      const earlierShiftUserIds = new Set(
+        scheduledInPosition
+          .filter(s => (s.shiftNumber || 1) < shiftNum)
+          .map(s => s.userId)
+      );
 
       // Pisahkan kandidat
       const candidates = allUsers
@@ -327,7 +348,18 @@ class BackupController {
         currentPosition: scheduleByUser.get(c.id)?.name || null,
         currentPositionId: scheduleByUser.get(c.id)?.positionId || null,
         isFromKitchen: c.department === 'KITCHEN',
+        // Prioritas: user yang terjadwal di posisi yang sama pada shift lebih awal.
+        // Berguna saat shift 2 butuh backup → kandidat dari shift 1 posisi yang sama.
+        isSamePositionEarlierShift: earlierShiftUserIds.has(c.id),
+        samePositionEarlierShiftNumber: earlierShiftUserIds.has(c.id)
+          ? (scheduledInPosition.find(s => s.userId === c.id)?.shiftNumber || 1)
+          : null,
       }));
+
+      // Urutkan: kandidat prioritas (shift lebih awal di posisi yang sama) di atas.
+      enriched.sort((a, b) =>
+        (b.isSamePositionEarlierShift ? 1 : 0) - (a.isSamePositionEarlierShift ? 1 : 0)
+      );
 
       return successResponse(res, 200, enriched, 'Kandidat backup berhasil dimuat');
     } catch (err) {

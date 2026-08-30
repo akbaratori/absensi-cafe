@@ -58,8 +58,8 @@ const rotationService = {
   // Backup assignments
   listBackups: (date) =>
     api.get('/rotation/backups', { params: { date } }),
-  getBackupCandidates: (date, absentPositionId) =>
-    api.get('/rotation/backup-candidates', { params: { date, absentPositionId } }),
+  getBackupCandidates: (date, absentPositionId, shiftNumber) =>
+    api.get('/rotation/backup-candidates', { params: { date, absentPositionId, shiftNumber } }),
   createBackup: (data) =>
     api.post('/rotation/backups', data),
   deleteBackup: (id) =>

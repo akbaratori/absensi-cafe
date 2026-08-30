@@ -20,6 +20,7 @@ export default function BackupPanel({ date, positions = [], onClose }) {
 
   // Step 1 state
   const [selectedPositionId, setSelectedPositionId] = useState('');
+  const [shiftNumber, setShiftNumber]               = useState(1); // shift yang membutuhkan backup
   const [absentUserOptions, setAbsentUserOptions]   = useState([]);
   const [absentUserId, setAbsentUserId]             = useState('');
   const [backupUserId, setBackupUserId]             = useState('');
@@ -39,12 +40,12 @@ export default function BackupPanel({ date, positions = [], onClose }) {
 
   useEffect(() => {
     if (selectedPositionId) {
-      fetchAbsentOptions(selectedPositionId);
+      fetchAbsentOptions(selectedPositionId, shiftNumber);
     } else {
       setAbsentUserOptions([]);
       setAbsentUserId('');
     }
-  }, [selectedPositionId]);
+  }, [selectedPositionId, shiftNumber]);
 
   const fetchBackups = async () => {
     setLoading(true);
@@ -62,11 +63,11 @@ export default function BackupPanel({ date, positions = [], onClose }) {
     } catch { /* silent */ }
   };
 
-  const fetchAbsentOptions = async (posId) => {
+  const fetchAbsentOptions = async (posId, shift) => {
     try {
       const [resCandidates, resAll] = await Promise.all([
-        rotationService.getBackupCandidates(date, posId),
-        rotationService.getBackupCandidates(date, undefined),
+        rotationService.getBackupCandidates(date, posId, shift),
+        rotationService.getBackupCandidates(date, undefined, shift),
       ]);
       const candidateIds = new Set((resCandidates.data.data || []).map(c => c.id));
       const inPosition = (resAll.data.data || []).filter(u => !candidateIds.has(u.id));
@@ -77,6 +78,7 @@ export default function BackupPanel({ date, positions = [], onClose }) {
 
   const resetStep1 = () => {
     setSelectedPositionId('');
+    setShiftNumber(1);
     setAbsentUserId('');
     setBackupUserId('');
     setNotes('');
@@ -108,6 +110,7 @@ export default function BackupPanel({ date, positions = [], onClose }) {
         absentUserId:     parseInt(absentUserId),
         backupUserId:     parseInt(backupUserId),
         absentPositionId: parseInt(selectedPositionId),
+        shiftNumber,
         notes,
       });
       toast.success('Backup berhasil ditambahkan');
@@ -234,6 +237,20 @@ export default function BackupPanel({ date, positions = [], onClose }) {
               </div>
 
               <div>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Shift yang butuh backup</label>
+                <select value={shiftNumber} onChange={e => setShiftNumber(parseInt(e.target.value))} disabled={!selectedPositionId}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 disabled:opacity-50">
+                  <option value={1}>Shift 1</option>
+                  <option value={2}>Shift 2</option>
+                </select>
+                {shiftNumber === 2 && (
+                  <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                    Kandidat dari Shift 1 posisi yang sama dapat dipilih sebagai pengganti.
+                  </p>
+                )}
+              </div>
+
+              <div>
                 <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Staff yang absen</label>
                 <select value={absentUserId} onChange={e => setAbsentUserId(e.target.value)} disabled={!selectedPositionId}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 disabled:opacity-50">
@@ -249,12 +266,12 @@ export default function BackupPanel({ date, positions = [], onClose }) {
                   <option value="">Pilih pengganti</option>
                   {kitchenCandidates.length > 0 && (
                     <optgroup label="Staff Dapur">
-                      {kitchenCandidates.map(u => <option key={u.id} value={u.id}>{u.fullName}{u.currentPosition ? ' - dari ' + u.currentPosition : ''}</option>)}
+                      {kitchenCandidates.map(u => <option key={u.id} value={u.id}>{u.fullName}{u.isSamePositionEarlierShift ? ` (Shift ${u.samePositionEarlierShiftNumber} posisi ini)` : (u.currentPosition ? ' - dari ' + u.currentPosition : '')}</option>)}
                     </optgroup>
                   )}
                   {otherCandidates.length > 0 && (
                     <optgroup label="Lainnya">
-                      {otherCandidates.map(u => <option key={u.id} value={u.id}>{u.fullName}{u.currentPosition ? ' - dari ' + u.currentPosition : ''}</option>)}
+                      {otherCandidates.map(u => <option key={u.id} value={u.id}>{u.fullName}{u.isSamePositionEarlierShift ? ` (Shift ${u.samePositionEarlierShiftNumber} posisi ini)` : (u.currentPosition ? ' - dari ' + u.currentPosition : '')}</option>)}
                     </optgroup>
                   )}
                 </select>
@@ -360,6 +377,7 @@ export default function BackupPanel({ date, positions = [], onClose }) {
                       </div>
                       <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                         Posisi: {b.absentPosition?.name || '-'}
+                        <span className="ml-2 text-blue-500 dark:text-blue-400">Shift {b.shiftNumber || 1}</span>
                         {b.backupUserOriginalDepartment === 'KITCHEN' && (
                           <span className="ml-2 text-amber-500">Staff dapur - jadwal dapur disesuaikan</span>
                         )}
