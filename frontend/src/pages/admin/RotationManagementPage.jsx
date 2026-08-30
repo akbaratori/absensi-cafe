@@ -65,8 +65,10 @@ function MonthCalendar({ month, understaffed, roster, users, positionId, onAssig
   }
 
   // Build per-date schedule map from the generated monthly schedule.
+  // Skip off-day (libur) entries so they are not shown in the calendar.
   const scheduleMap = {};
   for (const s of (monthSchedule || [])) {
+    if (s.isOffDay) continue;
     if (!scheduleMap[s.date]) scheduleMap[s.date] = [];
     scheduleMap[s.date].push(s);
   }
