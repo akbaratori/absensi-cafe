@@ -147,9 +147,9 @@ class RotationController {
 
     async createPosition(req, res, next) {
         try {
-            const { name, shift1Capacity, shift2Capacity } = req.body;
+            const { name, shift1Capacity, shift2Capacity, scheduleAllWorking } = req.body;
             if (!name) throw missingFields();
-            const position = await rotationService.createPosition({ name, shift1Capacity, shift2Capacity });
+            const position = await rotationService.createPosition({ name, shift1Capacity, shift2Capacity, scheduleAllWorking });
             return successResponse(res, 201, position, 'Posisi berhasil dibuat');
         } catch (err) {
             next(err);
@@ -176,9 +176,9 @@ class RotationController {
 
     async updatePosition(req, res, next) {
         try {
-            const { name, shift1Capacity, shift2Capacity, isActive } = req.body;
+            const { name, shift1Capacity, shift2Capacity, isActive, scheduleAllWorking } = req.body;
             const position = await rotationService.updatePosition(parseInt(req.params.id), {
-                name, shift1Capacity, shift2Capacity, isActive
+                name, shift1Capacity, shift2Capacity, isActive, scheduleAllWorking
             });
             return successResponse(res, 200, position, 'Posisi berhasil diperbarui');
         } catch (err) {

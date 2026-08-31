@@ -107,7 +107,7 @@ class RotationService {
     return { ...position, rosters, rotationState };
   }
 
-  async createPosition({ name, shift1Capacity, shift2Capacity }) {
+  async createPosition({ name, shift1Capacity, shift2Capacity, scheduleAllWorking }) {
     if (!name) {
       throw new AppError('Nama posisi wajib diisi', 400, 'VALIDATION_ERROR');
     }
@@ -121,6 +121,7 @@ class RotationService {
         name,
         shift1Capacity: shift1Capacity ?? 2,
         shift2Capacity: shift2Capacity ?? 3,
+        scheduleAllWorking: scheduleAllWorking ?? false,
       },
     });
 
@@ -141,7 +142,7 @@ class RotationService {
     });
   }
 
-  async updatePosition(positionId, { name, shift1Capacity, shift2Capacity, isActive }) {
+  async updatePosition(positionId, { name, shift1Capacity, shift2Capacity, isActive, scheduleAllWorking }) {
     const position = await prisma.position.findUnique({ where: { id: positionId } });
     if (!position) {
       throw new AppError(`Posisi dengan ID ${positionId} tidak ditemukan`, 404, 'NOT_FOUND');
@@ -152,6 +153,7 @@ class RotationService {
     if (shift1Capacity !== undefined) data.shift1Capacity = shift1Capacity;
     if (shift2Capacity !== undefined) data.shift2Capacity = shift2Capacity;
     if (isActive !== undefined) data.isActive = isActive;
+    if (scheduleAllWorking !== undefined) data.scheduleAllWorking = scheduleAllWorking;
 
     await prisma.position.update({ where: { id: positionId }, data });
     return this.getPosition(positionId);
@@ -329,8 +331,20 @@ class RotationService {
     // sebelumnya ada di Shift 2 akan berpindah ke Shift 1 dan sebaliknya.
     const idx = startIndex % roster.length;
     const rotated = [...roster.slice(idx), ...roster.slice(0, idx)];
-    const shift1Members = rotated.slice(0, position.shift1Capacity);
-    const shift2Members = rotated.slice(position.shift1Capacity);
+
+    // Mode "scheduleAllWorking" (posisi Kitchen): jadwalkan SEMUA orang di
+    // roster (formasi fleksibel 3-4 orang), kapasitas tidak memotong. Shift 1/2
+    // dibagi dari urutan rotasi (setengah-setengah) sehingga tetap adil bergantian.
+    // Mode normal: potong sesuai shift1Capacity / shift2Capacity.
+    let shift1Members, shift2Members;
+    if (position.scheduleAllWorking) {
+      const half = Math.ceil(rotated.length / 2);
+      shift1Members = rotated.slice(0, half);
+      shift2Members = rotated.slice(half);
+    } else {
+      shift1Members = rotated.slice(0, position.shift1Capacity);
+      shift2Members = rotated.slice(position.shift1Capacity);
+    }
 
     const assignments = [
       ...shift1Members.map(({ userId }) => ({ userId, shiftNumber: 1, shiftId: shift1.id })),

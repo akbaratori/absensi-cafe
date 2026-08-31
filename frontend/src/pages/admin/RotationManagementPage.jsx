@@ -483,10 +483,10 @@ export default function RotationManagementPage() {
 
   // Modals
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [newPosition, setNewPosition] = useState({ name: '', shift1Capacity: 2, shift2Capacity: 3 });
+  const [newPosition, setNewPosition] = useState({ name: '', shift1Capacity: 2, shift2Capacity: 3, scheduleAllWorking: false });
   const [rosterModal, setRosterModal] = useState(false);
   const [editModal, setEditModal] = useState(false);
-  const [editForm, setEditForm] = useState({ name: '', shift1Capacity: 2, shift2Capacity: 3 });
+  const [editForm, setEditForm] = useState({ name: '', shift1Capacity: 2, shift2Capacity: 3, scheduleAllWorking: false });
   const [backupModal, setBackupModal] = useState(null); // { date, issues }
   const [monthSchedule, setMonthSchedule] = useState([]); // hasil generate bulanan (per tanggal per user)
   const [editDate, setEditDate] = useState(null); // tanggal yang sedang diedit (string YYYY-MM-DD)
@@ -564,10 +564,11 @@ export default function RotationManagementPage() {
         name: newPosition.name,
         shift1Capacity: Number(newPosition.shift1Capacity),
         shift2Capacity: Number(newPosition.shift2Capacity),
+        scheduleAllWorking: !!newPosition.scheduleAllWorking,
       });
       toast.success('Posisi berhasil dibuat');
       setShowCreateModal(false);
-      setNewPosition({ name: '', shift1Capacity: 2, shift2Capacity: 3 });
+      setNewPosition({ name: '', shift1Capacity: 2, shift2Capacity: 3, scheduleAllWorking: false });
       await fetchPositions();
       // Auto-select new position
       if (res.data?.data) openPosition(res.data.data);
@@ -583,6 +584,7 @@ export default function RotationManagementPage() {
         name: editForm.name,
         shift1Capacity: Number(editForm.shift1Capacity),
         shift2Capacity: Number(editForm.shift2Capacity),
+        scheduleAllWorking: !!editForm.scheduleAllWorking,
       });
       toast.success('Posisi berhasil diperbarui');
       setEditModal(false);
@@ -745,7 +747,7 @@ export default function RotationManagementPage() {
                         <span className="font-medium text-sm text-gray-800 dark:text-gray-100">{pos.name}</span>
                         <div className="flex gap-1">
                           <button
-                            onClick={(e) => { e.stopPropagation(); setEditForm({ name: pos.name, shift1Capacity: pos.shift1Capacity, shift2Capacity: pos.shift2Capacity }); setEditModal(pos); }}
+                            onClick={(e) => { e.stopPropagation(); setEditForm({ name: pos.name, shift1Capacity: pos.shift1Capacity, shift2Capacity: pos.shift2Capacity, scheduleAllWorking: !!pos.scheduleAllWorking }); setEditModal(pos); }}
                             className="p-1 text-gray-400 hover:text-blue-500 rounded"
                           >✏️</button>
                           <button
@@ -961,9 +963,19 @@ export default function RotationManagementPage() {
                   <label className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">Kapasitas Shift 2</label>
                   <input type="number" min="1" required value={newPosition.shift2Capacity}
                     onChange={(e) => setNewPosition({ ...newPosition, shift2Capacity: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100" />
+                    disabled={newPosition.scheduleAllWorking}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 disabled:opacity-50" />
                 </div>
               </div>
+              <label className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer select-none">
+                <input type="checkbox" checked={!!newPosition.scheduleAllWorking}
+                  onChange={(e) => setNewPosition({ ...newPosition, scheduleAllWorking: e.target.checked })}
+                  className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600" />
+                <span>
+                  <span className="font-medium">Jadwalkan semua yang tidak libur</span>
+                  <span className="block text-xs text-gray-500 dark:text-gray-400">Formasi fleksibel (mis. 3–4 orang). Kapasitas shift diabaikan; semua anggota roster yang tidak libur dijadwalkan, dibagi Shift 1/2 bergantian. Cocok untuk Kitchen.</span>
+                </span>
+              </label>
               <div className="flex justify-end gap-2 pt-2">
                 <button type="button" onClick={() => setShowCreateModal(false)} className="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg text-sm">Batal</button>
                 <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 font-medium">Buat Posisi</button>
@@ -996,9 +1008,19 @@ export default function RotationManagementPage() {
                   <label className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">Kapasitas Shift 2</label>
                   <input type="number" min="1" required value={editForm.shift2Capacity}
                     onChange={(e) => setEditForm({ ...editForm, shift2Capacity: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100" />
+                    disabled={editForm.scheduleAllWorking}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 disabled:opacity-50" />
                 </div>
               </div>
+              <label className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer select-none">
+                <input type="checkbox" checked={!!editForm.scheduleAllWorking}
+                  onChange={(e) => setEditForm({ ...editForm, scheduleAllWorking: e.target.checked })}
+                  className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600" />
+                <span>
+                  <span className="font-medium">Jadwalkan semua yang tidak libur</span>
+                  <span className="block text-xs text-gray-500 dark:text-gray-400">Formasi fleksibel (mis. 3–4 orang). Kapasitas shift diabaikan; semua anggota roster yang tidak libur dijadwalkan, dibagi Shift 1/2 bergantian. Cocok untuk Kitchen.</span>
+                </span>
+              </label>
               <div className="flex justify-end gap-2 pt-2">
                 <button type="button" onClick={() => setEditModal(false)} className="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg text-sm">Batal</button>
                 <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 font-medium">Simpan</button>

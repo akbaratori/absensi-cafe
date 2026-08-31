@@ -56,6 +56,25 @@ const ddlReady = (async () => {
       ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
     `);
 
+    // Tambahkan kolom schedule_all_working (saklar "jadwalkan semua yang tidak
+    // libur" untuk posisi Kitchen) jika belum ada. MySQL tidak mendukung
+    // ADD COLUMN IF NOT EXISTS secara portabel, jadi cek dulu via information_schema.
+    const colCheck = await prisma.$queryRawUnsafe(`
+      SELECT COUNT(*) AS cnt
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'positions'
+        AND COLUMN_NAME = 'schedule_all_working'
+    `);
+    const colExists = Number(colCheck?.[0]?.cnt ?? 0) > 0;
+    if (!colExists) {
+      await prisma.$executeRawUnsafe(`
+        ALTER TABLE \`positions\`
+          ADD COLUMN \`schedule_all_working\` BOOLEAN NOT NULL DEFAULT false
+      `);
+      console.log('[DDL] Column added: positions.schedule_all_working');
+    }
+
     console.log('[DDL] Tables ensured: manual_off_days, backup_assignments');
   } catch (err) {
     // Non-fatal: log the error but let the app start.

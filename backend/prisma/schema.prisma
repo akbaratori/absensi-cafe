@@ -291,6 +291,9 @@ model Position {
   name           String  @unique
   shift1Capacity Int     @default(2) @map("shift1_capacity")
   shift2Capacity Int     @default(3) @map("shift2_capacity")
+  // Jika true: jadwalkan SEMUA orang di roster yang tidak libur (formasi
+  // fleksibel 3-4 orang), kapasitas tidak lagi memotong. Dipakai posisi Kitchen.
+  scheduleAllWorking Boolean @default(false) @map("schedule_all_working")
   isActive       Boolean @default(true) @map("is_active")
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
