@@ -1,12 +1,19 @@
 const rateLimit = require('express-rate-limit');
 const { errorResponse } = require('../utils/response');
 
-// General API rate limiter — 100 requests per 15 minutes per IP
+// Kunci limiter per user yang sudah login (fallback ke IP untuk request anonim).
+// Lebih akurat dari req.ip murni — di serverless (Vercel) atau di balik proxy
+// (Render), banyak pengguna bisa berbagi IP publik yang sama sehingga limiter
+// per-IP rawan false-positive 429.
+const keyByUser = (req) => req.user?.id?.toString() || req.ip;
+
+// General API rate limiter — 300 requests per 15 minutes per user
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: 300,
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: keyByUser,
   handler: (req, res) => {
     return errorResponse(res, 429, 'TOO_MANY_REQUESTS', 'Terlalu banyak permintaan. Coba lagi nanti.');
   },
@@ -39,9 +46,10 @@ const attendanceActionLimiter = rateLimit({
 // Admin dashboard limiter — higher quota to prevent 429 on dashboards
 const adminLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 1000,
+  max: 2000,
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: keyByUser,
   handler: (req, res) => {
     return errorResponse(res, 429, 'TOO_MANY_REQUESTS', 'Terlalu banyak permintaan admin. Coba lagi nanti.');
   },

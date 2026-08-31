@@ -1,8 +1,19 @@
 import axios from 'axios';
 
+// Resolve API base URL.
+// Jika VITE_API_URL tidak diset di environment Vercel, default '/api/v1' akan
+// memanggil domain frontend sendiri — jika domain itu deployment Vercel lain
+// (serverless), request jadi bocor ke instance salah & kena rate limit kecil.
+// Di production tanpa VITE_API_URL, fallback ke backend Render yang diketahui.
+const resolveBaseURL = () => {
+  if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL;
+  if (import.meta.env.DEV) return '/api/v1';
+  return 'https://absensi-cafe-backend.onrender.com/api/v1';
+};
+
 // Create axios instance with base configuration
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || '/api/v1',
+  baseURL: resolveBaseURL(),
   headers: {
     'Content-Type': 'application/json',
   },
