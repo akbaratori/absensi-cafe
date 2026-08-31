@@ -351,65 +351,88 @@ export default function FullSchedulePage() {
     );
   };
 
-  // Build a clean, share-friendly text of the current schedule (week or month).
+  // Build a clean, WhatsApp-friendly text of the current schedule.
+  // Format: per-posisi, per-hari, dengan sekat yang jelas agar mudah dibaca.
   const buildShareText = () => {
-    const fmtDay = (iso) => new Date(`${iso}T00:00:00Z`).toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+    const fmtDay = (iso) => new Date(`${iso}T00:00:00Z`).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'short', timeZone: 'UTC' });
+    const fmtShort = (d) => d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+
+    const SEP  = '━━━━━━━━━━━━━━';
+    const SEP2 = '────────────────';
+
+    // Satu blok posisi untuk satu minggu
+    const renderPosition = (position, schedule, ws) => {
+      const out = [];
+      out.push(`📌 *${position.name.toUpperCase()}*`);
+      if (!schedule || !schedule.schedules?.length) {
+        out.push('   (belum ada jadwal)');
+        return out;
+      }
+      getWeekDates(ws).forEach((dateISO) => {
+        const backups = backupsByDate.get(dateISO) || [];
+        const { working: s1, movedToOtherShift: mv1, absent: ab1 } = getUsersOnDayWithOffDay(schedule, dateISO, 1, offDaySet, backups, position.id);
+        const { working: s2, movedToOtherShift: mv2, absent: ab2 } = getUsersOnDayWithOffDay(schedule, dateISO, 2, offDaySet, backups, position.id);
+
+        const fmtMove = (u) => `~${u.name}~ → Shift ${u.targetShift}`;
+        const fmtAbsent = (u) => `~${u.name}~${u.backupName ? ` → ${u.backupName}` : ''}`;
+
+        const s1Names = [...s1.map(u => u.name), ...mv1.map(fmtMove), ...ab1.map(fmtAbsent)];
+        const s2Names = [...s2.map(u => u.name), ...mv2.map(fmtMove), ...ab2.map(fmtAbsent)];
+
+        out.push(`*${fmtDay(dateISO)}*`);
+        out.push(`• Shift 1: ${s1Names.length ? s1Names.join(', ') : '—'}`);
+        out.push(`• Shift 2: ${s2Names.length ? s2Names.join(', ') : '—'}`);
+      });
+      // Info libur minggu ini (gabungan semua hari)
+      const offNames = new Map(); // name -> [tgl]
+      getWeekDates(ws).forEach((dateISO) => {
+        [1, 2].forEach((shiftNum) => {
+          const { offDay } = getUsersOnDayWithOffDay(schedule, dateISO, shiftNum, offDaySet, backupsByDate.get(dateISO) || [], position.id);
+          offDay.forEach((u) => {
+            if (!offNames.has(u.name)) offNames.set(u.name, []);
+            offNames.get(u.name).push(new Date(`${dateISO}T00:00:00Z`).getUTCDate());
+          });
+        });
+      });
+      if (offNames.size) {
+        const txt = [...offNames.entries()].map(([n, tgl]) => `${n} (tgl ${[...new Set(tgl)].sort((a,b)=>a-b).join(', ')})`).join(', ');
+        out.push(`🏖️ Libur: ${txt}`);
+      }
+      return out;
+    };
+
     const lines = [];
     if (viewMode === 'week') {
-      lines.push(`🗓 JADWAL MINGGUAN — ${fmtDay(weekStart)} s.d. ${fmtDay(getWeekDates(weekStart)[6])}`);
+      const ws = weekStart;
+      const wEnd = new Date(`${ws}T00:00:00Z`); wEnd.setUTCDate(wEnd.getUTCDate() + 6);
+      lines.push(`🗓️ *JADWAL MINGGUAN*`);
+      lines.push(`${fmtShort(new Date(`${ws}T00:00:00Z`))} – ${fmtShort(wEnd)}`);
+      lines.push(SEP);
       lines.push('');
-      const weekDates = getWeekDates(weekStart);
-      data.forEach(({ position, schedule }) => {
-        lines.push(`▸ ${position.name}`);
-        if (!schedule || !schedule.schedules?.length) {
-          lines.push('   (belum ada jadwal)');
-        } else {
-          const byShift = { 1: [], 2: [] };
-          weekDates.forEach((dateISO) => {
-            const dayLabel = fmtDay(dateISO);
-            [1, 2].forEach((shiftNum) => {
-              const { working } = getUsersOnDayWithOffDay(schedule, dateISO, shiftNum, offDaySet, backupsByDate.get(dateISO) || [], position.id);
-              const names = working.map((w) => w.name).filter(Boolean);
-              if (names.length) byShift[shiftNum].push(`${dayLabel}: ${names.join(', ')}`);
-            });
-          });
-          [1, 2].forEach((shiftNum) => {
-            if (byShift[shiftNum].length) lines.push(`   Shift ${shiftNum}: ${byShift[shiftNum].join(' | ')}`);
-          });
-        }
-        lines.push('');
+      data.forEach(({ position, schedule }, i) => {
+        lines.push(...renderPosition(position, schedule, ws));
+        if (i < data.length - 1) lines.push('', SEP2, '');
       });
     } else {
-      lines.push(`🗓 JADWAL BULANAN — ${monthView}`);
+      lines.push(`🗓️ *JADWAL BULANAN*`);
+      lines.push(`Bulan ${new Date(`${monthView}-01T00:00:00Z`).toLocaleDateString('id-ID', { month: 'long', year: 'numeric', timeZone: 'UTC' })}`);
+      lines.push(SEP);
       lines.push('');
-      monthData?.weeks?.forEach(({ weekStart: ws, positions: posSchedules }) => {
+      monthData?.weeks?.forEach(({ weekStart: ws, positions: posSchedules }, wi) => {
         const wStart = new Date(`${ws}T00:00:00Z`);
-        const wEnd = new Date(`${ws}T00:00:00Z`);
-        wEnd.setUTCDate(wEnd.getUTCDate() + 6);
-        const fmt = (d) => d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', timeZone: 'UTC' });
-        lines.push(`── Minggu ${fmt(wStart)} – ${fmt(wEnd)} ──`);
-        posSchedules.forEach(({ position, schedule }) => {
-          lines.push(`▸ ${position.name}`);
-          if (!schedule || !schedule.schedules?.length) {
-            lines.push('   (belum ada jadwal)');
-          } else {
-            const byShift = { 1: [], 2: [] };
-            getWeekDates(ws).forEach((dateISO) => {
-              const dayLabel = fmtDay(dateISO);
-              [1, 2].forEach((shiftNum) => {
-                const { working } = getUsersOnDayWithOffDay(schedule, dateISO, shiftNum, offDaySet, backupsByDate.get(dateISO) || [], position.id);
-                const names = working.map((w) => w.name).filter(Boolean);
-                if (names.length) byShift[shiftNum].push(`${dayLabel}: ${names.join(', ')}`);
-              });
-            });
-            [1, 2].forEach((shiftNum) => {
-              if (byShift[shiftNum].length) lines.push(`   Shift ${shiftNum}: ${byShift[shiftNum].join(' | ')}`);
-            });
-          }
+        const wEnd = new Date(`${ws}T00:00:00Z`); wEnd.setUTCDate(wEnd.getUTCDate() + 6);
+        if (wi > 0) lines.push(SEP, '');
+        lines.push(`🗓️ *MINGGU ${fmtShort(wStart)} – ${fmtShort(wEnd)}*`);
+        lines.push('');
+        posSchedules.forEach(({ position, schedule }, i) => {
+          lines.push(...renderPosition(position, schedule, ws));
+          if (i < posSchedules.length - 1) lines.push('', SEP2, '');
         });
         lines.push('');
       });
     }
+    lines.push(SEP);
+    lines.push('_Dicetak dari Absensi Cafe_');
     return lines.join('\n');
   };
 

@@ -86,10 +86,20 @@ class RotationService {
     if (!position) {
       throw new AppError(`Posisi dengan ID ${positionId} tidak ditemukan`, 404, 'NOT_FOUND');
     }
-    const rosters = await prisma.positionRoster.findMany({
+    const rawRosters = await prisma.positionRoster.findMany({
       where: { positionId },
       orderBy: { orderIndex: 'asc' },
       include: { user: { select: { id: true, fullName: true } } },
+    });
+    // Dedupe roster berdasarkan userId: jika seorang user terdaftar dua kali
+    // (data legacy), rotasi akan menghitung dia dua kali dan hasil dedupe di
+    // generateWeek membuat dia HILANG dari salah satu shift. Ambil entri
+    // pertama per user agar setiap user hanya dihitung sekali.
+    const seen = new Set();
+    const rosters = rawRosters.filter((r) => {
+      if (seen.has(r.userId)) return false;
+      seen.add(r.userId);
+      return true;
     });
     const rotationState = await prisma.rotationState.findFirst({
       where: { positionId },
@@ -359,10 +369,19 @@ class RotationService {
 
     // Build all (userId, date) pairs for the 7-day week in one pass.
     const weekDates = Array.from({ length: 7 }, (_, day) => addDays(monday, day));
+
+    // Ambil aturan libur dari SEMUA sumber (ManualOffDay "Atur Hari Libur",
+    // Leave/cuti APPROVED, OffDayRequest APPROVED, User.offDay mingguan,
+    // PublicHoliday) SEBELUM menulis jadwal — agar generate selalu menghormati
+    // libur yang sudah diatur admin.
+    const offMap = await this.getOffDayUserIds(positionId, weekDates);
+    const isOffOn = (userId, dateObj) => offMap.get(userId)?.has(toISO(dateObj)) === true;
+
     const pairs = [];
     for (const dateObj of weekDates) {
       for (const a of assignments) {
-        pairs.push({ userId: a.userId, date: dateObj, shiftId: a.shiftId, isOffDay: false });
+        const off = isOffOn(a.userId, dateObj);
+        pairs.push({ userId: a.userId, date: dateObj, shiftId: off ? null : a.shiftId, isOffDay: off });
       }
       for (const userId of allRosterIds) {
         if (assignedUserIds.has(userId)) continue;
@@ -441,7 +460,9 @@ class RotationService {
       orderBy: [{ shiftNumber: 'asc' }, { userId: 'asc' }],
     });
 
-    const userIds = schedules.map((s) => s.userId);
+    const userIds = [...new Set(schedules.map((s) => s.userId))];
+    // Ambil SEMUA user (tanpa filter isActive) agar jadwal lama yang masih
+    // mereferensikan user nonaktif tetap menampilkan namanya, bukan "User #id".
     const users = userIds.length > 0
       ? await prisma.user.findMany({
           where: { id: { in: userIds } },
@@ -450,10 +471,15 @@ class RotationService {
       : [];
     const userMap = new Map(users.map((u) => [u.id, u]));
 
-    const enriched = schedules.map((s) => ({
-      ...s,
-      user: userMap.get(s.userId) || null,
-    }));
+    const enriched = schedules.map((s) => {
+      const u = userMap.get(s.userId) || null;
+      return {
+        ...s,
+        user: u
+          ? { ...u, fullName: u.fullName || u.username || `User ${s.userId}` }
+          : { id: s.userId, fullName: `User ${s.userId}`, username: null, department: null },
+      };
+    });
 
     return {
       position,
@@ -483,11 +509,16 @@ class RotationService {
       : [];
     const userMap = new Map(users.map((u) => [u.id, u]));
 
-    return schedules.map((s) => ({
-      ...s,
-      user: userMap.get(s.userId) || null,
-      weekStart: toISO(s.weekStart),
-    }));
+    return schedules.map((s) => {
+      const u = userMap.get(s.userId) || null;
+      return {
+        ...s,
+        user: u
+          ? { ...u, fullName: u.fullName || u.username || `User ${s.userId}` }
+          : { id: s.userId, fullName: `User ${s.userId}`, username: null, department: null },
+        weekStart: toISO(s.weekStart),
+      };
+    });
   }
 
   /**
