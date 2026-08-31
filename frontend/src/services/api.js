@@ -1,14 +1,13 @@
 import axios from 'axios';
 
 // Resolve API base URL.
-// Jika VITE_API_URL tidak diset di environment Vercel, default '/api/v1' akan
-// memanggil domain frontend sendiri — jika domain itu deployment Vercel lain
-// (serverless), request jadi bocor ke instance salah & kena rate limit kecil.
-// Di production tanpa VITE_API_URL, fallback ke backend Render yang diketahui.
+// Monorepo ini menjalankan backend di Vercel project yang sama (folder /api),
+// jadi default '/api/v1' memanggil API di domain yang sama — benar untuk
+// development (via proxy Vite) maupun production.
+// Set VITE_API_URL hanya jika backend di-host terpisah (mis. Render).
 const resolveBaseURL = () => {
   if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL;
-  if (import.meta.env.DEV) return '/api/v1';
-  return 'https://absensi-cafe-backend.onrender.com/api/v1';
+  return '/api/v1';
 };
 
 // Create axios instance with base configuration
