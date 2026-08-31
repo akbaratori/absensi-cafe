@@ -98,6 +98,11 @@
 }
 
 /* ===== Print styles for Jadwal Lengkap (share as PDF) ===== */
+@page {
+  size: A4 landscape;
+  margin: 8mm;
+}
+
 @media print {
   aside,
   header,
@@ -119,6 +124,23 @@
 
   body {
     background: #fff !important;
+    /* Paksa mode terang agar teks tidak pudar/sulit dibaca di hasil cetak */
+    color-scheme: light !important;
+  }
+
+  /* Paksa warna teks gelap di semua elemen (termasuk yang bertema dark) */
+  *,
+  *::before,
+  *::after {
+    color: #111827 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Kecualikan elemen dengan latar berwarna (header posisi, label shift, badge) */
+  .bg-blue-600,
+  .bg-blue-600 * {
+    color: #ffffff !important;
   }
 
   .shadow,
@@ -132,5 +154,41 @@
   .rounded-xl,
   .rounded-lg {
     border-radius: 0 !important;
+  }
+
+  /* Hilangkan scroll horizontal: semua kontainer overflow dibuat terlihat penuh
+     sehingga tidak ada kolom tanggal yang terpotong di kanan */
+  .overflow-x-auto,
+  .overflow-x-scroll,
+  .overflow-auto {
+    overflow: visible !important;
+  }
+
+  .min-w-max {
+    min-width: 0 !important;
+  }
+
+  /* Kecilkan tabel agar 7 kolom tanggal muat di halaman A4 landscape */
+  table {
+    min-width: 0 !important;
+    width: 100% !important;
+    font-size: 8.5pt !important;
+    table-layout: fixed !important;
+  }
+
+  th,
+  td {
+    padding: 2px 4px !important;
+    word-break: break-word !important;
+    white-space: normal !important;
+  }
+
+  td li {
+    white-space: normal !important;
+  }
+
+  /* Hindari pemisahan baris tabel di tengah halaman */
+  tr {
+    page-break-inside: avoid !important;
   }
 }

@@ -1,4 +1,5 @@
-﻿import { useState, useEffect, useMemo } from 'react';
+﻿import { useState, useEffect, useMemo, useRef } from 'react';
+import html2canvas from 'html2canvas';
 import rotationService from '../../services/rotationService';
 import BackupPanel from '../../components/admin/BackupPanel';
 
@@ -48,25 +49,51 @@ function getMondaysInMonth(mon) {
 }
 
 function getUsersOnDayWithOffDay(schedule, dateISO, shiftNum, offDaySet, backupsOnDay = [], currentPositionId = null) {
-  if (!schedule || !schedule.schedules?.length) return { working: [], offDay: [], deployedElsewhere: [] };
+  if (!schedule || !schedule.schedules?.length) return { working: [], offDay: [], deployedElsewhere: [], movedToOtherShift: [] };
   const all = schedule.schedules
     .filter(s => s.shiftNumber === shiftNum)
     .map(s => ({ name: s.user?.fullName || `User #${s.userId}`, userId: s.userId }));
   const deployedMap = new Map();
+  // Peta user yang dipindah ke SHIFT LAIN di posisi yang sama
+  // (backup yang absentPositionId-nya = posisi ini). shiftNumber pada backup
+  // menunjukkan shift TUJUAN. Jika baris ini shift 1 dan backup.shiftNumber = 2,
+  // berarti user dipindahkan Shift 1 → Shift 2, sehingga baris Shift 1 juga
+  // harus diberi tanda (bukan hanya baris Backup).
+  const movedShiftMap = new Map();
   backupsOnDay.forEach(b => {
-    if (b.backupUserId && b.absentPositionId !== currentPositionId)
+    if (!b.backupUserId) return;
+    if (b.absentPositionId !== currentPositionId) {
       deployedMap.set(b.backupUserId, b.absentPosition?.name || `Posisi #${b.absentPositionId}`);
+    } else {
+      const targetShift = b.shiftNumber || null;
+      if (targetShift && targetShift !== shiftNum) movedShiftMap.set(b.backupUserId, targetShift);
+    }
+  });
+  // Karyawan yang absen hari ini dan digantikan oleh backup
+  // (absentPositionId = posisi ini → posisi asal karyawan tersebut).
+  const absentMap = new Map();
+  backupsOnDay.forEach(b => {
+    if (b.absentUserId && b.absentPositionId === currentPositionId)
+      absentMap.set(b.absentUserId, b.backupUser?.fullName || (b.backupUserId ? `#${b.backupUserId}` : null));
   });
   const offDay            = all.filter(u => offDaySet.has(`${u.userId}_${dateISO}`));
   const deployedElsewhere = all
     .filter(u => !offDaySet.has(`${u.userId}_${dateISO}`) && deployedMap.has(u.userId))
     .map(u => ({ ...u, targetPositionName: deployedMap.get(u.userId) }));
-  const working           = all.filter(u => !offDaySet.has(`${u.userId}_${dateISO}`) && !deployedMap.has(u.userId));
-  return { working, offDay, deployedElsewhere };
+  const movedToOtherShift = all
+    .filter(u => !offDaySet.has(`${u.userId}_${dateISO}`) && movedShiftMap.has(u.userId))
+    .map(u => ({ ...u, targetShift: movedShiftMap.get(u.userId) }));
+  const absent            = all
+    .filter(u => absentMap.has(u.userId))
+    .map(u => ({ ...u, backupName: absentMap.get(u.userId) }));
+  const working           = all.filter(u => !offDaySet.has(`${u.userId}_${dateISO}`) && !deployedMap.has(u.userId) && !movedShiftMap.has(u.userId) && !absentMap.has(u.userId));
+  return { working, offDay, deployedElsewhere, movedToOtherShift, absent };
 }
 export default function FullSchedulePage() {
   const [viewMode, setViewMode] = useState('week');
   const [copied, setCopied] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const exportRef = useRef(null);
   const [weekStart, setWeekStart] = useState(() => getMondayISO(new Date().toISOString().split('T')[0]));
   const [monthView, setMonthView] = useState(() => {
     const t = new Date();
@@ -224,13 +251,26 @@ export default function FullSchedulePage() {
                     <td className={`px-3 py-2 font-medium whitespace-nowrap text-sm ${shiftNum === 1 ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300' : 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300'}`}>Shift {shiftNum}</td>
                     {dLabels.map(dl => {
                       const backupsOnDay = backupsByDate.get(dl.date) || [];
-                      const { working, offDay, deployedElsewhere } = getUsersOnDayWithOffDay(schedule, dl.date, shiftNum, offDaySet, backupsOnDay, position.id);
+                      const { working, offDay, deployedElsewhere, movedToOtherShift, absent } = getUsersOnDayWithOffDay(schedule, dl.date, shiftNum, offDaySet, backupsOnDay, position.id);
                       return (
                         <td key={dl.date} className={`px-3 py-2 align-top ${dl.isToday ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''}`}>
                           {working.length > 0 && <ul className="space-y-0.5 mb-1">{working.map((u,i) => <li key={i} className="whitespace-nowrap text-gray-600 dark:text-gray-300">{u.name}</li>)}</ul>}
+                          {movedToOtherShift.length > 0 && <ul className="space-y-0.5 mb-1">{movedToOtherShift.map((u,i) => (
+                            <li key={i} className="whitespace-nowrap text-xs">
+                              <span className="text-red-500 dark:text-red-400 line-through">{u.name}</span>
+                              <span className="text-gray-400 mx-1">&rarr;</span>
+                              <span className="inline-block px-1 py-px rounded bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-medium">Shift {u.targetShift}</span>
+                            </li>
+                          ))}</ul>}
                           {deployedElsewhere.length > 0 && <ul className="space-y-0.5 mb-1">{deployedElsewhere.map((u,i) => <li key={i} className="whitespace-nowrap text-purple-500 dark:text-purple-400 text-xs">&#128256; <span className="line-through">{u.name}</span> &rarr; {u.targetPositionName}</li>)}</ul>}
+                          {absent.length > 0 && <ul className="space-y-0.5 mb-1">{absent.map((u,i) => (
+                            <li key={i} className="whitespace-nowrap text-xs">
+                              <span className="text-red-500 dark:text-red-400 line-through">{u.name}</span>
+                              {u.backupName && (<><span className="text-gray-400 mx-1">&rarr;</span><span className="text-green-700 dark:text-green-400 font-medium">{u.backupName}</span></>)}
+                            </li>
+                          ))}</ul>}
                           {offDay.length > 0 && <ul className="space-y-0.5">{offDay.map((u,i) => <li key={i} className="whitespace-nowrap text-orange-500 dark:text-orange-400 text-xs line-through">&#127958; {u.name}</li>)}</ul>}
-                          {working.length === 0 && offDay.length === 0 && deployedElsewhere.length === 0 && <span className="text-gray-400 text-xs">&mdash;</span>}
+                          {working.length === 0 && offDay.length === 0 && deployedElsewhere.length === 0 && movedToOtherShift.length === 0 && absent.length === 0 && <span className="text-gray-400 text-xs">&mdash;</span>}
                         </td>
                       );
                     })}
@@ -384,8 +424,59 @@ export default function FullSchedulePage() {
     }
   };
 
+  // Download jadwal sebagai gambar PNG kualitas HD (2x scale), seluruh konten
+  // dirender tanpa terpotong dan dipaksa mode terang agar mudah dibaca.
+  const handleDownloadImage = async () => {
+    if (exporting) return;
+    const el = exportRef.current;
+    if (!el) return;
+    setExporting(true);
+    const root = document.documentElement;
+    const hadDark = root.classList.contains('dark');
+    try {
+      // Paksa mode terang selama proses capture
+      if (hadDark) root.classList.remove('dark');
+      // Tunggu 2 frame agar React/browser sempat me-render ulang tanpa dark class
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+      const canvas = await html2canvas(el, {
+        scale: 2, // HD 2x
+        useCORS: true,
+        backgroundColor: '#ffffff',
+        windowWidth: el.scrollWidth,
+        width: el.scrollWidth,
+        height: el.scrollHeight,
+        scrollX: 0,
+        scrollY: -window.scrollY,
+      });
+
+      const filename = viewMode === 'week'
+        ? `jadwal-minggu-${weekStart}.png`
+        : `jadwal-bulan-${monthView}.png`;
+
+      await new Promise((resolve, reject) => {
+        canvas.toBlob((blob) => {
+          if (!blob) return reject(new Error('Gagal membuat gambar'));
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = filename;
+          a.click();
+          setTimeout(() => URL.revokeObjectURL(url), 5000);
+          resolve();
+        }, 'image/png');
+      });
+    } catch (err) {
+      console.error('[FullSchedule] export image failed:', err);
+      alert('Gagal membuat gambar jadwal. Coba lagi.');
+    } finally {
+      if (hadDark) root.classList.add('dark');
+      setExporting(false);
+    }
+  };
+
   return (
-    <div className="p-4 md:p-6 max-w-full">
+    <div className="p-4 md:p-6 max-w-full min-w-0">
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <h1 className="text-2xl font-bold text-gray-800 dark:text-gray-100">Jadwal Lengkap Semua Posisi</h1>
         <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
@@ -407,6 +498,10 @@ export default function FullSchedulePage() {
           className="px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 text-sm font-medium transition-colors">
           🖨️ Cetak / Simpan PDF
         </button>
+        <button onClick={handleDownloadImage} disabled={exporting || loading}
+          className="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium shadow-sm transition-colors">
+          {exporting ? '⏳ Membuat gambar...' : '🖼️ Download Gambar HD'}
+        </button>
       </div>
       <div className="flex items-center gap-2 mb-6">
         {viewMode === 'week' ? (
@@ -423,22 +518,24 @@ export default function FullSchedulePage() {
           </>
         )}
       </div>
-      {viewMode === 'week' && !loading && data.length > 0 && <BackupBar ws={weekStart} />}
-      {error && <div className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-700 text-red-700 dark:text-red-300 rounded-lg p-4 mb-4 text-sm">{error}</div>}
-      {loading ? (
-        <LoadingSpinner />
-      ) : viewMode === 'week' ? (
-        data.length === 0 ? (
-          <div className="text-center py-16 text-gray-500">
-            <p className="text-lg mb-2">Belum ada posisi yang dibuat</p>
-            <p className="text-sm">Buat posisi di halaman Posisi &amp; Rotasi terlebih dahulu.</p>
-          </div>
+      <div ref={exportRef} className="bg-gray-50 dark:bg-transparent p-1 rounded-lg">
+        {viewMode === 'week' && !loading && data.length > 0 && <BackupBar ws={weekStart} />}
+        {error && <div className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-700 text-red-700 dark:text-red-300 rounded-lg p-4 mb-4 text-sm">{error}</div>}
+        {loading ? (
+          <LoadingSpinner />
+        ) : viewMode === 'week' ? (
+          data.length === 0 ? (
+            <div className="text-center py-16 text-gray-500">
+              <p className="text-lg mb-2">Belum ada posisi yang dibuat</p>
+              <p className="text-sm">Buat posisi di halaman Posisi &amp; Rotasi terlebih dahulu.</p>
+            </div>
+          ) : (
+            <div className="space-y-8">{data.map(({ position, schedule }) => renderPositionTable(position, schedule, weekStart))}</div>
+          )
         ) : (
-          <div className="space-y-8">{data.map(({ position, schedule }) => renderPositionTable(position, schedule, weekStart))}</div>
-        )
-      ) : (
-        renderMonthView()
-      )}
+          renderMonthView()
+        )}
+      </div>
       {showBackupPanel && backupDate && (
         <BackupPanel
           date={backupDate}
