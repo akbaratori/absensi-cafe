@@ -857,6 +857,13 @@ class RotationService {
       });
     }
 
+    // Daily jobdesk (UserSchedule.kitchenStation) for this user in range
+    const jobdeskRows = await prisma.userSchedule.findMany({
+      where: { userId, date: { gte: from, lte: to } },
+      select: { date: true, kitchenStation: true },
+    });
+    const jobdeskByDate = new Map(jobdeskRows.map(r => [toISO(r.date), r.kitchenStation || null]));
+
     // Build final list
     return dateISOs.map((iso) => {
       const s = scheduleByDate.get(iso);
@@ -868,6 +875,7 @@ class RotationService {
         // If user is acting as backup today, show the backup position instead
         positionName: backup ? backup.positionName : originalPositionName,
         positionId: backup ? backup.positionId : (s ? s.positionId : null),
+        jobdesk: jobdeskByDate.get(iso) || null,
         isOffDay: offSet.has(iso),
         isBackup: !!backup,
         originalPositionName: backup ? originalPositionName : null,

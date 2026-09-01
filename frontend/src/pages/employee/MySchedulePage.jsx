@@ -411,6 +411,11 @@ const MySchedulePage = () => {
                                                                 Asli: {schedule.originalPositionName}
                                                             </div>
                                                         )}
+                                                        {schedule.jobdesk && (
+                                                            <div className="w-full text-[9px] leading-tight font-semibold px-1.5 py-0.5 rounded border text-center whitespace-normal break-words text-teal-700 bg-teal-50 dark:text-teal-300 dark:bg-teal-900/30 border-teal-200 dark:border-teal-700">
+                                                                {schedule.jobdesk}
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 )}
 
