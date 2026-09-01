@@ -161,7 +161,8 @@ class OffDayService {
         where: { id: requestId },
         data: {
           status: 'REJECTED_BY_SYSTEM',
-          rejectionNote: conflicts.join(' | '),
+          // NOTE: kolom rejection_note di DB terbatas VARCHAR(191), potong agar tidak error 500
+          rejectionNote: conflicts.join(' | ').slice(0, 191),
         },
       });
 

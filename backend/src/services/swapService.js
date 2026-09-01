@@ -118,11 +118,13 @@ class SwapService {
     const { valid, errors } = await validateSwapEligibility(swap.requesterId, swap.targetUserId, swap.date);
     if (!valid) {
       // Auto-reject by system
+      // NOTE: kolom rejection_note di DB terbatas VARCHAR(191), potong agar tidak error 500
+      const note = errors.join(' ').slice(0, 191);
       await prisma.shiftSwap.update({
         where: { id: swapId },
         data: {
           status: 'REJECTED_BY_SYSTEM',
-          rejectionNote: errors.join(' '),
+          rejectionNote: note,
         },
       });
 
@@ -181,7 +183,7 @@ class SwapService {
         where: { id: parseInt(swapId) },
         data: {
           status: transition.nextStatus,
-          rejectionNote: 'Ditolak oleh karyawan tujuan.',
+          rejectionNote: 'Ditolak oleh karyawan tujuan.'.slice(0, 191),
           respondedAt: now,
         },
       });
