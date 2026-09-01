@@ -1,0 +1,1 @@
+-- AlterTable: perbesar rejection_note agar pesan error gabungan tidak terpotong`nALTER TABLE `shift_swaps` MODIFY COLUMN `rejection_note` TEXT NULL;`nALTER TABLE `off_day_requests` MODIFY COLUMN `rejection_note` TEXT NULL;
