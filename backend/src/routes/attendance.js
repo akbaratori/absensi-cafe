@@ -12,6 +12,7 @@ const { asyncHandler, successResponse } = require('../utils/response');
 const prisma = require('../utils/database');
 const upload = require('../middleware/upload');
 const { attendanceActionLimiter } = require('../middleware/rateLimiter');
+const { toWITA } = require('../utils/attendanceHelpers');
 
 router.post('/clock-in', authenticate, authorize('EMPLOYEE', 'ADMIN'), attendanceActionLimiter, upload.single('photo'), validate(clockInSchema), attendanceController.clockIn);
 router.post('/clock-out', authenticate, authorize('EMPLOYEE', 'ADMIN'), attendanceActionLimiter, upload.single('photo'), validate(clockOutSchema), attendanceController.clockOut);
@@ -84,7 +85,8 @@ router.get('/my-penalty', authenticate, authorize('EMPLOYEE', 'ADMIN'), asyncHan
   const parseMins = (t) => { const [h, m] = (t || '08:00').split(':').map(Number); return h * 60 + m; };
 
   const records = lateRecords.map(r => {
-    const dateStr = r.date.toISOString().split('T')[0];
+    // Gunakan WITA (UTC+8) untuk format tanggal agar konsisten dengan riwayat absensi
+    const dateStr = toWITA(r.date).toISOString().split('T')[0];
 
     // Prioritas: UserSchedule hari itu → default shift user → config default
     const shiftStart = scheduleByDate[dateStr]
