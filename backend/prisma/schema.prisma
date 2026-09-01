@@ -315,6 +315,8 @@ model PositionJobdesk {
   positionId Int    @map("position_id")
   name       String
   orderIndex Int    @default(0) @map("order_index")
+  // Jobdesk "berat" (mis. Main Cook): pemegangnya TIDAK boleh rangkap jobdesk lain.
+  isHeavy    Boolean @default(false) @map("is_heavy")
   createdAt  DateTime @default(now()) @map("created_at")
 
   position Position @relation(fields: [positionId], references: [id], onDelete: Cascade)

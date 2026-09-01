@@ -545,7 +545,7 @@ export default function RotationManagementPage() {
         shift: r.shiftNumber || (i < pos.shift1Capacity ? 1 : 2),
       }))
     );
-    setJobdesks((pos.jobdesks || []).map((j) => j.name));
+    setJobdesks((pos.jobdesks || []).map((j) => ({ name: j.name, isHeavy: !!j.isHeavy })));
     try {
       const res = await rotationService.getPosition(pos.id);
       setSelectedPosition(res.data.data);
@@ -555,18 +555,18 @@ export default function RotationManagementPage() {
           shift: r.shiftNumber || (i < res.data.data.shift1Capacity ? 1 : 2),
         }))
       );
-      setJobdesks((res.data.data.jobdesks || []).map((j) => j.name));
+      setJobdesks((res.data.data.jobdesks || []).map((j) => ({ name: j.name, isHeavy: !!j.isHeavy })));
     } catch {
       toast.error('Gagal memuat detail posisi');
     }
   }, []);
 
-  // Simpan daftar jobdesk posisi terpilih ke server
-  const saveJobdesks = async (names) => {
+  // Simpan daftar jobdesk posisi terpilih ke server (array {name, isHeavy}).
+  const saveJobdesks = async (list) => {
     if (!selectedPosition) return;
     try {
-      const res = await rotationService.setJobdesks(selectedPosition.id, names);
-      setJobdesks((res.data.data || []).map((j) => j.name));
+      const res = await rotationService.setJobdesks(selectedPosition.id, list);
+      setJobdesks((res.data.data || []).map((j) => ({ name: j.name, isHeavy: !!j.isHeavy })));
       toast.success('Daftar jobdesk disimpan. Generate ulang jadwal untuk menerapkan rotasi jobdesk.');
     } catch (err) {
       toast.error('Gagal menyimpan jobdesk: ' + (err.response?.data?.message || err.message));
@@ -576,15 +576,21 @@ export default function RotationManagementPage() {
   const addJobdesk = () => {
     const v = newJobdesk.trim();
     if (!v) return;
-    if (jobdesks.includes(v)) { toast.error('Jobdesk sudah ada'); return; }
-    const next = [...jobdesks, v];
+    if (jobdesks.some((j) => j.name === v)) { toast.error('Jobdesk sudah ada'); return; }
+    const next = [...jobdesks, { name: v, isHeavy: false }];
     setJobdesks(next);
     setNewJobdesk('');
     saveJobdesks(next);
   };
 
   const removeJobdesk = (name) => {
-    const next = jobdesks.filter((j) => j !== name);
+    const next = jobdesks.filter((j) => j.name !== name);
+    setJobdesks(next);
+    saveJobdesks(next);
+  };
+
+  const toggleHeavy = (name) => {
+    const next = jobdesks.map((j) => (j.name === name ? { ...j, isHeavy: !j.isHeavy } : j));
     setJobdesks(next);
     saveJobdesks(next);
   };
@@ -885,13 +891,23 @@ export default function RotationManagementPage() {
                 ) : (
                   <div className="flex flex-wrap gap-2">
                     {jobdesks.map((j) => (
-                      <span key={j} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-200 text-xs font-medium">
-                        {j}
-                        <button type="button" onClick={() => removeJobdesk(j)}
+                      <span key={j.name} className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${j.isHeavy ? 'bg-red-100 dark:bg-red-900/40 text-red-800 dark:text-red-200' : 'bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-200'}`}>
+                        {j.name}
+                        <button type="button" onClick={() => toggleHeavy(j.name)}
+                          className={`px-1.5 rounded-full text-[10px] font-bold ${j.isHeavy ? 'bg-red-500 text-white' : 'bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200'}`}
+                          title="Jobdesk berat: pemegangnya tidak boleh rangkap jobdesk lain (mis. Main Cook)">
+                          {j.isHeavy ? 'BERAT' : 'berat?'}
+                        </button>
+                        <button type="button" onClick={() => removeJobdesk(j.name)}
                           className="text-amber-500 hover:text-red-500 font-bold leading-none" title="Hapus">✕</button>
                       </span>
                     ))}
                   </div>
+                )}
+                {jobdesks.length > 0 && (
+                  <p className="text-[11px] text-gray-400 mt-2">
+                    Semua jobdesk akan terisi setiap hari (staff bisa rangkap jika staff &lt; jumlah jobdesk). Jobdesk <b>BERAT</b> (mis. Main Cook) tidak boleh dirangkap dengan jobdesk lain.
+                  </p>
                 )}
               </div>
 

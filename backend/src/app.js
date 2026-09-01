@@ -89,6 +89,24 @@ const ddlReady = (async () => {
       ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
     `);
 
+    // Kolom is_heavy (jobdesk berat / eksklusif, mis. Main Cook).
+    await prisma.$executeRawUnsafe(`
+      ALTER TABLE \`position_jobdesks\`
+      ADD COLUMN IF NOT EXISTS \`is_heavy\` BOOLEAN NOT NULL DEFAULT FALSE
+    `).catch(async () => {
+      // MySQL/MariaDB lama tanpa IF NOT EXISTS: cek dulu lalu ALTER.
+      const col = await prisma.$queryRawUnsafe(
+        `SELECT COUNT(*) AS c FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'position_jobdesks' AND COLUMN_NAME = 'is_heavy'`
+      );
+      const exists = Number(col?.[0]?.c ?? col?.[0]?.C ?? 0) > 0;
+      if (!exists) {
+        await prisma.$executeRawUnsafe(
+          `ALTER TABLE \`position_jobdesks\` ADD COLUMN \`is_heavy\` BOOLEAN NOT NULL DEFAULT FALSE`
+        );
+      }
+    });
+
     console.log('[DDL] Tables ensured: manual_off_days, backup_assignments, position_jobdesks');
   } catch (err) {
     // Non-fatal: log the error but let the app start.

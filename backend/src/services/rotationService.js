@@ -118,17 +118,27 @@ class RotationService {
 
   // ---------- Jobdesk (rotasi harian) ----------
 
-  // Ganti seluruh daftar jobdesk sebuah posisi (names: array string berurutan).
+  // Ganti seluruh daftar jobdesk sebuah posisi.
+  // names: array berurutan berisi string ATAU objek { name, isHeavy }.
   async setJobdesks(positionId, names) {
     await this.getPosition(positionId);
     if (!Array.isArray(names)) {
       throw new AppError('Daftar jobdesk tidak valid', 400, 'VALIDATION_ERROR');
     }
-    const clean = [...new Set(names.map((n) => String(n).trim()).filter(Boolean))];
+    // Normalisasi ke { name, isHeavy } dan buang duplikat nama.
+    const seen = new Set();
+    const clean = [];
+    for (const n of names) {
+      const name = String(typeof n === 'object' && n !== null ? n.name : n).trim();
+      const isHeavy = !!(typeof n === 'object' && n !== null && n.isHeavy);
+      if (!name || seen.has(name)) continue;
+      seen.add(name);
+      clean.push({ name, isHeavy });
+    }
     await prisma.positionJobdesk.deleteMany({ where: { positionId } });
     if (clean.length) {
       await prisma.positionJobdesk.createMany({
-        data: clean.map((name, i) => ({ positionId, name, orderIndex: i })),
+        data: clean.map((j, i) => ({ positionId, name: j.name, isHeavy: j.isHeavy, orderIndex: i })),
       });
     }
     return prisma.positionJobdesk.findMany({
@@ -469,23 +479,81 @@ class RotationService {
       // berputar berdasarkan urutan roster, sehingga: (1) tidak ada staff yang
       // jobdesknya sama terus, (2) semua jobdesk kebagian bergilir, (3) jobdesk
       // yang kosong (saat staff < jumlah jobdesk) juga bergantian adil.
-      const jobdeskList = (position.jobdesks || []).map((j) => j.name);
-      const jobdeskByKey = new Map(); // `${userId}_${dateISO}` -> jobdeskName
+      const jobdeskObjs = position.jobdesks || [];
+      const jobdeskList = jobdeskObjs.map((j) => j.name);
+      const jobdeskByKey = new Map(); // `${userId}_${dateISO}` -> jobdeskName (bisa "A + B" jika rangkap)
       if (jobdeskList.length) {
-        // Peringkat global tiap user dalam roster (untuk titik awal rotasi).
         const rank = new Map(allRosterIds.map((uid, i) => [uid, i]));
         weekDates.forEach((dateObj, dayIdx) => {
           const dateISO = toISO(dateObj);
-          // Staff yang bekerja hari ini (punya shift & tidak libur), urut roster.
+          // Staff yang bekerja hari ini (tidak libur), urut roster.
           const working = assignments
             .filter((a) => !isOffOn(a.userId, dateObj))
             .map((a) => a.userId)
             .sort((x, y) => (rank.get(x) ?? 0) - (rank.get(y) ?? 0));
           if (!working.length) return;
-          // Rotasi titik awal per hari agar jobdesk tiap staff berganti tiap hari.
-          working.forEach((uid, i) => {
-            const jd = jobdeskList[(dayIdx + i) % jobdeskList.length];
-            jobdeskByKey.set(`${uid}_${dateISO}`, jd);
+
+          const nStaff = working.length;
+          const nJd = jobdeskList.length;
+          const heavyIdx = jobdeskObjs
+            .map((j, idx) => (j.isHeavy ? idx : -1))
+            .filter((idx) => idx >= 0);
+          const isHeavyJd = (jd) => heavyIdx.includes(jd);
+
+          // Pemegang utama tiap jobdesk (rotasi titik awal per hari):
+          // jobdesk ke-jd dipegang staff working[(dayIdx + jd) % nStaff].
+          // Jika staff >= jobdesk, tiap staff dapat maks 1 jobdesk utama (peta 1-1).
+          // Jika staff < jobdesk, beberapa jobdesk utama jatuh ke staff yang sama;
+          // kelebihan itu kita perlakukan sebagai "tugas tambahan" agar bisa
+          // dialihkan ke staff lain (menjaga jobdesk BERAT tetap eksklusif).
+          const assign = new Map(); // uid -> array nama jobdesk
+          working.forEach((uid) => assign.set(uid, []));
+          const locked = new Set(); // uid pemegang jobdesk BERAT (tidak boleh rangkap)
+          const covered = new Set();
+          const pending = []; // jobdesk utama yang menumpuk di satu staff (perlu dialihkan)
+
+          const give = (uid, jd) => {
+            assign.get(uid).push(jobdeskList[jd]);
+            covered.add(jd);
+            if (isHeavyJd(jd)) locked.add(uid);
+          };
+
+          // 1) Isi jobdesk BERAT dulu ke pemegang utamanya dan kunci orangnya.
+          heavyIdx.forEach((jd) => {
+            const uid = working[(dayIdx + jd) % nStaff];
+            give(uid, jd);
+          });
+
+          // 2) Jobdesk non-berat: berikan ke pemegang utamanya bila ia belum
+          //    terkunci (bukan pemegang berat). Kalau terkunci, masuk antrian.
+          for (let jd = 0; jd < nJd; jd++) {
+            if (isHeavyJd(jd)) continue;
+            const uid = working[(dayIdx + jd) % nStaff];
+            if (locked.has(uid)) { pending.push(jd); continue; }
+            give(uid, jd);
+          }
+
+          // 3) Alihkan jobdesk yang masih kosong (pending + yang tumpang-tindih)
+          //    ke staff yang boleh rangkap (bukan pemegang berat), berputar adil.
+          for (let jd = 0; jd < nJd; jd++) if (!covered.has(jd)) pending.push(jd);
+          const free = working.filter((uid) => !locked.has(uid));
+          pending.forEach((jd, k) => {
+            if (covered.has(jd) || !free.length) return;
+            // Mulai dari offset bergeser tiap hari agar yang rangkap bergantian.
+            const holder = free[(dayIdx + k) % free.length];
+            if (!assign.get(holder).includes(jobdeskList[jd])) give(holder, jd);
+          });
+          // Putaran pengaman: jika masih ada yang kosong, paksa isi ke staff bebas
+          // mana pun yang belum memegangnya.
+          for (let jd = 0; jd < nJd; jd++) {
+            if (covered.has(jd) || !free.length) continue;
+            const holder = free.find((uid) => !assign.get(uid).includes(jobdeskList[jd])) || free[0];
+            give(holder, jd);
+          }
+
+          working.forEach((uid) => {
+            const jobs = assign.get(uid) || [];
+            if (jobs.length) jobdeskByKey.set(`${uid}_${dateISO}`, jobs.join(' + '));
           });
         });
       }

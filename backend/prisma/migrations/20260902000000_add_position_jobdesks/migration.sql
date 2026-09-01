@@ -11,3 +11,7 @@ CREATE TABLE IF NOT EXISTS `position_jobdesks` (
   INDEX        `position_jobdesks_position_id_idx`(`position_id`),
   PRIMARY KEY  (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- Kolom is_heavy: jobdesk "berat"/eksklusif (mis. Main Cook) — pemegangnya
+-- tidak boleh rangkap jobdesk lain. Ditambahkan terpisah agar idempotent.
+ALTER TABLE `position_jobdesks` ADD COLUMN `is_heavy` BOOLEAN NOT NULL DEFAULT FALSE;
