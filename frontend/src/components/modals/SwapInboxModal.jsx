@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { X, Check, XCircle } from 'lucide-react';
 import Button from '../../components/shared/Button';
 import Badge from '../../components/shared/Badge';
-import { getMySwaps, approveSwapByUser, rejectSwapByUser } from '../../services/swapService';
+import { getMySwaps, approveSwapByUser, rejectSwapByUser, cancelSwap } from '../../services/swapService';
 import { showSuccess, showError } from '../../hooks/useToast';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -53,6 +53,22 @@ const SwapInboxModal = ({ onClose }) => {
             fetchSwaps(); // Refresh list
         } catch (error) {
             showError(error.response?.data?.error?.message || 'Gagal menolak permintaan');
+        } finally {
+            setActionLoading(null);
+        }
+    };
+
+    // Requester membatalkan pengajuannya sendiri yang masih pending
+    const handleCancel = async (swapId) => {
+        if (!confirm('Batalkan permintaan tukar shift ini?')) return;
+
+        setActionLoading(swapId);
+        try {
+            await cancelSwap(swapId);
+            showSuccess('Permintaan dibatalkan.');
+            fetchSwaps(); // Refresh list
+        } catch (error) {
+            showError(error.response?.data?.error?.message || 'Gagal membatalkan permintaan');
         } finally {
             setActionLoading(null);
         }
@@ -168,7 +184,7 @@ const SwapInboxModal = ({ onClose }) => {
                                                 {swap.reason}
                                             </div>
                                         </div>
-                                        <div>
+                                        <div className="flex flex-col items-end gap-2">
                                             <span className={`px-2 py-1 rounded-full text-xs font-medium border
                                                 ${swap.status === 'APPROVED' ? 'bg-green-100 text-green-800 border-green-200' : ''}
                                                 ${swap.status.startsWith('REJECTED') ? 'bg-red-100 text-red-800 border-red-200' : ''}
@@ -178,6 +194,19 @@ const SwapInboxModal = ({ onClose }) => {
                                              `}>
                                                 {swap.status.replace(/_/g, ' ')}
                                             </span>
+                                            {/* Requester bisa membatalkan pengajuannya yang masih pending */}
+                                            {swap.requesterId === user.id && ['PENDING_TARGET_RESPONSE', 'PENDING_APPROVAL', 'PENDING_VALIDATION'].includes(swap.status) && (
+                                                <Button
+                                                    size="sm"
+                                                    variant="text"
+                                                    className="text-red-600 hover:text-red-700"
+                                                    onClick={() => handleCancel(swap.id)}
+                                                    loading={actionLoading === swap.id}
+                                                    disabled={actionLoading !== null}
+                                                >
+                                                    <XCircle className="w-4 h-4 mr-1" /> Batalkan
+                                                </Button>
+                                            )}
                                         </div>
                                     </div>
                                 ))}

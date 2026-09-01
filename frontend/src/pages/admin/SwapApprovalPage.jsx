@@ -174,6 +174,21 @@ const SwapApprovalPage = () => {
                                                     </Button>
                                                 </div>
                                             )}
+                                            {/* Admin juga bisa menolak permintaan yang stuck menunggu respons karyawan */}
+                                            {swap.status === 'PENDING_TARGET_RESPONSE' && (
+                                                <div className="flex justify-end gap-2">
+                                                    <Button
+                                                        size="sm"
+                                                        variant="text"
+                                                        className="text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100"
+                                                        onClick={() => handleReject(swap.id)}
+                                                        loading={actionLoading === swap.id}
+                                                        disabled={actionLoading !== null}
+                                                    >
+                                                        <XCircle className="w-4 h-4" /> Tolak
+                                                    </Button>
+                                                </div>
+                                            )}
                                         </td>
                                     </tr>
                                 ))

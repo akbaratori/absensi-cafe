@@ -70,6 +70,8 @@ function canTransition(currentStatus, action) {
       'TARGET_ACCEPT': 'PENDING_APPROVAL',
       'TARGET_REJECT': 'REJECTED_BY_TARGET',
       'REQUESTER_CANCEL': 'CANCELLED',
+      // Admin dapat membersihkan permintaan yang stuck menunggu respons karyawan
+      'ADMIN_REJECT': 'REJECTED_BY_APPROVER',
     },
     'PENDING_APPROVAL': {
       'ADMIN_APPROVE': 'APPROVED',
@@ -117,7 +119,7 @@ function getAllowedActions(currentStatus) {
 
   const transitions = {
     'PENDING_VALIDATION': ['SYSTEM_VALIDATE', 'SYSTEM_REJECT', 'REQUESTER_CANCEL'],
-    'PENDING_TARGET_RESPONSE': ['TARGET_ACCEPT', 'TARGET_REJECT', 'REQUESTER_CANCEL'],
+    'PENDING_TARGET_RESPONSE': ['TARGET_ACCEPT', 'TARGET_REJECT', 'REQUESTER_CANCEL', 'ADMIN_REJECT'],
     'PENDING_APPROVAL': ['ADMIN_APPROVE', 'ADMIN_REJECT'],
   };
 
