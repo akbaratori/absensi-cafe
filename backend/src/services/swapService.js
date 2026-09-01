@@ -65,6 +65,9 @@ class SwapService {
       throw new Error('Shift jadwal Anda dan karyawan tujuan sama pada tanggal tersebut. Tukar shift hanya bisa dilakukan antar shift berbeda.');
     }
 
+    // Cleanup stuck swaps before creating new one
+    await this.cleanupStuckSwaps();
+
     // Create the request - system validates immediately
     const swap = await prisma.shiftSwap.create({
       data: {
@@ -93,6 +96,53 @@ class SwapService {
     });
 
     return updatedSwap;
+  }
+
+  /**
+   * Cleanup swaps stuck in PENDING_VALIDATION for more than 1 hour
+   */
+  async cleanupStuckSwaps() {
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+
+    const stuckSwaps = await prisma.shiftSwap.findMany({
+      where: {
+        status: 'PENDING_VALIDATION',
+        createdAt: { lt: oneHourAgo },
+      },
+    });
+
+    for (const swap of stuckSwaps) {
+      await prisma.shiftSwap.update({
+        where: { id: swap.id },
+        data: {
+          status: 'CANCELLED',
+          rejectionNote: 'Dibatalkan otomatis: sistem gagal memvalidasi pengajuan.',
+        },
+      });
+      console.log(`[SwapService] Auto-cancelled stuck swap #${swap.id}`);
+    }
+
+    // Also cancel past swaps that are still pending
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+
+    const pastSwaps = await prisma.shiftSwap.findMany({
+      where: {
+        status: { in: ['PENDING_VALIDATION', 'PENDING_TARGET_RESPONSE', 'PENDING_APPROVAL'] },
+        date: { lt: today },
+      },
+    });
+
+    for (const swap of pastSwaps) {
+      await prisma.shiftSwap.update({
+        where: { id: swap.id },
+        data: {
+          status: 'CANCELLED',
+          rejectionNote: 'Dibatalkan otomatis: tanggal pengajuan sudah lewat.',
+        },
+      });
+      console.log(`[SwapService] Auto-cancelled past swap #${swap.id}`);
+    }
   }
 
   /**

@@ -76,6 +76,15 @@ const SwapApprovalPage = () => {
                         Perlu Persetujuan
                     </button>
                     <button
+                        onClick={() => setFilterStatus('PENDING_VALIDATION')}
+                        className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${filterStatus === 'PENDING_VALIDATION'
+                            ? 'bg-white dark:bg-gray-600 text-primary-600 shadow-sm'
+                            : 'text-gray-600 dark:text-gray-300 hover:text-gray-900'
+                            }`}
+                    >
+                        Menunggu Validasi
+                    </button>
+                    <button
                         onClick={() => setFilterStatus('ALL')}
                         className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${filterStatus === 'ALL'
                             ? 'bg-white dark:bg-gray-600 text-primary-600 shadow-sm'

@@ -60,12 +60,12 @@ const SwapInboxModal = ({ onClose }) => {
     };
 
     // Filter Logic:
-    // 1. Inbox (Incoming Requests): where targetUserId == user.id AND status == 'PENDING_USER'
+    // 1. Inbox (Incoming Requests): where targetUserId == user.id AND status == 'PENDING_TARGET_RESPONSE'
     // 2. Sent Requests (My Requests): where requesterId == user.id
     // 3. History: Approved/Rejected/PendingAdmin
 
-    const incomingRequests = swaps.filter(s => s.targetUserId == user?.id && s.status === 'PENDING_USER');
-    const myHistory = swaps.filter(s => !(s.targetUserId == user?.id && s.status === 'PENDING_USER'));
+    const incomingRequests = swaps.filter(s => s.targetUserId == user?.id && s.status === 'PENDING_TARGET_RESPONSE');
+    const myHistory = swaps.filter(s => !(s.targetUserId == user?.id && s.status === 'PENDING_TARGET_RESPONSE'));
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
