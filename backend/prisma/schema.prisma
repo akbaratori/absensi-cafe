@@ -141,7 +141,7 @@ model Notification {
   id        Int      @id @default(autoincrement())
   userId    Int      @map("user_id")
   title     String
-  message   String
+  message   String   @db.Text
   isRead    Boolean  @default(false) @map("is_read")
   type      String   @default("INFO")
   link      String?
@@ -163,7 +163,7 @@ model ShiftSwap {
   date          DateTime
   status        String    @default("PENDING_VALIDATION")
   reason        String?
-  rejectionNote String?   @map("rejection_note")
+  rejectionNote String?   @db.Text @map("rejection_note")
   approverId    Int?      @map("approver_id")
   respondedAt   DateTime? @map("responded_at")
   approvedAt    DateTime? @map("approved_at")
@@ -191,7 +191,7 @@ model OffDayRequest {
   workDate      DateTime  @map("work_date")
   reason        String?
   status        String    @default("PENDING_VALIDATION")
-  rejectionNote String?   @map("rejection_note")
+  rejectionNote String?   @db.Text @map("rejection_note")
   approverId    Int?      @map("approver_id")
   respondedAt   DateTime? @map("responded_at")
   approvedAt    DateTime? @map("approved_at")
