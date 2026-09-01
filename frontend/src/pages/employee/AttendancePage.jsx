@@ -41,7 +41,28 @@ const AttendancePage = () => {
 
   useEffect(() => {
     fetchAttendance(1);
-  }, []);
+
+    // Auto-refresh agar absen yang baru saja dilakukan langsung muncul
+    // tanpa harus reload manual:
+    // 1. Saat user kembali ke tab/aplikasi ini (visibilitychange + focus)
+    const handleVisible = () => {
+      if (document.visibilityState === 'visible') fetchAttendance(currentPage);
+    };
+    window.addEventListener('focus', handleVisible);
+    document.addEventListener('visibilitychange', handleVisible);
+
+    // 2. Polling ringan tiap 30 detik selama halaman terbuka & terlihat
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') fetchAttendance(currentPage);
+    }, 30000);
+
+    return () => {
+      window.removeEventListener('focus', handleVisible);
+      document.removeEventListener('visibilitychange', handleVisible);
+      clearInterval(interval);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPage]);
 
   if (loading) {
     return <SkeletonTable rows={10} />;
