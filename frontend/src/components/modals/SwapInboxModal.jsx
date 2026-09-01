@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { X, Check, XCircle } from 'lucide-react';
 import Button from '../../components/shared/Button';
 import Badge from '../../components/shared/Badge';
-import { getMySwaps, approveSwapByUser, rejectSwap } from '../../services/swapService';
+import { getMySwaps, approveSwapByUser, rejectSwapByUser } from '../../services/swapService';
 import { showSuccess, showError } from '../../hooks/useToast';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -15,10 +15,9 @@ const SwapInboxModal = ({ onClose }) => {
     const fetchSwaps = async () => {
         try {
             const response = await getMySwaps();
-            // API returns { status: 'success', data: { swaps: [...] } }
-            // Axios response is { data: { ...API_BODY... } }
-            // So we need response.data.data.swaps
-            setSwaps(response.data?.data?.swaps || []);
+            // Backend returns { success: true, data: [...] }; axios wraps it in response.data
+            const payload = response.data?.data;
+            setSwaps(Array.isArray(payload) ? payload : payload?.swaps || []);
         } catch (error) {
             console.error('Failed to fetch swaps:', error);
             setSwaps([]);
@@ -49,7 +48,7 @@ const SwapInboxModal = ({ onClose }) => {
 
         setActionLoading(swapId);
         try {
-            await rejectSwap(swapId);
+            await rejectSwapByUser(swapId);
             showSuccess('Permintaan ditolak.');
             fetchSwaps(); // Refresh list
         } catch (error) {
@@ -172,11 +171,12 @@ const SwapInboxModal = ({ onClose }) => {
                                         <div>
                                             <span className={`px-2 py-1 rounded-full text-xs font-medium border
                                                 ${swap.status === 'APPROVED' ? 'bg-green-100 text-green-800 border-green-200' : ''}
-                                                ${swap.status === 'REJECTED' ? 'bg-red-100 text-red-800 border-red-200' : ''}
-                                                ${swap.status === 'PENDING_USER' ? 'bg-yellow-100 text-yellow-800 border-yellow-200' : ''}
-                                                ${swap.status === 'PENDING_ADMIN' ? 'bg-blue-100 text-blue-800 border-blue-200' : ''}
+                                                ${swap.status.startsWith('REJECTED') ? 'bg-red-100 text-red-800 border-red-200' : ''}
+                                                ${swap.status === 'PENDING_TARGET_RESPONSE' ? 'bg-yellow-100 text-yellow-800 border-yellow-200' : ''}
+                                                ${swap.status === 'PENDING_APPROVAL' ? 'bg-blue-100 text-blue-800 border-blue-200' : ''}
+                                                ${swap.status === 'CANCELLED' ? 'bg-gray-100 text-gray-800 border-gray-200' : ''}
                                              `}>
-                                                {swap.status.replace('_', ' ')}
+                                                {swap.status.replace(/_/g, ' ')}
                                             </span>
                                         </div>
                                     </div>

@@ -3,23 +3,25 @@ import { Check, XCircle, Search } from 'lucide-react';
 import Card from '../../components/shared/Card';
 import Button from '../../components/shared/Button';
 import Badge from '../../components/shared/Badge';
-import { getAllSwaps, approveSwapByAdmin, rejectSwap } from '../../services/swapService';
+import { getAllSwaps, approveSwapByAdmin, rejectSwapByAdmin } from '../../services/swapService';
 import { showSuccess, showError } from '../../hooks/useToast';
 
 const SwapApprovalPage = () => {
     const [swaps, setSwaps] = useState([]);
     const [loading, setLoading] = useState(true);
     const [actionLoading, setActionLoading] = useState(null);
-    const [filterStatus, setFilterStatus] = useState('PENDING_ADMIN'); // Default to pending admin
+    const [filterStatus, setFilterStatus] = useState('PENDING_APPROVAL'); // Default: perlu persetujuan admin
 
     const fetchSwaps = async () => {
         setLoading(true);
         try {
             const response = await getAllSwaps({ status: filterStatus === 'ALL' ? undefined : filterStatus });
-            // API returns { status: 'success', data: { swaps: [...] } }
-            setSwaps(response.data?.data?.swaps || []);
+            // Backend returns { success: true, data: [...] }
+            const payload = response.data?.data;
+            setSwaps(Array.isArray(payload) ? payload : payload?.swaps || []);
         } catch (error) {
             console.error('Failed to fetch swaps:', error);
+            setSwaps([]);
         } finally {
             setLoading(false);
         }
@@ -47,7 +49,7 @@ const SwapApprovalPage = () => {
 
         setActionLoading(swapId);
         try {
-            await rejectSwap(swapId); // Admin uses same endpoint but logic handles it
+            await rejectSwapByAdmin(swapId);
             showSuccess('Permintaan ditolak.');
             fetchSwaps();
         } catch (error) {
@@ -67,8 +69,8 @@ const SwapApprovalPage = () => {
 
                 <div className="flex bg-gray-100 dark:bg-gray-700 p-1 rounded-lg">
                     <button
-                        onClick={() => setFilterStatus('PENDING_ADMIN')}
-                        className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${filterStatus === 'PENDING_ADMIN'
+                        onClick={() => setFilterStatus('PENDING_APPROVAL')}
+                        className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${filterStatus === 'PENDING_APPROVAL'
                             ? 'bg-white dark:bg-gray-600 text-primary-600 shadow-sm'
                             : 'text-gray-600 dark:text-gray-300 hover:text-gray-900'
                             }`}
@@ -76,13 +78,13 @@ const SwapApprovalPage = () => {
                         Perlu Persetujuan
                     </button>
                     <button
-                        onClick={() => setFilterStatus('PENDING_VALIDATION')}
-                        className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${filterStatus === 'PENDING_VALIDATION'
+                        onClick={() => setFilterStatus('PENDING_TARGET_RESPONSE')}
+                        className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${filterStatus === 'PENDING_TARGET_RESPONSE'
                             ? 'bg-white dark:bg-gray-600 text-primary-600 shadow-sm'
                             : 'text-gray-600 dark:text-gray-300 hover:text-gray-900'
                             }`}
                     >
-                        Menunggu Validasi
+                        Menunggu Karyawan
                     </button>
                     <button
                         onClick={() => setFilterStatus('ALL')}
@@ -139,15 +141,16 @@ const SwapApprovalPage = () => {
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             <span className={`px-2 py-1 rounded-full text-xs font-medium border capitalize
                                                 ${swap.status === 'APPROVED' ? 'bg-green-100 text-green-800 border-green-200' : ''}
-                                                ${swap.status === 'REJECTED' ? 'bg-red-100 text-red-800 border-red-200' : ''}
-                                                ${swap.status === 'PENDING_USER' ? 'bg-yellow-100 text-yellow-800 border-yellow-200' : ''}
-                                                ${swap.status === 'PENDING_ADMIN' ? 'bg-blue-100 text-blue-800 border-blue-200' : ''}
+                                                ${swap.status.startsWith('REJECTED') ? 'bg-red-100 text-red-800 border-red-200' : ''}
+                                                ${swap.status === 'PENDING_TARGET_RESPONSE' ? 'bg-yellow-100 text-yellow-800 border-yellow-200' : ''}
+                                                ${swap.status === 'PENDING_APPROVAL' ? 'bg-blue-100 text-blue-800 border-blue-200' : ''}
+                                                ${swap.status === 'CANCELLED' ? 'bg-gray-100 text-gray-800 border-gray-200' : ''}
                                              `}>
-                                                {swap.status.replace('_', ' ').toLowerCase()}
+                                                {swap.status.replace(/_/g, ' ').toLowerCase()}
                                             </span>
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                            {swap.status === 'PENDING_ADMIN' && (
+                                            {swap.status === 'PENDING_APPROVAL' && (
                                                 <div className="flex justify-end gap-2">
                                                     <Button
                                                         size="sm"
@@ -195,15 +198,16 @@ const SwapApprovalPage = () => {
                                         </p>
                                         <span className={`px-2 py-0.5 mt-1 inline-block rounded-full text-xs font-medium border capitalize
                                             ${swap.status === 'APPROVED' ? 'bg-green-100 text-green-800 border-green-200' : ''}
-                                            ${swap.status === 'REJECTED' ? 'bg-red-100 text-red-800 border-red-200' : ''}
-                                            ${swap.status === 'PENDING_USER' ? 'bg-yellow-100 text-yellow-800 border-yellow-200' : ''}
-                                            ${swap.status === 'PENDING_ADMIN' ? 'bg-blue-100 text-blue-800 border-blue-200' : ''}
+                                            ${swap.status.startsWith('REJECTED') ? 'bg-red-100 text-red-800 border-red-200' : ''}
+                                            ${swap.status === 'PENDING_TARGET_RESPONSE' ? 'bg-yellow-100 text-yellow-800 border-yellow-200' : ''}
+                                            ${swap.status === 'PENDING_APPROVAL' ? 'bg-blue-100 text-blue-800 border-blue-200' : ''}
+                                            ${swap.status === 'CANCELLED' ? 'bg-gray-100 text-gray-800 border-gray-200' : ''}
                                          `}>
-                                            {swap.status.replace('_', ' ').toLowerCase()}
+                                            {swap.status.replace(/_/g, ' ').toLowerCase()}
                                         </span>
                                     </div>
                                     <div className="text-right">
-                                        {swap.status === 'PENDING_ADMIN' && (
+                                        {swap.status === 'PENDING_APPROVAL' && (
                                             <div className="flex gap-2">
                                                 <Button
                                                     size="sm"

@@ -4,16 +4,23 @@ export const createSwapRequest = async (data) => {
     return await api.post('/swaps', data);
 };
 
-export const getMySwaps = async () => {
-    return await api.get('/swaps/my-swaps');
+// Backend: GET /swaps/my  -> { success, data: [...] }
+export const getMySwaps = async (params) => {
+    return await api.get('/swaps/my', { params });
 };
 
+// Backend: GET /swaps/inbox -> swaps yang menunggu respons saya (target)
+export const getInbox = async () => {
+    return await api.get('/swaps/inbox');
+};
+
+// Target user merespons: POST /swaps/:id/respond { action: 'ACCEPT' | 'REJECT' }
 export const approveSwapByUser = async (swapId) => {
-    return await api.patch(`/swaps/${swapId}/approve`);
+    return await api.post(`/swaps/${swapId}/respond`, { action: 'ACCEPT' });
 };
 
-export const rejectSwap = async (swapId) => {
-    return await api.patch(`/swaps/${swapId}/reject`);
+export const rejectSwapByUser = async (swapId) => {
+    return await api.post(`/swaps/${swapId}/respond`, { action: 'REJECT' });
 };
 
 // Admin
@@ -21,6 +28,20 @@ export const getAllSwaps = async (params) => {
     return await api.get('/swaps', { params });
 };
 
+export const getPendingAdminApproval = async () => {
+    return await api.get('/swaps/pending-admin-approval');
+};
+
+// Admin approve/reject: POST /swaps/:id/approve { action: 'APPROVE' | 'REJECT' }
 export const approveSwapByAdmin = async (swapId) => {
-    return await api.patch(`/swaps/${swapId}/admin-approve`);
+    return await api.post(`/swaps/${swapId}/approve`, { action: 'APPROVE' });
+};
+
+export const rejectSwapByAdmin = async (swapId) => {
+    return await api.post(`/swaps/${swapId}/approve`, { action: 'REJECT' });
+};
+
+// Requester membatalkan pengajuan sendiri
+export const cancelSwap = async (swapId) => {
+    return await api.post(`/swaps/${swapId}/cancel`);
 };
