@@ -1,12 +1,17 @@
 const { ErrorCodes } = require('../utils/AppError');
 const attendanceRepository = require('../repositories/attendanceRepository');
 const prisma = require('../utils/database');
-const { getAttendanceConfig, calculateAttendanceStatus, calculateTotalHours, formatLocation, getTodayStart, getTodayEnd, formatStatus, parseStatus, calculateDistance } = require('../utils/attendanceHelpers');
+const { getAttendanceConfig, calculateAttendanceStatus, calculateTotalHours, formatLocation, getTodayStart, getTodayEnd, formatStatus, parseStatus, calculateDistance, toWITA } = require('../utils/attendanceHelpers');
 const swapService = require('./swapService'); // Import SwapService
 const offDayService = require('./offDayService'); // Import OffDayService
 const auditService = require('./auditService');
 
 const shifts = require('../config/shifts');
+
+// Format kolom `date` (WITA-midnight yang disimpan sebagai UTC instant)
+// menjadi string tanggal kalender WITA. Tanpa +8 jam, tanggal 1 Sep
+// (disimpan 31 Agu 16:00Z) akan tampil sebagai "31 Agustus" di riwayat.
+const toWITADateString = (date) => toWITA(date).toISOString().split('T')[0];
 
 class AttendanceService {
   /**
@@ -263,7 +268,7 @@ class AttendanceService {
     const response = {
       id: record?.id || null,
       userId,
-      date: now.toLocaleDateString('en-CA'),
+      date: toWITADateString(now),
       clockIn: record?.clockIn || null,
       clockOut: record?.clockOut || null,
       status: record ? formatStatus(record.status) : null,
@@ -288,16 +293,22 @@ class AttendanceService {
     const result = await attendanceRepository.getUserHistory(userId, options);
 
     // Format records for API response
-    const formattedRecords = result.records.map((record) => ({
-      id: record.id,
-      date: record.date.toISOString().split('T')[0],
-      clockIn: record.clockIn.toISOString(),
-      clockOut: record.clockOut ? record.clockOut.toISOString() : null,
-      status: formatStatus(record.status),
-      totalHours: record.clockOut
-        ? calculateTotalHours(record.clockIn, record.clockOut)
-        : null,
-    }));
+    // PENTING: tampilkan tanggal sesuai WITA (UTC+8), bukan UTC.
+    // Record lama menyimpan date sebagai UTC-midnight dari tanggal WITA
+    // (mis. 2026-08-31T16:00Z = 1 Sep 00:00 WITA) — jika diformat UTC akan
+    // tampil sebagai hari sebelumnya di riwayat staff.
+    const formattedRecords = result.records.map((record) => {
+      return {
+        id: record.id,
+        date: toWITADateString(record.date),
+        clockIn: record.clockIn.toISOString(),
+        clockOut: record.clockOut ? record.clockOut.toISOString() : null,
+        status: formatStatus(record.status),
+        totalHours: record.clockOut
+          ? calculateTotalHours(record.clockIn, record.clockOut)
+          : null,
+      };
+    });
 
     return {
       records: formattedRecords,
@@ -326,7 +337,7 @@ class AttendanceService {
       id: record.id,
       userId: record.userId,
       user: record.user,
-      date: record.date.toISOString().split('T')[0],
+      date: toWITADateString(record.date),
       clockIn: record.clockIn.toISOString(),
       clockOut: record.clockOut ? record.clockOut.toISOString() : null,
       clockInLocation: record.clockInLocation,
@@ -389,7 +400,7 @@ class AttendanceService {
     return {
       id: updatedRecord.id,
       userId: updatedRecord.userId,
-      date: updatedRecord.date.toISOString().split('T')[0],
+      date: toWITADateString(updatedRecord.date),
       clockIn: updatedRecord.clockIn.toISOString(),
       clockOut: updatedRecord.clockOut ? updatedRecord.clockOut.toISOString() : null,
       status: formatStatus(updatedRecord.status),
@@ -408,7 +419,7 @@ class AttendanceService {
     const formattedRecords = result.records.map((record) => ({
       id: record.id,
       user: record.user,
-      date: record.date.toISOString().split('T')[0],
+      date: toWITADateString(record.date),
       clockIn: record.clockIn.toISOString(),
       clockOut: record.clockOut ? record.clockOut.toISOString() : null,
       clockInPhoto: record.clockInPhoto ? `${apiBase}/api/v1/attendance/photo/${record.id}/in` : null,
