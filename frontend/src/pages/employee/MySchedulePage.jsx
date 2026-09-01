@@ -394,6 +394,13 @@ const MySchedulePage = () => {
                                                     {schedule.shiftNumber === 1 ? 'Pagi' : 'Siang'}
                                                 </div>
                                                 )}
+                                                {/* Info perubahan shift karena backup — cegah salah paham jam masuk */}
+                                                {schedule.isBackup && schedule.originalShiftNumber && schedule.originalShiftNumber !== schedule.shiftNumber && (
+                                                <div className="text-[10px] leading-tight text-center text-amber-600 dark:text-amber-400 italic">
+                                                    Jadwal asli: {schedule.originalShiftNumber === 1 ? 'Pagi' : 'Siang'} → masuk {schedule.shiftNumber === 1 ? 'Pagi' : 'Siang'} (backup)
+                                                </div>
+                                                )}
+
 
                                                 {/* Position Badge */}
                                                 {schedule.positionName && (
@@ -469,6 +476,12 @@ const MySchedulePage = () => {
                                                         {schedule.shiftNumber === 1 ? 'Shift Pagi' : schedule.shiftNumber === 2 ? 'Shift Siang' : '🔄 Backup'}
                                                     </p>
                                                 </div>
+                                                {schedule.isBackup && schedule.originalShiftNumber && schedule.originalShiftNumber !== schedule.shiftNumber && (
+                                                    <p className="text-xs text-amber-600 dark:text-amber-400 italic">
+                                                        Jadwal asli: {schedule.originalShiftNumber === 1 ? 'Pagi' : 'Siang'} → masuk {schedule.shiftNumber === 1 ? 'Pagi' : 'Siang'} (backup)
+                                                    </p>
+                                                )}
+
 
                                                 {schedule.positionName && (
                                                     <div className="mt-1 flex flex-wrap gap-1">

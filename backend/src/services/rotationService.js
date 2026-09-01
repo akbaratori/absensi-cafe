@@ -835,7 +835,7 @@ class RotationService {
         backupUserId: userId,
         date: { gte: from, lte: to },
       },
-      select: { date: true, absentPositionId: true },
+      select: { date: true, absentPositionId: true, shiftNumber: true },
     });
 
     // Resolve position names for backup assignments
@@ -854,6 +854,8 @@ class RotationService {
       backupByDate.set(toISO(b.date), {
         positionName: backupPosMap.get(b.absentPositionId) || null,
         positionId: b.absentPositionId,
+        // Shift yang dibackup = shift masuk backup user hari itu
+        shiftNumber: b.shiftNumber || 1,
       });
     }
 
@@ -871,7 +873,10 @@ class RotationService {
       const originalPositionName = s && s.position ? s.position.name : null;
       return {
         date: iso,
-        shiftNumber: s ? s.shiftNumber : null,
+        // If user is acting as backup today, their actual working shift is
+        // the backup's shiftNumber (e.g. kitchen staff di-pull ke Bar shift 2),
+        // not their original roster shift — prevents misleading "Pagi" badge.
+        shiftNumber: backup ? backup.shiftNumber : (s ? s.shiftNumber : null),
         // If user is acting as backup today, show the backup position instead
         positionName: backup ? backup.positionName : originalPositionName,
         positionId: backup ? backup.positionId : (s ? s.positionId : null),
@@ -879,6 +884,8 @@ class RotationService {
         isOffDay: offSet.has(iso),
         isBackup: !!backup,
         originalPositionName: backup ? originalPositionName : null,
+        // Original roster shift, kept for display so staff sees the change
+        originalShiftNumber: backup && s ? s.shiftNumber : null,
       };
     });
   }
