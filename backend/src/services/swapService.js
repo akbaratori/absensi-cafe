@@ -165,7 +165,8 @@ class SwapService {
     }
 
     // Re-validate eligibility at this stage too (fresh from DB)
-    const { valid, errors } = await validateSwapEligibility(swap.requesterId, swap.targetUserId, swap.date);
+    // excludeSwapId = swap.id agar cek "pending swap" tidak mencocokkan dirinya sendiri.
+    const { valid, errors } = await validateSwapEligibility(swap.requesterId, swap.targetUserId, swap.date, swap.id);
     if (!valid) {
       // Auto-reject by system
       // NOTE: kolom rejection_note di DB terbatas VARCHAR(191), potong agar tidak error 500

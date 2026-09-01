@@ -14,9 +14,10 @@ const prisma = require('./database');
  * 
  * @param {number} employeeId
  * @param {Date} date
+ * @param {number} [excludeSwapId] - ID swap yang sedang divalidasi, agar tidak cocok dengan dirinya sendiri
  * @returns {Promise<{ hasConflict: boolean, reason: string|null }>}
  */
-async function checkEmployeeScheduleConflict(employeeId, date) {
+async function checkEmployeeScheduleConflict(employeeId, date, excludeSwapId = null) {
   const checkDate = new Date(date);
   checkDate.setUTCHours(0, 0, 0, 0);
 
@@ -80,16 +81,19 @@ async function checkEmployeeScheduleConflict(employeeId, date) {
   }
 
   // Check 4: Pending shift swap (prevents double request, but not a hard conflict)
-  const pendingSwap = await prisma.shiftSwap.findFirst({
-    where: {
-      date: checkDate,
-      status: { in: ['PENDING_VALIDATION', 'PENDING_TARGET_RESPONSE', 'PENDING_APPROVAL'] },
-      OR: [
-        { requesterId: employeeId },
-        { targetUserId: employeeId },
-      ],
-    },
-  });
+  // Kecualikan swap yang sedang divalidasi (excludeSwapId) agar tidak cocok dengan dirinya sendiri.
+  const pendingSwapWhere = {
+    date: checkDate,
+    status: { in: ['PENDING_VALIDATION', 'PENDING_TARGET_RESPONSE', 'PENDING_APPROVAL'] },
+    OR: [
+      { requesterId: employeeId },
+      { targetUserId: employeeId },
+    ],
+  };
+  if (excludeSwapId) {
+    pendingSwapWhere.id = { not: excludeSwapId };
+  }
+  const pendingSwap = await prisma.shiftSwap.findFirst({ where: pendingSwapWhere });
 
   if (pendingSwap) {
     return {
@@ -128,9 +132,10 @@ async function checkEmployeeScheduleConflict(employeeId, date) {
  * @param {number} requesterId
  * @param {number} targetUserId
  * @param {Date} date
+ * @param {number} [excludeSwapId] - ID swap yang sedang divalidasi (diteruskan ke cek konflik)
  * @returns {Promise<{ valid: boolean, errors: string[] }>}
  */
-async function validateSwapEligibility(requesterId, targetUserId, date) {
+async function validateSwapEligibility(requesterId, targetUserId, date, excludeSwapId = null) {
   const errors = [];
 
   if (requesterId === targetUserId) {
@@ -155,13 +160,13 @@ async function validateSwapEligibility(requesterId, targetUserId, date) {
   }
 
   // Check requester conflicts
-  const requesterConflict = await checkEmployeeScheduleConflict(requesterId, date);
+  const requesterConflict = await checkEmployeeScheduleConflict(requesterId, date, excludeSwapId);
   if (requesterConflict.hasConflict) {
     errors.push(`Pemohon: ${requesterConflict.reason}`);
   }
 
   // Check target conflicts
-  const targetConflict = await checkEmployeeScheduleConflict(targetUserId, date);
+  const targetConflict = await checkEmployeeScheduleConflict(targetUserId, date, excludeSwapId);
   if (targetConflict.hasConflict) {
     errors.push(`Karyawan tujuan: ${targetConflict.reason}`);
   }
