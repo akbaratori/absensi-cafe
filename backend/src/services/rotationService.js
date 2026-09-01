@@ -634,6 +634,33 @@ class RotationService {
       jobdeskMap.get(r.userId)[iso] = r.kitchenStation || null;
     }
 
+    // Fallback untuk backup user: jika dia tidak punya jobdesk sendiri hari itu
+    // (mis. backup dibuat sebelum fitur penempelan jobdesk), pakai jobdesk milik
+    // staff yang absen yang dia cover — karena itulah stasiun yang dia kerjakan.
+    const backupRows = await prisma.backupAssignment.findMany({
+      where: { date: { in: weekDates }, absentPositionId: positionId },
+      select: { date: true, absentUserId: true, backupUserId: true },
+    });
+    const backupAbsentIds = [...new Set(backupRows.map((b) => b.absentUserId))];
+    if (backupAbsentIds.length) {
+      const absentSchedRows = await prisma.userSchedule.findMany({
+        where: { userId: { in: backupAbsentIds }, date: { in: weekDates } },
+        select: { userId: true, date: true, kitchenStation: true },
+      });
+      const absentJobdesk = new Map(); // `${userId}_${dateISO}` -> jobdeskName
+      for (const r of absentSchedRows) {
+        absentJobdesk.set(`${r.userId}_${toISO(r.date)}`, r.kitchenStation || null);
+      }
+      for (const b of backupRows) {
+        const iso = toISO(b.date);
+        const covered = absentJobdesk.get(`${b.absentUserId}_${iso}`);
+        if (!covered) continue;
+        if (!jobdeskMap.has(b.backupUserId)) jobdeskMap.set(b.backupUserId, {});
+        const existing = jobdeskMap.get(b.backupUserId)[iso];
+        if (!existing) jobdeskMap.get(b.backupUserId)[iso] = covered;
+      }
+    }
+
     const enriched = schedules.map((s) => {
       const u = userMap.get(s.userId) || null;
       return {

@@ -312,6 +312,14 @@ export default function FullSchedulePage() {
                                 <span className="text-orange-500 dark:text-orange-400 line-through">{b.absentUser?.fullName || `#${b.absentUserId}`}</span>
                                 <span className="text-gray-400 mx-1">&rarr;</span>
                                 <span className="text-green-700 dark:text-green-400 font-medium">{b.backupUser?.fullName || `#${b.backupUserId}`}</span>
+                                {(() => {
+                                  // Jobdesk yang dicover backup = jobdesk milik staff yang absen
+                                  // hari itu (fallback: jobdesk backup user sendiri jika sudah ditempel).
+                                  const jd = (schedule.schedules || []).find(s => s.userId === b.absentUserId)?.jobdesksByDate?.[dl.date]
+                                    || (schedule.schedules || []).find(s => s.userId === b.backupUserId)?.jobdesksByDate?.[dl.date]
+                                    || null;
+                                  return jd ? <span className="ml-1 inline-block px-1 py-px rounded bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 text-[10px] font-medium align-middle">{jd}</span> : null;
+                                })()}
                               </li>
                             ))}</ul>
                           ) : <span className="text-gray-300 dark:text-gray-700">&mdash;</span>}

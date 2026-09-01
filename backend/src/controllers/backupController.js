@@ -161,6 +161,10 @@ class BackupController {
             notes: notes || null,
           },
         });
+        // Bersihkan jobdesk backup dari backup user lama (jika ada).
+        if (existing.backupUserId !== parseInt(backupUserId)) {
+          await this._clearBackupJobdesk(existing.backupUserId, dateObj);
+        }
       } else {
         backup = await prisma.backupAssignment.create({
           data: {
@@ -179,6 +183,11 @@ class BackupController {
       if (backupUser.department === 'KITCHEN') {
         await this._removeFromKitchenSchedule(parseInt(backupUserId), dateObj);
       }
+
+      // Berikan jobdesk yang dicover kepada backup user: salin kitchenStation
+      // milik staff yang absen pada tanggal itu ke UserSchedule backup user,
+      // sehingga jobdesk-nya tampil di UI jadwal.
+      await this._assignBackupJobdesk(parseInt(backupUserId), parseInt(absentUserId), dateObj);
 
       return successResponse(res, 201, {
         ...backup,
@@ -206,11 +215,70 @@ class BackupController {
         await this._revertKitchenBackup(backup.backupUserId, backup.date);
       }
 
+      // Bersihkan jobdesk backup yang sebelumnya ditempel ke backup user
+      await this._clearBackupJobdesk(backup.backupUserId, backup.date);
+
       await prisma.backupAssignment.delete({ where: { id } });
 
       return successResponse(res, 200, null, 'Backup berhasil dibatalkan');
     } catch (err) {
       next(err);
+    }
+  }
+
+  /**
+   * Salin jobdesk (kitchenStation) milik staff yang absen ke UserSchedule
+   * backup user untuk tanggal itu, sehingga jobdesk yang dicover tampil
+   * di UI jadwal. Jika staff absen tidak punya jobdesk, tidak melakukan apa-apa.
+   */
+  async _assignBackupJobdesk(backupUserId, absentUserId, dateObj) {
+    try {
+      const absentSchedule = await prisma.userSchedule.findUnique({
+        where: { userId_date: { userId: absentUserId, date: dateObj } },
+        select: { kitchenStation: true },
+      });
+      const jobdesk = absentSchedule?.kitchenStation || null;
+      if (!jobdesk) return; // posisi tidak punya jobdesk / belum dirotasi
+
+      const existing = await prisma.userSchedule.findUnique({
+        where: { userId_date: { userId: backupUserId, date: dateObj } },
+        select: { id: true },
+      });
+      if (existing) {
+        await prisma.userSchedule.update({
+          where: { id: existing.id },
+          data: { kitchenStation: jobdesk },
+        });
+      } else {
+        await prisma.userSchedule.create({
+          data: {
+            userId: backupUserId,
+            date: dateObj,
+            isOffDay: false,
+            kitchenStation: jobdesk,
+            isManualOverride: true, // lindungi dari overwrite saat regenerate
+          },
+        });
+      }
+    } catch (err) {
+      // Jangan gagalkan proses backup hanya karena penempelan jobdesk gagal
+      console.warn('[backup] Gagal menempelkan jobdesk ke backup user:', err?.message);
+    }
+  }
+
+  /**
+   * Hapus kitchenStation milik backup user untuk tanggal itu, HANYA jika
+   * row-nya adalah hasil backup (isManualOverride). Row asli hasil rotasi
+   * (mis. jadwal asal KITCHEN yang di-revert) tidak disentuh.
+   */
+  async _clearBackupJobdesk(backupUserId, dateObj) {
+    try {
+      await prisma.userSchedule.updateMany({
+        where: { userId: backupUserId, date: dateObj, isManualOverride: true },
+        data: { kitchenStation: null },
+      });
+    } catch (err) {
+      console.warn('[backup] Gagal membersihkan jobdesk backup:', err?.message);
     }
   }
 
