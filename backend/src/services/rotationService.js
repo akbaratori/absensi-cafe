@@ -606,7 +606,18 @@ class RotationService {
       orderBy: [{ shiftNumber: 'asc' }, { userId: 'asc' }],
     });
 
-    const userIds = [...new Set(schedules.map((s) => s.userId))];
+    const weekDates = Array.from({ length: 7 }, (_, d) => addDays(monday, d));
+
+    // Sertakan backup user untuk posisi ini meskipun dia tidak ada di
+    // weeklySchedule (mis. dari posisi lain / tidak masuk roster minggu ini),
+    // supaya jobdesk yang dia cover tetap bisa ditampilkan di Jadwal Lengkap.
+    const backupRowsForPos = await prisma.backupAssignment.findMany({
+      where: { date: { in: weekDates }, absentPositionId: positionId },
+      select: { date: true, absentUserId: true, backupUserId: true },
+    });
+    const backupUserIds = [...new Set(backupRowsForPos.map((b) => b.backupUserId).filter(Boolean))];
+
+    const userIds = [...new Set([...schedules.map((s) => s.userId), ...backupUserIds])];
     // Ambil SEMUA user (tanpa filter isActive) agar jadwal lama yang masih
     // mereferensikan user nonaktif tetap menampilkan namanya, bukan "User #id".
     const users = userIds.length > 0
@@ -619,7 +630,6 @@ class RotationService {
 
     // Ambil penugasan jobdesk harian (UserSchedule.kitchenStation) untuk
     // minggu ini agar frontend bisa menampilkan jobdesk tiap staff per hari.
-    const weekDates = Array.from({ length: 7 }, (_, d) => addDays(monday, d));
     const userSchedRows = userIds.length > 0
       ? await prisma.userSchedule.findMany({
           where: { userId: { in: userIds }, date: { in: weekDates } },
@@ -637,10 +647,7 @@ class RotationService {
     // Fallback untuk backup user: jika dia tidak punya jobdesk sendiri hari itu
     // (mis. backup dibuat sebelum fitur penempelan jobdesk), pakai jobdesk milik
     // staff yang absen yang dia cover — karena itulah stasiun yang dia kerjakan.
-    const backupRows = await prisma.backupAssignment.findMany({
-      where: { date: { in: weekDates }, absentPositionId: positionId },
-      select: { date: true, absentUserId: true, backupUserId: true },
-    });
+    const backupRows = backupRowsForPos;
     const backupAbsentIds = [...new Set(backupRows.map((b) => b.absentUserId))];
     if (backupAbsentIds.length) {
       const absentSchedRows = await prisma.userSchedule.findMany({
@@ -661,7 +668,16 @@ class RotationService {
       }
     }
 
-    const enriched = schedules.map((s) => {
+    // Pastikan backup user (yang mungkin tidak ada di weeklySchedule posisi ini)
+    // tetap masuk ke daftar schedules agar frontend menemukan jobdesksByDate-nya
+    // untuk merender badge jobdesk pada baris "🔁 Backup".
+    const existingUserIds = new Set(schedules.map((s) => s.userId));
+    const backupOnlyRows = backupUserIds
+      .filter((uid) => !existingUserIds.has(uid))
+      .map((uid) => ({ userId: uid, positionId, weekStart: monday, shiftNumber: null, isBackupOnly: true }));
+    const allSchedules = [...schedules, ...backupOnlyRows];
+
+    const enriched = allSchedules.map((s) => {
       const u = userMap.get(s.userId) || null;
       return {
         ...s,
@@ -960,6 +976,81 @@ class RotationService {
     }
 
     return offMap;
+  }
+
+  /**
+   * Ambil union SEMUA sumber libur (Leave, OffDayRequest, User.offDay,
+   * PublicHoliday, ManualOffDay) untuk SEMUA user yang ada di roster posisi
+   * manapun, pada rentang tanggal tertentu. Dipakai oleh Jadwal Lengkap agar
+   * tampilan konsisten dengan logika generate.
+   * Returns: [{ userId, date: 'YYYY-MM-DD' }]
+   */
+  async getAllOffDayEntries(fromDate, toDate) {
+    // Kumpulkan semua userId yang pernah ada di roster posisi manapun
+    const rosterEntries = await prisma.positionRoster.findMany({
+      select: { userId: true },
+      distinct: ['userId'],
+    });
+    const userIds = rosterEntries.map((r) => r.userId);
+    if (userIds.length === 0) return [];
+
+    // Bangun daftar tanggal dalam rentang
+    const dates = [];
+    const cursor = new Date(fromDate);
+    while (cursor <= toDate) {
+      dates.push(new Date(cursor));
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+    if (dates.length === 0) return [];
+
+    const dateISOs = dates.map((d) => toISO(d));
+    const offSet = new Set(); // `${userId}_${dateISO}`
+    const mark = (userId, dateISO) => offSet.add(`${userId}_${dateISO}`);
+
+    // 1. Leave (cuti/sakit) APPROVED
+    const leaves = await prisma.leave.findMany({
+      where: { userId: { in: userIds }, status: 'APPROVED', startDate: { lte: toDate }, endDate: { gte: fromDate } },
+      select: { userId: true, startDate: true, endDate: true },
+    });
+    for (const l of leaves) {
+      const start = toISO(l.startDate), end = toISO(l.endDate);
+      for (const iso of dateISOs) if (iso >= start && iso <= end) mark(l.userId, iso);
+    }
+
+    // 2. OffDayRequest APPROVED — libur pada offDate
+    const offRequests = await prisma.offDayRequest.findMany({
+      where: { userId: { in: userIds }, status: 'APPROVED', offDate: { gte: fromDate, lte: toDate } },
+      select: { userId: true, offDate: true },
+    });
+    for (const r of offRequests) mark(r.userId, toISO(r.offDate));
+
+    // 3. User.offDay (hari libur mingguan)
+    const users = await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, offDay: true } });
+    const userOffDayMap = new Map(users.map((u) => [u.id, u.offDay]));
+    for (const d of dates) {
+      const dow = d.getUTCDay();
+      for (const uid of userIds) {
+        const userOffDay = userOffDayMap.get(uid);
+        if (userOffDay === dow) mark(uid, toISO(d));
+      }
+    }
+
+    // 4. PublicHoliday — semua orang libur
+    const holidays = await prisma.publicHoliday.findMany({ where: { date: { gte: fromDate, lte: toDate } }, select: { date: true } });
+    const holidayDates = new Set(holidays.map((h) => toISO(h.date)));
+    for (const uid of userIds) for (const iso of holidayDates) mark(uid, iso);
+
+    // 5. ManualOffDay
+    const manualOffDays = await prisma.manualOffDay.findMany({
+      where: { userId: { in: userIds }, date: { gte: fromDate, lte: toDate } },
+      select: { userId: true, date: true },
+    });
+    for (const m of manualOffDays) mark(m.userId, toISO(m.date));
+
+    return [...offSet].map((key) => {
+      const [userId, date] = key.split('_');
+      return { userId: parseInt(userId), date };
+    });
   }
 
   /**

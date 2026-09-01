@@ -156,12 +156,23 @@ export default function FullSchedulePage() {
 
   const fetchOffDays = async (mon) => {
     try {
-      const res = await rotationService.getManualOffDaysMonth(mon);
+      // Pakai union SEMUA sumber libur (cuti, tukar libur, libur mingguan,
+      // libur nasional, manual) agar konsisten dengan logika generate jadwal.
+      const res = await rotationService.getAllOffDaysMonth(mon);
       const raw = res.data?.data || [];
       const set = new Set();
       raw.forEach(item => set.add(`${item.userId}_${String(item.date).slice(0, 10)}`));
       setOffDaySet(set);
-    } catch { setOffDaySet(new Set()); }
+    } catch {
+      // Fallback: kalau endpoint union gagal, pakai manual off-day saja.
+      try {
+        const res = await rotationService.getManualOffDaysMonth(mon);
+        const raw = res.data?.data || [];
+        const set = new Set();
+        raw.forEach(item => set.add(`${item.userId}_${String(item.date).slice(0, 10)}`));
+        setOffDaySet(set);
+      } catch { setOffDaySet(new Set()); }
+    }
   };
 
   // Batch requests to avoid flooding the backend / exhausting the DB connection pool.
@@ -290,7 +301,7 @@ export default function FullSchedulePage() {
                   <tr className="border-t border-orange-100 dark:border-orange-900/30 bg-orange-50/30 dark:bg-orange-900/10">
                     <td className="px-3 py-2 font-medium text-orange-600 dark:text-orange-400 whitespace-nowrap text-xs">&#127958; Libur</td>
                     {dLabels.map(dl => {
-                      const offUsers = (schedule.schedules || []).filter(s => offDaySet.has(`${s.userId}_${dl.date}`)).map(s => s.user?.fullName || `User #${s.userId}`);
+                      const offUsers = (schedule.schedules || []).filter(s => !s.isBackupOnly && offDaySet.has(`${s.userId}_${dl.date}`)).map(s => s.user?.fullName || `User #${s.userId}`);
                       return (
                         <td key={dl.date} className={`px-3 py-2 text-xs ${dl.isToday ? 'bg-blue-50/30 dark:bg-blue-900/5' : ''}`}>
                           {offUsers.length > 0 ? <ul className="space-y-0.5">{offUsers.map((n,i) => <li key={i} className="text-orange-600 dark:text-orange-400 whitespace-nowrap">{n}</li>)}</ul> : <span className="text-gray-300 dark:text-gray-700">&mdash;</span>}

@@ -54,6 +54,9 @@ const rotationService = {
     api.post('/rotation/manual-off-days', { weekStart, offDays }),
   getManualOffDaysMonth: (month) =>
     api.get('/rotation/manual-off-days', { params: { month } }),
+  // Union SEMUA sumber libur (cuti, tukar libur, libur mingguan, libur nasional, manual)
+  getAllOffDaysMonth: (month) =>
+    api.get('/rotation/off-days-all', { params: { month } }),
   saveManualOffDaysMonth: (month, offDays) =>
     api.post('/rotation/manual-off-days', { month, offDays }),
 

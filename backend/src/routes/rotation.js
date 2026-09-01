@@ -18,6 +18,9 @@ router.get('/all-schedules', authorize('ADMIN'), rotationController.getAllSchedu
 
 // Manual Off-days
 router.get('/manual-off-days', rotationController.getManualOffDays);
+
+// Union SEMUA sumber libur (untuk Jadwal Lengkap)
+router.get('/off-days-all', authorize('ADMIN'), rotationController.getAllOffDays);
 router.post('/manual-off-days', rotationController.saveManualOffDays);
 
 // Backup assignments

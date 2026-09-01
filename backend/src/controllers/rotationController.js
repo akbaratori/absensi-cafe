@@ -15,6 +15,37 @@ class RotationController {
         }
     }
 
+    /**
+     * GET /rotation/off-days-all?month=YYYY-MM  (atau ?weekStart=YYYY-MM-DD)
+     * Union SEMUA sumber libur (Leave, OffDayRequest, User.offDay, PublicHoliday,
+     * ManualOffDay) untuk Jadwal Lengkap — agar tampilan konsisten dengan generate.
+     */
+    async getAllOffDays(req, res, next) {
+        try {
+            const { month, weekStart } = req.query;
+            let fromDate, toDate;
+            if (month) {
+                const [year, mon] = month.split('-').map(Number);
+                if (!year || !mon || isNaN(year) || isNaN(mon)) {
+                    return successResponse(res, 200, [], 'Parameter month tidak valid, mengembalikan data kosong');
+                }
+                fromDate = new Date(Date.UTC(year, mon - 1, 1));
+                toDate = new Date(Date.UTC(year, mon, 0, 23, 59, 59, 999));
+            } else if (weekStart) {
+                fromDate = new Date(`${weekStart}T00:00:00Z`);
+                toDate = new Date(fromDate);
+                toDate.setUTCDate(toDate.getUTCDate() + 6);
+                toDate.setUTCHours(23, 59, 59, 999);
+            } else {
+                return successResponse(res, 200, [], 'Parameter tidak ada, mengembalikan data kosong');
+            }
+            const entries = await rotationService.getAllOffDayEntries(fromDate, toDate);
+            return successResponse(res, 200, entries, 'Semua sumber libur berhasil dimuat');
+        } catch (err) {
+            next(err);
+        }
+    }
+
     async getManualOffDays(req, res, next) {
         try {
             const { month, weekStart } = req.query;
