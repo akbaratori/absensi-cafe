@@ -75,7 +75,21 @@ const ddlReady = (async () => {
       console.log('[DDL] Column added: positions.schedule_all_working');
     }
 
-    console.log('[DDL] Tables ensured: manual_off_days, backup_assignments');
+    // Tabel daftar jobdesk per posisi (rotasi jobdesk harian, mis. Kitchen).
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS \`position_jobdesks\` (
+        \`id\`          INTEGER      NOT NULL AUTO_INCREMENT,
+        \`position_id\` INTEGER      NOT NULL,
+        \`name\`        VARCHAR(191) NOT NULL,
+        \`order_index\` INTEGER      NOT NULL DEFAULT 0,
+        \`created_at\`  DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+        UNIQUE INDEX \`position_jobdesks_position_id_name_key\`(\`position_id\`, \`name\`),
+        INDEX        \`position_jobdesks_position_id_idx\`(\`position_id\`),
+        PRIMARY KEY  (\`id\`)
+      ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+    `);
+
+    console.log('[DDL] Tables ensured: manual_off_days, backup_assignments, position_jobdesks');
   } catch (err) {
     // Non-fatal: log the error but let the app start.
     // If tables truly don't exist the first query will fail with a clear message.

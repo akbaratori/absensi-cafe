@@ -474,6 +474,8 @@ export default function RotationManagementPage() {
   const [loading, setLoading] = useState(true);
   const [selectedPosition, setSelectedPosition] = useState(null);
   const [roster, setRoster] = useState([]);
+  const [jobdesks, setJobdesks] = useState([]);        // daftar jobdesk posisi terpilih
+  const [newJobdesk, setNewJobdesk] = useState('');    // input jobdesk baru
   const [month, setMonth] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -543,6 +545,7 @@ export default function RotationManagementPage() {
         shift: r.shiftNumber || (i < pos.shift1Capacity ? 1 : 2),
       }))
     );
+    setJobdesks((pos.jobdesks || []).map((j) => j.name));
     try {
       const res = await rotationService.getPosition(pos.id);
       setSelectedPosition(res.data.data);
@@ -552,10 +555,39 @@ export default function RotationManagementPage() {
           shift: r.shiftNumber || (i < res.data.data.shift1Capacity ? 1 : 2),
         }))
       );
+      setJobdesks((res.data.data.jobdesks || []).map((j) => j.name));
     } catch {
       toast.error('Gagal memuat detail posisi');
     }
   }, []);
+
+  // Simpan daftar jobdesk posisi terpilih ke server
+  const saveJobdesks = async (names) => {
+    if (!selectedPosition) return;
+    try {
+      const res = await rotationService.setJobdesks(selectedPosition.id, names);
+      setJobdesks((res.data.data || []).map((j) => j.name));
+      toast.success('Daftar jobdesk disimpan. Generate ulang jadwal untuk menerapkan rotasi jobdesk.');
+    } catch (err) {
+      toast.error('Gagal menyimpan jobdesk: ' + (err.response?.data?.message || err.message));
+    }
+  };
+
+  const addJobdesk = () => {
+    const v = newJobdesk.trim();
+    if (!v) return;
+    if (jobdesks.includes(v)) { toast.error('Jobdesk sudah ada'); return; }
+    const next = [...jobdesks, v];
+    setJobdesks(next);
+    setNewJobdesk('');
+    saveJobdesks(next);
+  };
+
+  const removeJobdesk = (name) => {
+    const next = jobdesks.filter((j) => j !== name);
+    setJobdesks(next);
+    saveJobdesks(next);
+  };
 
   const handleCreatePosition = async (e) => {
     e.preventDefault();
@@ -822,6 +854,43 @@ export default function RotationManagementPage() {
                         </div>
                       ))}
                     </div>
+                  </div>
+                )}
+              </div>
+
+              {/* ─── Jobdesk (rotasi harian) ─── */}
+              <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-4">
+                <h2 className="font-semibold text-gray-700 dark:text-gray-200 text-sm flex items-center gap-2 mb-1">
+                  <span className="w-5 h-5 bg-amber-500 text-white text-xs rounded-full flex items-center justify-center font-bold">🍳</span>
+                  Jobdesk (rotasi harian)
+                  <span className="text-xs font-normal text-gray-400">(opsional — mis. Kitchen)</span>
+                </h2>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                  Jika diisi, setiap hari sistem menugaskan jobdesk ke staff yang masuk secara bergilir (tidak ada yang jobdesknya sama terus). Tampil di Jadwal Lengkap &amp; salin teks. Kosongkan untuk posisi tanpa jobdesk.
+                </p>
+                <div className="flex gap-2 mb-2">
+                  <input
+                    type="text"
+                    value={newJobdesk}
+                    onChange={(e) => setNewJobdesk(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addJobdesk(); } }}
+                    placeholder="Contoh: Main Cook, Support/Snack, Checker/Stock"
+                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100"
+                  />
+                  <button type="button" onClick={addJobdesk}
+                    className="px-3 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 text-sm font-medium">+ Tambah</button>
+                </div>
+                {jobdesks.length === 0 ? (
+                  <p className="text-xs text-gray-400">Belum ada jobdesk — posisi ini tampil tanpa label jobdesk.</p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {jobdesks.map((j) => (
+                      <span key={j} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-200 text-xs font-medium">
+                        {j}
+                        <button type="button" onClick={() => removeJobdesk(j)}
+                          className="text-amber-500 hover:text-red-500 font-bold leading-none" title="Hapus">✕</button>
+                      </span>
+                    ))}
                   </div>
                 )}
               </div>

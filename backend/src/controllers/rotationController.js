@@ -165,6 +165,28 @@ class RotationController {
         }
     }
 
+    // GET /positions/:id/jobdesks — daftar jobdesk posisi
+    async listJobdesks(req, res, next) {
+        try {
+            const jobdesks = await rotationService.listJobdesks(parseInt(req.params.id));
+            return successResponse(res, 200, jobdesks, 'Daftar jobdesk berhasil dimuat');
+        } catch (err) {
+            next(err);
+        }
+    }
+
+    // PUT /positions/:id/jobdesks — ganti seluruh daftar jobdesk { names: [] }
+    async setJobdesks(req, res, next) {
+        try {
+            const { names } = req.body;
+            if (!Array.isArray(names)) throw missingFields();
+            const jobdesks = await rotationService.setJobdesks(parseInt(req.params.id), names);
+            return successResponse(res, 200, jobdesks, 'Daftar jobdesk berhasil disimpan');
+        } catch (err) {
+            next(err);
+        }
+    }
+
     async deletePosition(req, res, next) {
         try {
             await rotationService.deletePosition(parseInt(req.params.id));

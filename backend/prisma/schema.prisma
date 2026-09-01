@@ -301,8 +301,27 @@ model Position {
   rosters        PositionRoster[]
   rotationStates RotationState[]
   weeklySchedules WeeklySchedule[]
+  jobdesks       PositionJobdesk[]
 
   @@map("positions")
+}
+
+// Daftar jobdesk yang bisa dirotasi harian untuk suatu posisi (mis. Kitchen:
+// Main Cook, Support/Snack, Checker/Stock, Runner/Area, Helper/Floating).
+// Bisa ditambah/diubah/dihapus admin. Penugasan harian disimpan di
+// UserSchedule.kitchenStation.
+model PositionJobdesk {
+  id         Int    @id @default(autoincrement())
+  positionId Int    @map("position_id")
+  name       String
+  orderIndex Int    @default(0) @map("order_index")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  position Position @relation(fields: [positionId], references: [id], onDelete: Cascade)
+
+  @@unique([positionId, name])
+  @@index([positionId])
+  @@map("position_jobdesks")
 }
 
 model PositionRoster {

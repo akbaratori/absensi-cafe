@@ -52,7 +52,12 @@ function getUsersOnDayWithOffDay(schedule, dateISO, shiftNum, offDaySet, backups
   if (!schedule || !schedule.schedules?.length) return { working: [], offDay: [], deployedElsewhere: [], movedToOtherShift: [] };
   const all = schedule.schedules
     .filter(s => s.shiftNumber === shiftNum)
-    .map(s => ({ name: s.user?.fullName || `User #${s.userId}`, userId: s.userId }));
+    .map(s => ({
+      name: s.user?.fullName || `User #${s.userId}`,
+      userId: s.userId,
+      // Jobdesk hari ini (rotasi harian). null jika posisi tidak punya jobdesk.
+      jobdesk: s.jobdesksByDate?.[dateISO] || null,
+    }));
   const deployedMap = new Map();
   // Peta user yang dipindah ke SHIFT LAIN di posisi yang sama
   // (backup yang absentPositionId-nya = posisi ini). shiftNumber pada backup
@@ -254,7 +259,12 @@ export default function FullSchedulePage() {
                       const { working, offDay, deployedElsewhere, movedToOtherShift, absent } = getUsersOnDayWithOffDay(schedule, dl.date, shiftNum, offDaySet, backupsOnDay, position.id);
                       return (
                         <td key={dl.date} className={`px-3 py-2 align-top ${dl.isToday ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''}`}>
-                          {working.length > 0 && <ul className="space-y-0.5 mb-1">{working.map((u,i) => <li key={i} className="whitespace-nowrap text-gray-600 dark:text-gray-300">{u.name}</li>)}</ul>}
+                          {working.length > 0 && <ul className="space-y-0.5 mb-1">{working.map((u,i) => (
+                            <li key={i} className="whitespace-nowrap text-gray-600 dark:text-gray-300">
+                              {u.name}
+                              {u.jobdesk && <span className="ml-1 inline-block px-1 py-px rounded bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 text-[10px] font-medium align-middle">{u.jobdesk}</span>}
+                            </li>
+                          ))}</ul>}
                           {movedToOtherShift.length > 0 && <ul className="space-y-0.5 mb-1">{movedToOtherShift.map((u,i) => (
                             <li key={i} className="whitespace-nowrap text-xs">
                               <span className="text-red-500 dark:text-red-400 line-through">{u.name}</span>
@@ -375,9 +385,10 @@ export default function FullSchedulePage() {
 
         const fmtMove = (u) => `~${u.name}~ → Shift ${u.targetShift}`;
         const fmtAbsent = (u) => `~${u.name}~${u.backupName ? ` → ${u.backupName}` : ''}`;
+        const fmtWork = (u) => u.jobdesk ? `${u.name} (${u.jobdesk})` : u.name;
 
-        const s1Names = [...s1.map(u => u.name), ...mv1.map(fmtMove), ...ab1.map(fmtAbsent)];
-        const s2Names = [...s2.map(u => u.name), ...mv2.map(fmtMove), ...ab2.map(fmtAbsent)];
+        const s1Names = [...s1.map(fmtWork), ...mv1.map(fmtMove), ...ab1.map(fmtAbsent)];
+        const s2Names = [...s2.map(fmtWork), ...mv2.map(fmtMove), ...ab2.map(fmtAbsent)];
 
         out.push(`*${fmtDay(dateISO)}*`);
         out.push(`• Shift 1: ${s1Names.length ? s1Names.join(', ') : '—'}`);

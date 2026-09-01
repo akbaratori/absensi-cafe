@@ -70,10 +70,15 @@ class RotationService {
       const rotationState = await prisma.rotationState.findFirst({
         where: { positionId: p.id },
       });
+      const jobdesks = await prisma.positionJobdesk.findMany({
+        where: { positionId: p.id },
+        orderBy: [{ orderIndex: 'asc' }, { id: 'asc' }],
+      });
       result.push({
         ...p,
         rosters,
         rotationState,
+        jobdesks,
       });
     }
     return result;
@@ -104,7 +109,39 @@ class RotationService {
     const rotationState = await prisma.rotationState.findFirst({
       where: { positionId },
     });
-    return { ...position, rosters, rotationState };
+    const jobdesks = await prisma.positionJobdesk.findMany({
+      where: { positionId },
+      orderBy: [{ orderIndex: 'asc' }, { id: 'asc' }],
+    });
+    return { ...position, rosters, rotationState, jobdesks };
+  }
+
+  // ---------- Jobdesk (rotasi harian) ----------
+
+  // Ganti seluruh daftar jobdesk sebuah posisi (names: array string berurutan).
+  async setJobdesks(positionId, names) {
+    await this.getPosition(positionId);
+    if (!Array.isArray(names)) {
+      throw new AppError('Daftar jobdesk tidak valid', 400, 'VALIDATION_ERROR');
+    }
+    const clean = [...new Set(names.map((n) => String(n).trim()).filter(Boolean))];
+    await prisma.positionJobdesk.deleteMany({ where: { positionId } });
+    if (clean.length) {
+      await prisma.positionJobdesk.createMany({
+        data: clean.map((name, i) => ({ positionId, name, orderIndex: i })),
+      });
+    }
+    return prisma.positionJobdesk.findMany({
+      where: { positionId },
+      orderBy: [{ orderIndex: 'asc' }, { id: 'asc' }],
+    });
+  }
+
+  async listJobdesks(positionId) {
+    return prisma.positionJobdesk.findMany({
+      where: { positionId },
+      orderBy: [{ orderIndex: 'asc' }, { id: 'asc' }],
+    });
   }
 
   async createPosition({ name, shift1Capacity, shift2Capacity, scheduleAllWorking }) {
@@ -427,6 +464,32 @@ class RotationService {
         },
       });
 
+      // ---- Rotasi jobdesk harian (adil & bergilir) ----
+      // Untuk tiap hari, tugaskan jobdesk ke staff yang BEKERJA hari itu secara
+      // berputar berdasarkan urutan roster, sehingga: (1) tidak ada staff yang
+      // jobdesknya sama terus, (2) semua jobdesk kebagian bergilir, (3) jobdesk
+      // yang kosong (saat staff < jumlah jobdesk) juga bergantian adil.
+      const jobdeskList = (position.jobdesks || []).map((j) => j.name);
+      const jobdeskByKey = new Map(); // `${userId}_${dateISO}` -> jobdeskName
+      if (jobdeskList.length) {
+        // Peringkat global tiap user dalam roster (untuk titik awal rotasi).
+        const rank = new Map(allRosterIds.map((uid, i) => [uid, i]));
+        weekDates.forEach((dateObj, dayIdx) => {
+          const dateISO = toISO(dateObj);
+          // Staff yang bekerja hari ini (punya shift & tidak libur), urut roster.
+          const working = assignments
+            .filter((a) => !isOffOn(a.userId, dateObj))
+            .map((a) => a.userId)
+            .sort((x, y) => (rank.get(x) ?? 0) - (rank.get(y) ?? 0));
+          if (!working.length) return;
+          // Rotasi titik awal per hari agar jobdesk tiap staff berganti tiap hari.
+          working.forEach((uid, i) => {
+            const jd = jobdeskList[(dayIdx + i) % jobdeskList.length];
+            jobdeskByKey.set(`${uid}_${dateISO}`, jd);
+          });
+        });
+      }
+
       // Recreate all rows for the week, skipping manual overrides (single bulk create).
       const toCreate = pairs
         .filter((p) => !overrideSet.has(`${p.userId}_${p.date.toISOString()}`))
@@ -435,6 +498,7 @@ class RotationService {
           date: p.date,
           shiftId: p.shiftId,
           isOffDay: p.isOffDay,
+          kitchenStation: jobdeskByKey.get(`${p.userId}_${toISO(p.date)}`) || null,
           temporaryDepartment: department,
           isManualOverride: false,
         }));
@@ -485,6 +549,23 @@ class RotationService {
       : [];
     const userMap = new Map(users.map((u) => [u.id, u]));
 
+    // Ambil penugasan jobdesk harian (UserSchedule.kitchenStation) untuk
+    // minggu ini agar frontend bisa menampilkan jobdesk tiap staff per hari.
+    const weekDates = Array.from({ length: 7 }, (_, d) => addDays(monday, d));
+    const userSchedRows = userIds.length > 0
+      ? await prisma.userSchedule.findMany({
+          where: { userId: { in: userIds }, date: { in: weekDates } },
+          select: { userId: true, date: true, kitchenStation: true, isOffDay: true },
+        })
+      : [];
+    // Map: userId -> { dateISO -> jobdeskName }
+    const jobdeskMap = new Map();
+    for (const r of userSchedRows) {
+      const iso = toISO(r.date);
+      if (!jobdeskMap.has(r.userId)) jobdeskMap.set(r.userId, {});
+      jobdeskMap.get(r.userId)[iso] = r.kitchenStation || null;
+    }
+
     const enriched = schedules.map((s) => {
       const u = userMap.get(s.userId) || null;
       return {
@@ -492,6 +573,8 @@ class RotationService {
         user: u
           ? { ...u, fullName: u.fullName || u.username || `User ${s.userId}` }
           : { id: s.userId, fullName: `User ${s.userId}`, username: null, department: null },
+        // jobdesk per hari: { 'YYYY-MM-DD': 'Main Cook', ... }
+        jobdesksByDate: jobdeskMap.get(s.userId) || {},
       };
     });
 
