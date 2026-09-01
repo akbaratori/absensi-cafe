@@ -89,7 +89,7 @@ function getUsersOnDayWithOffDay(schedule, dateISO, shiftNum, offDaySet, backups
     .filter(u => !offDaySet.has(`${u.userId}_${dateISO}`) && movedShiftMap.has(u.userId))
     .map(u => ({ ...u, targetShift: movedShiftMap.get(u.userId) }));
   const absent            = all
-    .filter(u => absentMap.has(u.userId))
+    .filter(u => !offDaySet.has(`${u.userId}_${dateISO}`) && absentMap.has(u.userId))
     .map(u => ({ ...u, backupName: absentMap.get(u.userId) }));
   const working           = all.filter(u => !offDaySet.has(`${u.userId}_${dateISO}`) && !deployedMap.has(u.userId) && !movedShiftMap.has(u.userId) && !absentMap.has(u.userId));
   return { working, offDay, deployedElsewhere, movedToOtherShift, absent };

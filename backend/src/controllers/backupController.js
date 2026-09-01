@@ -237,7 +237,14 @@ class BackupController {
         where: { userId_date: { userId: absentUserId, date: dateObj } },
         select: { kitchenStation: true },
       });
-      const jobdesk = absentSchedule?.kitchenStation || null;
+      let jobdesk = absentSchedule?.kitchenStation || null;
+
+      // Jika staff absen tidak punya jobdesk hari itu (mis. sedang libur/off-day),
+      // turunkan dari hari kerja terdekat miliknya pada minggu yang sama,
+      // supaya backup user tetap menampilkan jobdesk yang ia cover.
+      if (!jobdesk) {
+        jobdesk = await this._inferAbsentJobdesk(absentUserId, dateObj);
+      }
       if (!jobdesk) return; // posisi tidak punya jobdesk / belum dirotasi
 
       const existing = await prisma.userSchedule.findUnique({
@@ -263,6 +270,42 @@ class BackupController {
     } catch (err) {
       // Jangan gagalkan proses backup hanya karena penempelan jobdesk gagal
       console.warn('[backup] Gagal menempelkan jobdesk ke backup user:', err?.message);
+    }
+  }
+
+  /**
+   * Cari jobdesk staff absen dari hari kerja terdekat dalam minggu yang sama
+   * (dipakai saat hari absennya adalah off-day sehingga kitchenStation null).
+   * Mengambil kitchenStation non-null terdekat (selisih hari terkecil).
+   */
+  async _inferAbsentJobdesk(absentUserId, dateObj) {
+    try {
+      // Senin minggu ini (UTC)
+      const day = dateObj.getUTCDay();
+      const diff = day === 0 ? -6 : 1 - day;
+      const weekStart = new Date(dateObj);
+      weekStart.setUTCDate(dateObj.getUTCDate() + diff);
+      weekStart.setUTCHours(0, 0, 0, 0);
+      const weekEnd = new Date(weekStart);
+      weekEnd.setUTCDate(weekStart.getUTCDate() + 6);
+      weekEnd.setUTCHours(23, 59, 59, 999);
+
+      const rows = await prisma.userSchedule.findMany({
+        where: {
+          userId: absentUserId,
+          date: { gte: weekStart, lte: weekEnd },
+          isOffDay: false,
+          kitchenStation: { not: null },
+        },
+        select: { date: true, kitchenStation: true },
+      });
+      if (!rows.length) return null;
+      // Pilih yang selisih harinya paling kecil dengan tanggal absen
+      rows.sort((a, b) => Math.abs(a.date - dateObj) - Math.abs(b.date - dateObj));
+      return rows[0].kitchenStation || null;
+    } catch (err) {
+      console.warn('[backup] Gagal menyimpulkan jobdesk staff absen:', err?.message);
+      return null;
     }
   }
 
