@@ -187,7 +187,7 @@ class BackupController {
       // Berikan jobdesk yang dicover kepada backup user: salin kitchenStation
       // milik staff yang absen pada tanggal itu ke UserSchedule backup user,
       // sehingga jobdesk-nya tampil di UI jadwal.
-      await this._assignBackupJobdesk(parseInt(backupUserId), parseInt(absentUserId), dateObj);
+      await this._assignBackupJobdesk(parseInt(backupUserId), parseInt(absentUserId), parseInt(absentPositionId), dateObj);
 
       return successResponse(res, 201, {
         ...backup,
@@ -231,20 +231,10 @@ class BackupController {
    * backup user untuk tanggal itu, sehingga jobdesk yang dicover tampil
    * di UI jadwal. Jika staff absen tidak punya jobdesk, tidak melakukan apa-apa.
    */
-  async _assignBackupJobdesk(backupUserId, absentUserId, dateObj) {
+  async _assignBackupJobdesk(backupUserId, absentUserId, absentPositionId, dateObj) {
     try {
-      const absentSchedule = await prisma.userSchedule.findUnique({
-        where: { userId_date: { userId: absentUserId, date: dateObj } },
-        select: { kitchenStation: true },
-      });
-      let jobdesk = absentSchedule?.kitchenStation || null;
-
-      // Jika staff absen tidak punya jobdesk hari itu (mis. sedang libur/off-day),
-      // turunkan dari hari kerja terdekat miliknya pada minggu yang sama,
-      // supaya backup user tetap menampilkan jobdesk yang ia cover.
-      if (!jobdesk) {
-        jobdesk = await this._inferAbsentJobdesk(absentUserId, dateObj);
-      }
+      // Tentukan jobdesk: prioritaskan mengisi jobdesk KOSONG agar tidak dobel.
+      const jobdesk = await this._resolveBackupJobdesk(absentUserId, absentPositionId, dateObj);
       if (!jobdesk) return; // posisi tidak punya jobdesk / belum dirotasi
 
       const existing = await prisma.userSchedule.findUnique({
@@ -305,6 +295,70 @@ class BackupController {
       return rows[0].kitchenStation || null;
     } catch (err) {
       console.warn('[backup] Gagal menyimpulkan jobdesk staff absen:', err?.message);
+      return null;
+    }
+  }
+
+  /**
+   * Tentukan jobdesk untuk backup user. Prioritas: isi jobdesk KOSONG (belum
+   * dipegang staff aktif lain pada posisi & tanggal itu) agar tidak ada jobdesk
+   * dobel sementara ada jobdesk yang tidak ter-cover. Urutan pengisian: jobdesk
+   * BERAT dulu, lalu non-berat sesuai orderIndex. Jika semua jobdesk sudah
+   * ter-cover, fallback ke jobdesk staff absen (menyalin perannya).
+   */
+  async _resolveBackupJobdesk(absentUserId, absentPositionId, dateObj) {
+    try {
+      // 1) Jobdesk staff absen hari itu, atau infer dari hari kerja terdekatnya.
+      let jobdesk = null;
+      const absentSchedule = await prisma.userSchedule.findUnique({
+        where: { userId_date: { userId: absentUserId, date: dateObj } },
+        select: { kitchenStation: true },
+      });
+      jobdesk = absentSchedule?.kitchenStation || null;
+      if (!jobdesk) jobdesk = await this._inferAbsentJobdesk(absentUserId, dateObj);
+
+      // 2) Kumpulkan jobdesk yang SUDAH dipegang staff aktif lain di posisi ini.
+      const roster = await prisma.positionRoster.findMany({
+        where: { positionId: absentPositionId },
+        select: { userId: true },
+      });
+      const rosterIds = roster.map((r) => r.userId);
+      const covered = new Set();
+      if (rosterIds.length) {
+        const dayRows = await prisma.userSchedule.findMany({
+          where: {
+            userId: { in: rosterIds },
+            date: dateObj,
+            isOffDay: false,
+            kitchenStation: { not: null },
+          },
+          select: { kitchenStation: true },
+        });
+        for (const r of dayRows) {
+          // kitchenStation bisa gabungan "A + B" → pecah per jobdesk
+          String(r.kitchenStation).split('+').forEach((s) => {
+            const t = s.trim();
+            if (t) covered.add(t);
+          });
+        }
+      }
+
+      // 3) Cari jobdesk posisi yang BELUM ter-cover.
+      const allJd = await prisma.positionJobdesk.findMany({
+        where: { positionId: absentPositionId },
+        orderBy: { orderIndex: 'asc' },
+        select: { name: true, isHeavy: true },
+      });
+      const uncovered = allJd.filter((j) => !covered.has(j.name));
+      if (uncovered.length) {
+        const heavy = uncovered.find((j) => j.isHeavy);
+        return (heavy || uncovered[0]).name;
+      }
+
+      // 4) Semua ter-cover → fallback ke jobdesk staff absen.
+      return jobdesk;
+    } catch (err) {
+      console.warn('[backup] Gagal menentukan jobdesk backup:', err?.message);
       return null;
     }
   }
