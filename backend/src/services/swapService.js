@@ -1,5 +1,5 @@
 const prisma = require('../utils/database');
-const { ErrorCodes } = require('../utils/AppError');
+const { AppError, ErrorCodes } = require('../utils/AppError');
 const notificationService = require('./notificationService');
 const { canTransition } = require('../utils/swapStateMachine');
 const { validateSwapEligibility } = require('../utils/conflictValidator');
@@ -11,30 +11,30 @@ class SwapService {
   async createRequest(requesterId, data) {
     const { targetUserId, date, reason } = data;
 
-    if (!date) throw new Error('Tanggal wajib diisi.');
+    if (!date) throw new AppError('Tanggal wajib diisi.', 400, 'DATE_REQUIRED');
 
     const swapDate = new Date(date);
     swapDate.setUTCHours(0, 0, 0, 0);
 
     if (isNaN(swapDate.getTime())) {
-      throw new Error('Format tanggal tidak valid.');
+      throw new AppError('Format tanggal tidak valid.', 400, 'INVALID_DATE');
     }
 
     // Validate future date
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
     if (swapDate < today) {
-      throw new Error('Tidak dapat mengajukan tukar shift untuk tanggal yang sudah lewat.');
+      throw new AppError('Tidak dapat mengajukan tukar shift untuk tanggal yang sudah lewat.', 400, 'PAST_DATE');
     }
 
     // RESERVED: system validation slot
     const targetId = parseInt(targetUserId);
-    if (isNaN(targetId)) throw new Error('ID karyawan tujuan tidak valid.');
+    if (isNaN(targetId)) throw new AppError('ID karyawan tujuan tidak valid.', 400, 'INVALID_TARGET');
 
     // Run full eligibility check
     const { valid, errors } = await validateSwapEligibility(requesterId, targetId, swapDate);
     if (!valid) {
-      throw new Error(errors.join(' '));
+      throw new AppError(errors.join(' '), 409, 'SWAP_CONFLICT');
     }
 
     // Check same shift: bandingkan shift JADWAL HARIAN (UserSchedule) pada tanggal swap,
@@ -43,7 +43,7 @@ class SwapService {
     const target = await prisma.user.findUnique({ where: { id: targetId }, select: { shiftId: true, isActive: true } });
 
     if (!requester || !target || !target.isActive) {
-      throw new Error('Karyawan tujuan tidak tersedia.');
+      throw new AppError('Karyawan tujuan tidak tersedia.', 400, 'TARGET_UNAVAILABLE');
     }
 
     // Ambil jadwal kedua karyawan pada tanggal yang diminta
@@ -53,16 +53,16 @@ class SwapService {
     ]);
 
     if (!requesterSchedule || !targetSchedule) {
-      throw new Error('Salah satu karyawan tidak memiliki jadwal pada tanggal tersebut.');
+      throw new AppError('Salah satu karyawan tidak memiliki jadwal pada tanggal tersebut.', 400, 'SCHEDULE_NOT_FOUND');
     }
 
     // Tukar shift bermakna jika shift jadwal harian berbeda, atau salah satu libur
     if (requesterSchedule.isOffDay && targetSchedule.isOffDay) {
-      throw new Error('Keduanya libur pada tanggal tersebut, tidak perlu tukar shift.');
+      throw new AppError('Keduanya libur pada tanggal tersebut, tidak perlu tukar shift.', 400, 'BOTH_OFF');
     }
 
     if (!requesterSchedule.isOffDay && !targetSchedule.isOffDay && requesterSchedule.shiftId === targetSchedule.shiftId) {
-      throw new Error('Shift jadwal Anda dan karyawan tujuan sama pada tanggal tersebut. Tukar shift hanya bisa dilakukan antar shift berbeda.');
+      throw new AppError('Shift jadwal Anda dan karyawan tujuan sama pada tanggal tersebut. Tukar shift hanya bisa dilakukan antar shift berbeda.', 400, 'SAME_SHIFT');
     }
 
     // Cleanup stuck swaps before creating new one
@@ -216,7 +216,7 @@ class SwapService {
 
     if (!swap) throw ErrorCodes.RESOURCE_NOT_FOUND;
     if (swap.targetUserId !== targetUserId) {
-      throw new Error('Anda bukan karyawan yang dituju dalam pengajuan ini.');
+      throw new AppError('Anda bukan karyawan yang dituju dalam pengajuan ini.', 403, 'FORBIDDEN');
     }
 
     const stateAction = action === 'ACCEPT' ? 'TARGET_ACCEPT' : 'TARGET_REJECT';
@@ -331,6 +331,24 @@ class SwapService {
     }
 
     // APPROVE - update schedules
+    // Ambil jadwal HARIAN (UserSchedule) kedua pihak pada tanggal swap,
+    // BUKAN shift tetap profil (user.shiftId), agar konsisten dengan validasi
+    // dan tidak mengganggu mekanisme jadwal berjalan.
+    const [requesterSched, targetSched] = await Promise.all([
+      prisma.userSchedule.findFirst({ where: { userId: swap.requesterId, date: swap.date } }),
+      prisma.userSchedule.findFirst({ where: { userId: swap.targetUserId, date: swap.date } }),
+    ]);
+
+    // Nilai jadwal harian yang akan ditukar (fallback ke shift profil jika jadwal harian tidak ada)
+    const reqSched = {
+      shiftId: requesterSched ? requesterSched.shiftId : swap.requester.shiftId,
+      isOffDay: requesterSched ? requesterSched.isOffDay : false,
+    };
+    const tgtSched = {
+      shiftId: targetSched ? targetSched.shiftId : swap.target.shiftId,
+      isOffDay: targetSched ? targetSched.isOffDay : false,
+    };
+
     await prisma.$transaction(async (tx) => {
       // 1. Update swap status
       await tx.shiftSwap.update({
@@ -342,8 +360,9 @@ class SwapService {
         },
       });
 
-      // 2. Swap shifts in UserSchedule for the given date
-      // Requester gets target's shift, target gets requester's shift
+      // 2. Swap jadwal HARIAN (UserSchedule) untuk tanggal tsb.
+      // Requester mendapat jadwal target, target mendapat jadwal requester.
+      // isOffDay ikut ditukar agar konsisten dengan jadwal sebenarnya.
       await tx.userSchedule.upsert({
         where: {
           userId_date: {
@@ -352,14 +371,14 @@ class SwapService {
           },
         },
         update: {
-          shiftId: swap.target.shiftId,
-          isOffDay: false,
+          shiftId: tgtSched.shiftId,
+          isOffDay: tgtSched.isOffDay,
         },
         create: {
           userId: swap.requesterId,
           date: swap.date,
-          shiftId: swap.target.shiftId,
-          isOffDay: false,
+          shiftId: tgtSched.shiftId,
+          isOffDay: tgtSched.isOffDay,
         },
       });
 
@@ -371,14 +390,14 @@ class SwapService {
           },
         },
         update: {
-          shiftId: swap.requester.shiftId,
-          isOffDay: false,
+          shiftId: reqSched.shiftId,
+          isOffDay: reqSched.isOffDay,
         },
         create: {
           userId: swap.targetUserId,
           date: swap.date,
-          shiftId: swap.requester.shiftId,
-          isOffDay: false,
+          shiftId: reqSched.shiftId,
+          isOffDay: reqSched.isOffDay,
         },
       });
     });
@@ -415,7 +434,7 @@ class SwapService {
 
     if (!swap) throw ErrorCodes.RESOURCE_NOT_FOUND;
     if (swap.requesterId !== requesterId) {
-      throw new Error('Hanya pemohon yang dapat membatalkan pengajuan.');
+      throw new AppError('Hanya pemohon yang dapat membatalkan pengajuan.', 403, 'FORBIDDEN');
     }
 
     const transition = canTransition(swap.status, 'REQUESTER_CANCEL');
