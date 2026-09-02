@@ -10,6 +10,7 @@ const {
   updateUserSchema,
   adminAttendanceQuerySchema,
   updateAttendanceSchema,
+  createAttendanceSchema,
   updateConfigSchema,
   usersQuerySchema,
   reportQuerySchema,
@@ -76,6 +77,17 @@ router.get(
   '/attendance',
   validateQuery(adminAttendanceQuerySchema),
   adminController.getAllAttendance
+);
+
+/**
+ * @route   POST /api/v1/admin/attendance
+ * @desc    Create attendance record manual (tanggal lampau)
+ * @access  Private (Admin)
+ */
+router.post(
+  '/attendance',
+  validate(createAttendanceSchema),
+  adminController.createAttendance
 );
 
 /**

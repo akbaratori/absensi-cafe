@@ -70,6 +70,26 @@ export const deleteAttendance = async (id) => {
 };
 
 /**
+ * Update data absensi (jam, status, catatan)
+ * PUT /api/v1/admin/attendance/:id
+ * body: { clockIn, clockOut, status, notes } — semua opsional, gunakan format ISO string
+ */
+export const updateAttendance = async (id, data) => {
+  const response = await api.put(`/admin/attendance/${id}`, data);
+  return response.data;
+};
+
+/**
+ * Tambah absensi manual untuk tanggal lampau
+ * POST /api/v1/admin/attendance
+ * body: { userId, date (YYYY-MM-DD), clockIn (HH:mm), clockOut (HH:mm), status, notes }
+ */
+export const createAttendance = async (data) => {
+  const response = await api.post('/admin/attendance', data);
+  return response.data;
+};
+
+/**
  * Hapus SEMUA data absensi (untuk testing/reset)
  */
 export const deleteAllAttendance = async () => {

@@ -561,6 +561,108 @@ class AttendanceService {
   }
 
   /**
+   * Admin: Create attendance record manual untuk tanggal lampau
+   * Input: userId, date (YYYY-MM-DD), clockIn (HH:mm), clockOut (HH:mm opsional), status, notes
+   */
+  async createManual(data, adminId = null) {
+    const { userId, date, clockIn, clockOut, status, notes } = data;
+
+    // Pastikan user ada
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      const error = new Error('Karyawan tidak ditemukan');
+      error.statusCode = 404;
+      error.code = 'USER_NOT_FOUND';
+      error.isOperational = true;
+      throw error;
+    }
+
+    // Bangun DateTime WITA dari date + waktu (simpan sebagai UTC di DB)
+    // date = "2026-09-01", clockIn = "08:00" → 2026-09-01T08:00:00+08:00
+    const clockInISO = new Date(`${date}T${clockIn}:00+08:00`);
+    if (isNaN(clockInISO.getTime())) {
+      const error = new Error('Format jam masuk tidak valid');
+      error.statusCode = 400;
+      error.code = 'VALIDATION_ERROR';
+      error.isOperational = true;
+      throw error;
+    }
+
+    let clockOutISO = null;
+    if (clockOut && clockOut.trim() !== '') {
+      clockOutISO = new Date(`${date}T${clockOut}:00+08:00`);
+      if (isNaN(clockOutISO.getTime())) {
+        const error = new Error('Format jam keluar tidak valid');
+        error.statusCode = 400;
+        error.code = 'VALIDATION_ERROR';
+        error.isOperational = true;
+        throw error;
+      }
+      // Izinkan lintas tengah malam (mis. shift malam), tapi cegah kalau hari sama dan keluar < masuk
+      if (clockOutISO <= clockInISO) {
+        // Coba anggap clock-out hari berikutnya
+        clockOutISO = new Date(`${date}T${clockOut}:00+08:00`);
+        clockOutISO.setDate(clockOutISO.getDate() + 1);
+      }
+    }
+
+    // date kolom = WITA midnight disimpan sebagai UTC instant
+    const dateUTC = new Date(`${date}T00:00:00+08:00`);
+
+    // Cek duplikat: sudah ada record untuk userId + date ini?
+    const existing = await prisma.attendance.findFirst({
+      where: {
+        userId,
+        date: { gte: new Date(`${date}T00:00:00+08:00`), lte: new Date(`${date}T23:59:59+08:00`) },
+      },
+    });
+    if (existing) {
+      const error = new Error(`Absensi untuk karyawan ini pada tanggal ${date} sudah ada (ID: ${existing.id}). Edit data yang sudah ada.`);
+      error.statusCode = 409;
+      error.code = 'DUPLICATE_ATTENDANCE';
+      error.isOperational = true;
+      throw error;
+    }
+
+    // Hitung lateMinutes (opsional, pakai 0 jika tidak bisa cek shift)
+    let lateMinutes = 0;
+
+    // Hitung status otomatis kalau tidak disupply
+    const dbStatus = status ? parseStatus(status) : 'PRESENT';
+
+    const record = await prisma.attendance.create({
+      data: {
+        userId,
+        date: dateUTC,
+        clockIn: clockInISO,
+        clockOut: clockOutISO,
+        status: dbStatus,
+        lateMinutes,
+        notes: notes || `Ditambahkan manual oleh admin (ID: ${adminId})`,
+        clockInLocation: 'Manual oleh admin',
+        clockOutLocation: clockOutISO ? 'Manual oleh admin' : null,
+      },
+    });
+
+    // Audit trail
+    await auditService.logAttendanceUpdate(adminId, record.id, {
+      before: null,
+      after: { userId, date, clockIn, clockOut, status: dbStatus },
+      action: 'MANUAL_CREATE',
+    });
+
+    return {
+      id: record.id,
+      userId: record.userId,
+      date: toWITADateString(record.date),
+      clockIn: record.clockIn.toISOString(),
+      clockOut: record.clockOut ? record.clockOut.toISOString() : null,
+      status: formatStatus(record.status),
+      notes: record.notes,
+    };
+  }
+
+  /**
    * Admin: Delete attendance record
    */
   async deleteAttendance(id, adminId = null) {

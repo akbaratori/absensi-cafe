@@ -83,9 +83,18 @@ const adminAttendanceQuerySchema = Joi.object({
 
 const updateAttendanceSchema = Joi.object({
   clockIn: Joi.date().iso().optional(),
-  clockOut: Joi.date().iso().greater(Joi.ref('clockIn')).optional(),
+  clockOut: Joi.date().iso().optional(),
   status: Joi.string().valid('PRESENT', 'LATE', 'ABSENT', 'HALF_DAY').optional(),
-  notes: Joi.string().max(500).optional(),
+  notes: Joi.string().max(500).optional().allow('', null),
+});
+
+const createAttendanceSchema = Joi.object({
+  userId: Joi.number().integer().positive().required(),
+  date: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).required(),
+  clockIn: Joi.string().pattern(/^([01]\d|2[0-3]):[0-5]\d$/).required(),
+  clockOut: Joi.string().pattern(/^([01]\d|2[0-3]):[0-5]\d$/).optional().allow('', null),
+  status: Joi.string().valid('PRESENT', 'LATE', 'ABSENT', 'HALF_DAY').optional().default('PRESENT'),
+  notes: Joi.string().max(500).optional().allow('', null),
 });
 
 const updateConfigSchema = Joi.object({
@@ -183,6 +192,7 @@ module.exports = {
   updateUserSchema,
   adminAttendanceQuerySchema,
   updateAttendanceSchema,
+  createAttendanceSchema,
   updateConfigSchema,
   usersQuerySchema,
   reportQuerySchema,

@@ -118,6 +118,16 @@ class AdminController {
   });
 
   /**
+   * Create attendance record manual (untuk tanggal lampau)
+   * POST /api/v1/admin/attendance
+   */
+  createAttendance = asyncHandler(async (req, res) => {
+    const result = await attendanceService.createManual(req.body, req.user.id);
+
+    return successResponse(res, 201, result, 'Absensi berhasil ditambahkan');
+  });
+
+  /**
    * Update attendance record
    * PUT /api/v1/admin/attendance/:id
    */
