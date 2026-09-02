@@ -114,10 +114,20 @@ class LeaveService {
             select: { date: true },
         });
 
-        // Build a Set of WITA date-strings for manual off-days
+        // Build a Set of WITA date-strings for manual off-days.
+        // ManualOffDay.date uses @db.Date (MySQL DATE). Prisma may return it as
+        // a Date object (midnight UTC) or as a plain "YYYY-MM-DD" string depending
+        // on the driver version. Handle both cases defensively.
         const manualOffDateSet = new Set();
         for (const off of manualOffDays) {
-            const witaStr = new Date(off.date.getTime() + WITA_OFFSET_MS).toISOString().slice(0, 10);
+            let witaStr;
+            if (typeof off.date === 'string') {
+                // Already a date string — take it as-is (it represents the local date)
+                witaStr = off.date.slice(0, 10);
+            } else {
+                // Date object stored as midnight UTC → add WITA offset to get local date
+                witaStr = new Date(off.date.getTime() + WITA_OFFSET_MS).toISOString().slice(0, 10);
+            }
             // Only count if not already covered by a formal Leave entry
             if (!leaveDateSet.has(witaStr)) {
                 manualOffDateSet.add(witaStr);

@@ -77,7 +77,10 @@ const DashboardPage = () => {
   const fetchLeaveQuota = async () => {
     try {
       const response = await getLeaveQuota();
-      setLeaveQuota(response.data);
+      // API shape: { status, data: { used, quota, remaining, breakdown } }
+      // axios wraps body into response.data, so actual payload is response.data.data
+      const payload = response.data?.data ?? response.data;
+      setLeaveQuota(payload);
     } catch (error) {
       console.error('Failed to fetch leave quota:', error);
     }
