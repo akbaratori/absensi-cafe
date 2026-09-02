@@ -8,11 +8,13 @@ import Button from '../../components/shared/Button';
 import SwapRequestModal from '../../components/modals/SwapRequestModal';
 import SwapInboxModal from '../../components/modals/SwapInboxModal';
 import OffDayRequestModal from '../../components/modals/OffDayRequestModal';
+import OffDayInboxModal from '../../components/modals/OffDayInboxModal';
 import LatePenaltyWidget from '../../components/employee/LatePenaltyWidget';
 import { getTodayAttendance, clockIn, clockOut, getMonthlySummary } from '../../services/attendanceService';
 import { getUserSchedule } from '../../services/scheduleService';
 import { getLeaveQuota } from '../../services/leaveService';
 import { getInbox } from '../../services/swapService';
+import { getOffDayInbox } from '../../services/offDayService';
 import { formatTime, formatStatus, getStatusBadgeClass, formatDate } from '../../utils/formatters';
 import { showSuccess, showError } from '../../hooks/useToast';
 import Badge from '../../components/shared/Badge';
@@ -28,7 +30,9 @@ const DashboardPage = () => {
   const [showSwapModal, setShowSwapModal] = useState(false);
   const [showInboxModal, setShowInboxModal] = useState(false);
   const [showOffDayModal, setShowOffDayModal] = useState(false);
+  const [showOffDayInboxModal, setShowOffDayInboxModal] = useState(false);
   const [inboxCount, setInboxCount] = useState(0);
+  const [offDayInboxCount, setOffDayInboxCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
@@ -123,9 +127,11 @@ const DashboardPage = () => {
   // Fetch jumlah permintaan tukar shift yang menunggu respons user ini
   const fetchInboxCount = async () => {
     try {
-      const response = await getInbox();
-      const data = response.data?.data ?? response.data ?? [];
-      setInboxCount(Array.isArray(data) ? data.length : 0);
+      const [swapRes, offDayRes] = await Promise.all([getInbox(), getOffDayInbox()]);
+      const swapData = swapRes.data?.data ?? swapRes.data ?? [];
+      const offDayData = offDayRes.data?.data ?? offDayRes.data ?? [];
+      setInboxCount(Array.isArray(swapData) ? swapData.length : 0);
+      setOffDayInboxCount(Array.isArray(offDayData) ? offDayData.length : (offDayData?.requests?.length ?? 0));
     } catch {
       // Tidak kritikal — tidak perlu tampilkan error
     }
@@ -355,6 +361,14 @@ const DashboardPage = () => {
               </Button>
               <Button size="sm" variant="secondary" onClick={() => setShowOffDayModal(true)} className="bg-orange-100 text-orange-800 hover:bg-orange-200 text-sm">
                 📅 Tukar Libur
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setShowOffDayInboxModal(true)} className="text-sm relative">
+                🏖️ Inbox Libur
+                {offDayInboxCount > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 bg-orange-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center leading-none">
+                    {offDayInboxCount > 9 ? '9+' : offDayInboxCount}
+                  </span>
+                )}
               </Button>
             </div>
           </div>
@@ -685,6 +699,16 @@ const DashboardPage = () => {
           onSuccess={() => {
             setShowOffDayModal(false);
           }}
+        />
+      )}
+
+      {showOffDayInboxModal && (
+        <OffDayInboxModal
+          onClose={() => {
+            setShowOffDayInboxModal(false);
+            fetchInboxCount();
+          }}
+          onUpdate={fetchInboxCount}
         />
       )}
     </div>
