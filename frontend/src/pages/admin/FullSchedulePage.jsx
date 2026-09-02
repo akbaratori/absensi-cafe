@@ -57,6 +57,8 @@ function getUsersOnDayWithOffDay(schedule, dateISO, shiftNum, offDaySet, backups
       userId: s.userId,
       // Jobdesk hari ini (rotasi harian). null jika posisi tidak punya jobdesk.
       jobdesk: s.jobdesksByDate?.[dateISO] || null,
+      // Info tukar shift (swap APPROVED) di tanggal ini, jika ada
+      swapInfo: s.swapsByDate?.[dateISO] || null,
     }));
   const deployedMap = new Map();
   // Peta user yang dipindah ke SHIFT LAIN di posisi yang sama
@@ -274,6 +276,11 @@ export default function FullSchedulePage() {
                             <li key={i} className="whitespace-nowrap text-gray-600 dark:text-gray-300">
                               {u.name}
                               {u.jobdesk && <span className="ml-1 inline-block px-1 py-px rounded bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 text-[10px] font-medium align-middle">{u.jobdesk}</span>}
+                              {u.swapInfo && (
+                                <span className="ml-1 inline-flex items-center gap-0.5 px-1 py-px rounded bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 text-[10px] font-medium align-middle">
+                                  ⇄ {u.swapInfo.withUserName}
+                                </span>
+                              )}
                             </li>
                           ))}</ul>}
                           {movedToOtherShift.length > 0 && <ul className="space-y-0.5 mb-1">{movedToOtherShift.map((u,i) => (

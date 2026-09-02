@@ -5,7 +5,7 @@ import Card from '../../components/shared/Card';
 import Button from '../../components/shared/Button';
 import Badge from '../../components/shared/Badge';
 import MyClosingJobdeskWidget from '../../components/employee/MyClosingJobdeskWidget';
-import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Clock, Coffee, ChefHat } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Clock, Coffee, ChefHat, ArrowLeftRight } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths, getDay, isToday } from 'date-fns';
 import { id } from 'date-fns/locale';
 
@@ -401,6 +401,14 @@ const MySchedulePage = () => {
                                                 </div>
                                                 )}
 
+                                                {/* Badge tukar shift */}
+                                                {schedule.swap && (
+                                                <div className="w-full mt-1 flex items-center justify-center gap-0.5 text-[9px] leading-tight font-semibold text-purple-700 bg-purple-50 dark:text-purple-300 dark:bg-purple-900/30 px-1 py-0.5 rounded border border-purple-200 dark:border-purple-700">
+                                                    <ArrowLeftRight className="w-2.5 h-2.5 shrink-0" />
+                                                    <span className="truncate">Tukar: {schedule.swap.withUserName}</span>
+                                                </div>
+                                                )}
+
 
                                                 {/* Position Badge */}
                                                 {schedule.positionName && (
@@ -480,6 +488,14 @@ const MySchedulePage = () => {
                                                     <p className="text-xs text-amber-600 dark:text-amber-400 italic">
                                                         Jadwal asli: {schedule.originalShiftNumber === 1 ? 'Pagi' : 'Siang'} → masuk {schedule.shiftNumber === 1 ? 'Pagi' : 'Siang'} (backup)
                                                     </p>
+                                                )}
+
+                                                {/* Badge tukar shift - mobile */}
+                                                {schedule.swap && (
+                                                    <div className="inline-flex items-center gap-1 text-xs font-semibold text-purple-700 bg-purple-50 dark:text-purple-300 dark:bg-purple-900/30 px-2 py-0.5 rounded border border-purple-200 dark:border-purple-700 mt-0.5">
+                                                        <ArrowLeftRight className="w-3 h-3 shrink-0" />
+                                                        Tukar dgn {schedule.swap.withUserName}
+                                                    </div>
                                                 )}
 
 
