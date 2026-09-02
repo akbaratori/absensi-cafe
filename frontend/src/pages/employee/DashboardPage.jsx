@@ -630,6 +630,20 @@ const DashboardPage = () => {
                   {leaveQuota?.remaining ?? 0} / {leaveQuota?.quota ?? 4}
                 </p>
                 <p className="text-gray-600 dark:text-gray-400 mt-1">Sisa Jatah Libur</p>
+                {/* Breakdown detail — only shown when at least 1 day used */}
+                {leaveQuota.used > 0 && leaveQuota.breakdown && (
+                  <div className="mt-2 text-xs text-gray-500 dark:text-gray-400 space-y-0.5">
+                    {leaveQuota.breakdown.leaveDays > 0 && (
+                      <p>📋 Cuti diajukan: <span className="font-medium">{leaveQuota.breakdown.leaveDays} hari</span></p>
+                    )}
+                    {leaveQuota.breakdown.absentDays > 0 && (
+                      <p>❌ Absen tercatat: <span className="font-medium">{leaveQuota.breakdown.absentDays} hari</span></p>
+                    )}
+                    {leaveQuota.breakdown.noShowDays > 0 && (
+                      <p>⚠️ Tidak masuk: <span className="font-medium">{leaveQuota.breakdown.noShowDays} hari</span></p>
+                    )}
+                  </div>
+                )}
               </>
             ) : (
               <div className="animate-pulse flex flex-col items-center">

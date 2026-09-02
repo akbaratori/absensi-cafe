@@ -49,15 +49,116 @@ class LeaveService {
     }
 
     /**
-     * Get leave balance for user
+     * Get leave balance for user.
+     *
+     * "Used" = any working day this month where the employee did NOT clock in.
+     * This includes:
+     *   1. Approved/pending formal Leave request days
+     *   2. Days with a UserSchedule (isOffDay=false) but no Attendance record
+     *   3. Days with an Attendance record whose status is ABSENT
+     *
+     * All dates are handled in WITA (UTC+8) to match the rest of the codebase.
      */
     async getLeaveBalance(userId) {
-        const used = await this.getMonthlyLeaveCount(userId);
+        const WITA_OFFSET_MS = 8 * 60 * 60 * 1000;
+
+        // "Today" in WITA
+        const nowWITA = new Date(Date.now() + WITA_OFFSET_MS);
+        const todayStr = nowWITA.toISOString().slice(0, 10); // "YYYY-MM-DD"
+
+        // First day of current month in WITA
+        const [year, month] = todayStr.split('-').map(Number);
+        const monthStartWITA = new Date(`${year}-${String(month).padStart(2, '0')}-01T00:00:00+08:00`);
+        // Last moment of yesterday in WITA — we don't penalise today yet (shift may still be ongoing)
+        const yesterdayWITA = new Date(nowWITA);
+        yesterdayWITA.setUTCDate(yesterdayWITA.getUTCDate() - 1);
+        const yesterdayStr = yesterdayWITA.toISOString().slice(0, 10);
+        const monthEndUTC = new Date(`${yesterdayStr}T23:59:59+08:00`);
+
+        // If we're on the first day of the month there are no past days yet
+        if (monthEndUTC < monthStartWITA) {
+            return { used: 0, quota: 4, remaining: 4, breakdown: { leaveDays: 0, absentDays: 0, noShowDays: 0 } };
+        }
+
+        // --- 1. Collect formal Leave days this month (not REJECTED) ---
+        const leaves = await prisma.leave.findMany({
+            where: {
+                userId,
+                status: { not: 'REJECTED' },
+                startDate: { lte: monthEndUTC },
+                endDate:   { gte: monthStartWITA },
+            },
+        });
+
+        // Build a Set of WITA date-strings covered by formal leave
+        const leaveDateSet = new Set();
+        for (const leave of leaves) {
+            const start = leave.startDate < monthStartWITA ? monthStartWITA : leave.startDate;
+            const end   = leave.endDate   > monthEndUTC   ? monthEndUTC   : leave.endDate;
+            const cur = new Date(start);
+            while (cur <= end) {
+                const witaStr = new Date(cur.getTime() + WITA_OFFSET_MS).toISOString().slice(0, 10);
+                leaveDateSet.add(witaStr);
+                cur.setUTCDate(cur.getUTCDate() + 1);
+            }
+        }
+
+        // --- 2. Collect UserSchedule entries this month where isOffDay = false ---
+        const schedules = await prisma.userSchedule.findMany({
+            where: {
+                userId,
+                isOffDay: false,
+                date: { gte: monthStartWITA, lte: monthEndUTC },
+            },
+            select: { date: true },
+        });
+
+        // --- 3. Collect Attendance records this month ---
+        const attendances = await prisma.attendance.findMany({
+            where: {
+                userId,
+                date: { gte: monthStartWITA, lte: monthEndUTC },
+            },
+            select: { date: true, status: true },
+        });
+
+        // Index attendance by WITA date-string
+        const attendanceMap = new Map(); // dateStr -> status
+        for (const a of attendances) {
+            const witaStr = new Date(a.date.getTime() + WITA_OFFSET_MS).toISOString().slice(0, 10);
+            attendanceMap.set(witaStr, a.status);
+        }
+
+        // --- 4. Walk scheduled days and classify ---
+        let noShowDays = 0;
+        let absentDays = 0;
+
+        for (const sched of schedules) {
+            const witaStr = new Date(sched.date.getTime() + WITA_OFFSET_MS).toISOString().slice(0, 10);
+
+            // Skip days already covered by a formal Leave entry (avoid double-count)
+            if (leaveDateSet.has(witaStr)) continue;
+
+            const status = attendanceMap.get(witaStr);
+            if (status === undefined) {
+                // Scheduled to work, no attendance record at all — no-show
+                noShowDays++;
+            } else if (status === 'ABSENT') {
+                // Admin explicitly marked as absent
+                absentDays++;
+            }
+            // PRESENT, LATE, HALF_DAY etc. — employee came in, don't count
+        }
+
+        const leaveDays = leaveDateSet.size;
+        const used = leaveDays + noShowDays + absentDays;
         const quota = 4; // Max 4 days per month
+
         return {
             used,
             quota,
-            remaining: Math.max(0, quota - used)
+            remaining: Math.max(0, quota - used),
+            breakdown: { leaveDays, absentDays, noShowDays },
         };
     }
 
