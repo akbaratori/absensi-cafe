@@ -77,7 +77,7 @@ class LeaveService {
 
         // If we're on the first day of the month there are no past days yet
         if (monthEndUTC < monthStartWITA) {
-            return { used: 0, quota: 4, remaining: 4, breakdown: { leaveDays: 0, absentDays: 0, noShowDays: 0 } };
+            return { used: 0, quota: 4, remaining: 4, breakdown: { leaveDays: 0, offDays: 0, absentDays: 0, noShowDays: 0 } };
         }
 
         // --- 1. Collect formal Leave days this month (not REJECTED) ---
@@ -103,7 +103,26 @@ class LeaveService {
             }
         }
 
-        // --- 2. Collect UserSchedule entries this month where isOffDay = false ---
+        // --- 2. Collect ManualOffDay records this month (admin-assigned quota off-days) ---
+        const manualOffDays = await prisma.manualOffDay.findMany({
+            where: {
+                userId,
+                date: { gte: monthStartWITA, lte: monthEndUTC },
+            },
+            select: { date: true },
+        });
+
+        // Build a Set of WITA date-strings for manual off-days
+        const manualOffDateSet = new Set();
+        for (const off of manualOffDays) {
+            const witaStr = new Date(off.date.getTime() + WITA_OFFSET_MS).toISOString().slice(0, 10);
+            // Only count if not already covered by a formal Leave entry
+            if (!leaveDateSet.has(witaStr)) {
+                manualOffDateSet.add(witaStr);
+            }
+        }
+
+        // --- 3. Collect UserSchedule entries this month where isOffDay = false ---
         const schedules = await prisma.userSchedule.findMany({
             where: {
                 userId,
@@ -113,7 +132,7 @@ class LeaveService {
             select: { date: true },
         });
 
-        // --- 3. Collect Attendance records this month ---
+        // --- 4. Collect Attendance records this month ---
         const attendances = await prisma.attendance.findMany({
             where: {
                 userId,
@@ -164,14 +183,15 @@ class LeaveService {
         }
 
         const leaveDays = leaveDateSet.size;
-        const used = leaveDays + noShowDays + absentDays;
+        const offDays = manualOffDateSet.size;
+        const used = leaveDays + offDays + noShowDays + absentDays;
         const quota = 4; // Max 4 days per month
 
         return {
             used,
             quota,
             remaining: Math.max(0, quota - used),
-            breakdown: { leaveDays, absentDays, noShowDays },
+            breakdown: { leaveDays, offDays, absentDays, noShowDays },
         };
     }
 

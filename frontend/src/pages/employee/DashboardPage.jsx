@@ -636,6 +636,9 @@ const DashboardPage = () => {
                     {leaveQuota.breakdown.leaveDays > 0 && (
                       <p>📋 Cuti diajukan: <span className="font-medium">{leaveQuota.breakdown.leaveDays} hari</span></p>
                     )}
+                    {leaveQuota.breakdown.offDays > 0 && (
+                      <p>🏖️ Libur diambil: <span className="font-medium">{leaveQuota.breakdown.offDays} hari</span></p>
+                    )}
                     {leaveQuota.breakdown.absentDays > 0 && (
                       <p>❌ Absen tercatat: <span className="font-medium">{leaveQuota.breakdown.absentDays} hari</span></p>
                     )}
