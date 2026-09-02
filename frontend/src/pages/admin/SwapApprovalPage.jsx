@@ -1,22 +1,74 @@
-import { useState, useEffect } from 'react';
-import { Check, XCircle, RotateCcw } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Check, XCircle, RotateCcw, AlertTriangle } from 'lucide-react';
 import Card from '../../components/shared/Card';
 import Button from '../../components/shared/Button';
 import Badge from '../../components/shared/Badge';
 import { getAllSwaps, approveSwapByAdmin, rejectSwapByAdmin, revertSwapByAdmin } from '../../services/swapService';
 import { showSuccess, showError } from '../../hooks/useToast';
 
+// Modal konfirmasi reusable — menggantikan confirm() dan prompt() bawaan browser
+const ConfirmModal = ({ open, title, message, confirmLabel, confirmVariant = 'danger', onConfirm, onCancel, children }) => {
+    const cancelRef = useRef(null);
+
+    useEffect(() => {
+        if (open) cancelRef.current?.focus();
+    }, [open]);
+
+    if (!open) return null;
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onCancel} />
+            <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="modal-title"
+                className="relative bg-white dark:bg-gray-800 rounded-xl shadow-xl w-full max-w-md mx-4 p-6 space-y-4"
+            >
+                <div className="flex items-start gap-3">
+                    <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${confirmVariant === 'danger' ? 'bg-red-100 dark:bg-red-900/30' : 'bg-orange-100 dark:bg-orange-900/30'}`}>
+                        <AlertTriangle className={`w-5 h-5 ${confirmVariant === 'danger' ? 'text-red-600 dark:text-red-400' : 'text-orange-600 dark:text-orange-400'}`} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                        <h3 id="modal-title" className="text-base font-semibold text-gray-900 dark:text-white">{title}</h3>
+                        {message && <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">{message}</p>}
+                    </div>
+                </div>
+                {children}
+                <div className="flex justify-end gap-3 pt-2">
+                    <button
+                        ref={cancelRef}
+                        onClick={onCancel}
+                        className="px-4 py-2 text-sm font-medium rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                    >
+                        Batal
+                    </button>
+                    <button
+                        onClick={onConfirm}
+                        className={`px-4 py-2 text-sm font-medium rounded-lg text-white transition-colors ${confirmVariant === 'danger' ? 'bg-red-600 hover:bg-red-700' : 'bg-orange-600 hover:bg-orange-700'}`}
+                    >
+                        {confirmLabel}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const SwapApprovalPage = () => {
     const [swaps, setSwaps] = useState([]);
     const [loading, setLoading] = useState(true);
     const [actionLoading, setActionLoading] = useState(null);
-    const [filterStatus, setFilterStatus] = useState('PENDING_APPROVAL'); // Default: perlu persetujuan admin
+    const [filterStatus, setFilterStatus] = useState('PENDING_APPROVAL');
+
+    // State modal reject & revert
+    const [rejectModal, setRejectModal] = useState({ open: false, swapId: null });
+    const [revertModal, setRevertModal] = useState({ open: false, swapId: null, note: '' });
 
     const fetchSwaps = async () => {
         setLoading(true);
         try {
             const response = await getAllSwaps({ status: filterStatus === 'ALL' ? undefined : filterStatus });
-            // Backend returns { success: true, data: [...] }
             const payload = response.data?.data;
             setSwaps(Array.isArray(payload) ? payload : payload?.swaps || []);
         } catch (error) {
@@ -44,9 +96,12 @@ const SwapApprovalPage = () => {
         }
     };
 
-    const handleReject = async (swapId) => {
-        if (!confirm('Yakin ingin menolak permintaan ini?')) return;
+    // Reject: buka modal konfirmasi dulu
+    const handleReject = (swapId) => setRejectModal({ open: true, swapId });
 
+    const confirmReject = async () => {
+        const { swapId } = rejectModal;
+        setRejectModal({ open: false, swapId: null });
         setActionLoading(swapId);
         try {
             await rejectSwapByAdmin(swapId);
@@ -59,13 +114,15 @@ const SwapApprovalPage = () => {
         }
     };
 
-    const handleRevert = async (swapId) => {
-        const note = prompt('Alasan pembatalan (opsional):');
-        if (note === null) return; // User klik Cancel di prompt
+    // Revert: buka modal dengan input alasan opsional
+    const handleRevert = (swapId) => setRevertModal({ open: true, swapId, note: '' });
 
+    const confirmRevert = async () => {
+        const { swapId, note } = revertModal;
+        setRevertModal({ open: false, swapId: null, note: '' });
         setActionLoading(swapId);
         try {
-            await revertSwapByAdmin(swapId, note || undefined);
+            await revertSwapByAdmin(swapId, note.trim() || undefined);
             showSuccess('Tukar shift dibatalkan dan jadwal dikembalikan ke semula.');
             fetchSwaps();
         } catch (error) {
@@ -334,6 +391,42 @@ const SwapApprovalPage = () => {
                     )}
                 </div>
             </Card>
+
+            {/* Modal konfirmasi tolak */}
+            <ConfirmModal
+                open={rejectModal.open}
+                title="Tolak Permintaan Tukar Shift?"
+                message="Permintaan ini akan ditolak dan tidak dapat diproses ulang."
+                confirmLabel="Ya, Tolak"
+                confirmVariant="danger"
+                onConfirm={confirmReject}
+                onCancel={() => setRejectModal({ open: false, swapId: null })}
+            />
+
+            {/* Modal batalkan (revert) dengan input alasan opsional */}
+            <ConfirmModal
+                open={revertModal.open}
+                title="Batalkan Tukar Shift yang Sudah Disetujui?"
+                message="Jadwal kedua karyawan akan dikembalikan ke posisi semula."
+                confirmLabel="Ya, Batalkan"
+                confirmVariant="warning"
+                onConfirm={confirmRevert}
+                onCancel={() => setRevertModal({ open: false, swapId: null, note: '' })}
+            >
+                <div className="mt-1">
+                    <label htmlFor="revert-note" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Alasan pembatalan <span className="text-gray-400 font-normal">(opsional)</span>
+                    </label>
+                    <textarea
+                        id="revert-note"
+                        rows={3}
+                        value={revertModal.note}
+                        onChange={(e) => setRevertModal((prev) => ({ ...prev, note: e.target.value }))}
+                        placeholder="Contoh: Kesalahan input, perubahan jadwal mendadak..."
+                        className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-white px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
+                    />
+                </div>
+            </ConfirmModal>
         </div>
     );
 };
