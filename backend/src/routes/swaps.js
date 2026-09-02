@@ -27,5 +27,6 @@ router.post('/:id/cancel', swapController.cancelRequest);
 router.get('/', authorize('ADMIN', 'OWNER'), swapController.getAllSwaps);
 router.get('/pending-admin-approval', authorize('ADMIN', 'OWNER'), swapController.getPendingAdminApproval);
 router.post('/:id/approve', authorize('ADMIN', 'OWNER'), swapController.approveByAdmin);
+router.post('/:id/revert', authorize('ADMIN', 'OWNER'), swapController.revertByAdmin);
 
 module.exports = router;

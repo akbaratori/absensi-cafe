@@ -459,6 +459,112 @@ class SwapService {
   }
 
   /**
+   * Admin membatalkan swap yang sudah APPROVED (Opsi A — revert sederhana)
+   * Tukar balik jadwal harian kedua karyawan ke posisi semula.
+   * Guard: hanya boleh jika tanggal swap belum lewat atau belum ada absensi.
+   */
+  async revertByAdmin(swapId, adminId, note) {
+    const swap = await prisma.shiftSwap.findUnique({
+      where: { id: parseInt(swapId) },
+      include: {
+        requester: { select: { id: true, fullName: true, shiftId: true } },
+        target:    { select: { id: true, fullName: true, shiftId: true } },
+      },
+    });
+
+    if (!swap) throw ErrorCodes.RESOURCE_NOT_FOUND;
+
+    const transition = canTransition(swap.status, 'ADMIN_REVERT');
+    if (!transition.valid) {
+      throw new AppError(transition.error, 400, 'INVALID_TRANSITION');
+    }
+
+    // Guard: cek apakah salah satu karyawan sudah absen pada hari tsb
+    const [reqAttendance, tgtAttendance] = await Promise.all([
+      prisma.attendance.findFirst({
+        where: { userId: swap.requesterId, date: swap.date },
+      }),
+      prisma.attendance.findFirst({
+        where: { userId: swap.targetUserId, date: swap.date },
+      }),
+    ]);
+
+    if (reqAttendance || tgtAttendance) {
+      const who = reqAttendance ? swap.requester.fullName : swap.target.fullName;
+      throw new AppError(
+        `Tidak dapat me-revert: ${who} sudah memiliki data absensi pada tanggal tersebut. Koreksi absensi secara manual jika diperlukan.`,
+        409,
+        'ATTENDANCE_EXISTS'
+      );
+    }
+
+    // Ambil jadwal HARIAN saat ini (hasil swap sebelumnya) untuk dibalik
+    const [reqSched, tgtSched] = await Promise.all([
+      prisma.userSchedule.findFirst({ where: { userId: swap.requesterId, date: swap.date } }),
+      prisma.userSchedule.findFirst({ where: { userId: swap.targetUserId, date: swap.date } }),
+    ]);
+
+    const now = new Date();
+    const revertNote = (note || 'Dibatalkan oleh admin.').slice(0, 191);
+
+    await prisma.$transaction(async (tx) => {
+      // 1. Update status swap → REVERTED
+      await tx.shiftSwap.update({
+        where: { id: parseInt(swapId) },
+        data: {
+          status: transition.nextStatus,
+          rejectionNote: revertNote,
+          approverId: adminId,
+          approvedAt: now,
+        },
+      });
+
+      // 2. Tukar balik jadwal harian: requester kembali ke jadwal target semula, vice versa
+      // Saat APPROVE, requester mendapat jadwal target dan target mendapat jadwal requester.
+      // Untuk revert: requester kembali ke jadwal lama mereka (kini ada di tgtSched),
+      // dan target kembali ke jadwal lama mereka (kini ada di reqSched).
+      if (reqSched) {
+        await tx.userSchedule.update({
+          where: { userId_date: { userId: swap.requesterId, date: swap.date } },
+          data: {
+            shiftId:   tgtSched?.shiftId   ?? swap.requester.shiftId,
+            isOffDay:  tgtSched?.isOffDay  ?? false,
+          },
+        });
+      }
+
+      if (tgtSched) {
+        await tx.userSchedule.update({
+          where: { userId_date: { userId: swap.targetUserId, date: swap.date } },
+          data: {
+            shiftId:   reqSched?.shiftId   ?? swap.target.shiftId,
+            isOffDay:  reqSched?.isOffDay   ?? false,
+          },
+        });
+      }
+    });
+
+    // 3. Notifikasi kedua karyawan
+    const dateStr = swap.date.toLocaleDateString('id-ID');
+    await Promise.all([
+      notificationService.create(
+        swap.requesterId,
+        'Tukar Shift Dibatalkan Admin',
+        `Tukar shift Anda dengan ${swap.target.fullName} pada ${dateStr} telah dibatalkan oleh admin. Jadwal dikembalikan ke semula.`,
+        'SHIFT_SWAP_REJECTED'
+      ),
+      notificationService.create(
+        swap.targetUserId,
+        'Tukar Shift Dibatalkan Admin',
+        `Tukar shift antara Anda dan ${swap.requester.fullName} pada ${dateStr} telah dibatalkan oleh admin. Jadwal dikembalikan ke semula.`,
+        'SHIFT_SWAP_REJECTED'
+      ),
+    ]);
+
+    return { status: transition.nextStatus, message: 'Tukar shift berhasil dibatalkan dan jadwal dikembalikan ke semula.' };
+  }
+
+  /**
    * Get swaps for a specific user
    */
   async getUserSwaps(userId, filters = {}) {

@@ -122,10 +122,24 @@ async function getPendingAdminApproval(req, res, next) {
   }
 }
 
+async function revertByAdmin(req, res, next) {
+  try {
+    const result = await swapService.revertByAdmin(
+      req.params.id,
+      req.user.id,
+      req.body.note
+    );
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
   createRequest,
   respondToRequest,
   approveByAdmin,
+  revertByAdmin,
   cancelRequest,
   getMySwaps,
   getAllSwaps,

@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Check, XCircle, Search } from 'lucide-react';
+import { Check, XCircle, RotateCcw } from 'lucide-react';
 import Card from '../../components/shared/Card';
 import Button from '../../components/shared/Button';
 import Badge from '../../components/shared/Badge';
-import { getAllSwaps, approveSwapByAdmin, rejectSwapByAdmin } from '../../services/swapService';
+import { getAllSwaps, approveSwapByAdmin, rejectSwapByAdmin, revertSwapByAdmin } from '../../services/swapService';
 import { showSuccess, showError } from '../../hooks/useToast';
 
 const SwapApprovalPage = () => {
@@ -59,6 +59,22 @@ const SwapApprovalPage = () => {
         }
     };
 
+    const handleRevert = async (swapId) => {
+        const note = prompt('Alasan pembatalan (opsional):');
+        if (note === null) return; // User klik Cancel di prompt
+
+        setActionLoading(swapId);
+        try {
+            await revertSwapByAdmin(swapId, note || undefined);
+            showSuccess('Tukar shift dibatalkan dan jadwal dikembalikan ke semula.');
+            fetchSwaps();
+        } catch (error) {
+            showError(error.response?.data?.error?.message || 'Gagal membatalkan tukar shift');
+        } finally {
+            setActionLoading(null);
+        }
+    };
+
     return (
         <div className="space-y-6">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -85,6 +101,15 @@ const SwapApprovalPage = () => {
                             }`}
                     >
                         Menunggu Karyawan
+                    </button>
+                    <button
+                        onClick={() => setFilterStatus('APPROVED')}
+                        className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${filterStatus === 'APPROVED'
+                            ? 'bg-white dark:bg-gray-600 text-primary-600 shadow-sm'
+                            : 'text-gray-600 dark:text-gray-300 hover:text-gray-900'
+                            }`}
+                    >
+                        Disetujui
                     </button>
                     <button
                         onClick={() => setFilterStatus('ALL')}
@@ -145,6 +170,7 @@ const SwapApprovalPage = () => {
                                                 ${swap.status === 'PENDING_TARGET_RESPONSE' ? 'bg-yellow-100 text-yellow-800 border-yellow-200' : ''}
                                                 ${swap.status === 'PENDING_APPROVAL' ? 'bg-blue-100 text-blue-800 border-blue-200' : ''}
                                                 ${swap.status === 'CANCELLED' ? 'bg-gray-100 text-gray-800 border-gray-200' : ''}
+                                                ${swap.status === 'REVERTED' ? 'bg-orange-100 text-orange-800 border-orange-200' : ''}
                                              `}>
                                                 {swap.status.replace(/_/g, ' ').toLowerCase()}
                                             </span>
@@ -174,7 +200,7 @@ const SwapApprovalPage = () => {
                                                     </Button>
                                                 </div>
                                             )}
-                                            {/* Admin juga bisa menolak permintaan yang stuck menunggu respons karyawan */}
+                                            {/* Admin bisa menolak permintaan yang stuck menunggu respons karyawan */}
                                             {swap.status === 'PENDING_TARGET_RESPONSE' && (
                                                 <div className="flex justify-end gap-2">
                                                     <Button
@@ -186,6 +212,21 @@ const SwapApprovalPage = () => {
                                                         disabled={actionLoading !== null}
                                                     >
                                                         <XCircle className="w-4 h-4" /> Tolak
+                                                    </Button>
+                                                </div>
+                                            )}
+                                            {/* Admin bisa membatalkan swap yang sudah APPROVED (revert jadwal) */}
+                                            {swap.status === 'APPROVED' && (
+                                                <div className="flex justify-end gap-2">
+                                                    <Button
+                                                        size="sm"
+                                                        variant="text"
+                                                        className="text-orange-600 hover:text-orange-700 bg-orange-50 hover:bg-orange-100"
+                                                        onClick={() => handleRevert(swap.id)}
+                                                        loading={actionLoading === swap.id}
+                                                        disabled={actionLoading !== null}
+                                                    >
+                                                        <RotateCcw className="w-4 h-4 mr-1" /> Batalkan
                                                     </Button>
                                                 </div>
                                             )}
@@ -217,6 +258,7 @@ const SwapApprovalPage = () => {
                                             ${swap.status === 'PENDING_TARGET_RESPONSE' ? 'bg-yellow-100 text-yellow-800 border-yellow-200' : ''}
                                             ${swap.status === 'PENDING_APPROVAL' ? 'bg-blue-100 text-blue-800 border-blue-200' : ''}
                                             ${swap.status === 'CANCELLED' ? 'bg-gray-100 text-gray-800 border-gray-200' : ''}
+                                            ${swap.status === 'REVERTED' ? 'bg-orange-100 text-orange-800 border-orange-200' : ''}
                                          `}>
                                             {swap.status.replace(/_/g, ' ').toLowerCase()}
                                         </span>
@@ -245,6 +287,30 @@ const SwapApprovalPage = () => {
                                                     <XCircle className="w-4 h-4" />
                                                 </Button>
                                             </div>
+                                        )}
+                                        {swap.status === 'PENDING_TARGET_RESPONSE' && (
+                                            <Button
+                                                size="sm"
+                                                variant="text"
+                                                className="text-red-600 hover:text-red-700 bg-red-50"
+                                                onClick={() => handleReject(swap.id)}
+                                                loading={actionLoading === swap.id}
+                                                disabled={actionLoading !== null}
+                                            >
+                                                <XCircle className="w-4 h-4" />
+                                            </Button>
+                                        )}
+                                        {swap.status === 'APPROVED' && (
+                                            <Button
+                                                size="sm"
+                                                variant="text"
+                                                className="text-orange-600 hover:text-orange-700 bg-orange-50"
+                                                onClick={() => handleRevert(swap.id)}
+                                                loading={actionLoading === swap.id}
+                                                disabled={actionLoading !== null}
+                                            >
+                                                <RotateCcw className="w-4 h-4 mr-1" /> Batalkan
+                                            </Button>
                                         )}
                                     </div>
                                 </div>

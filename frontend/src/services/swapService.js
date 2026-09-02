@@ -45,3 +45,8 @@ export const rejectSwapByAdmin = async (swapId) => {
 export const cancelSwap = async (swapId) => {
     return await api.post(`/swaps/${swapId}/cancel`);
 };
+
+// Admin membatalkan swap yang sudah APPROVED (revert jadwal ke semula)
+export const revertSwapByAdmin = async (swapId, note) => {
+    return await api.post(`/swaps/${swapId}/revert`, { note });
+};
