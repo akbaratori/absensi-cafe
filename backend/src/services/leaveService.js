@@ -104,10 +104,12 @@ class LeaveService {
         }
 
         // --- 2. Collect ManualOffDay records this month (admin-assigned quota off-days) ---
+        // Gunakan range bulan penuh (bukan dibatasi kemarin) karena libur sudah direncanakan admin
+        const monthEndFull = new Date(`${year}-${String(month).padStart(2, '0')}-${new Date(year, month, 0).getDate()}T23:59:59+08:00`);
         const manualOffDays = await prisma.manualOffDay.findMany({
             where: {
                 userId,
-                date: { gte: monthStartWITA, lte: monthEndUTC },
+                date: { gte: monthStartWITA, lte: monthEndFull },
             },
             select: { date: true },
         });
