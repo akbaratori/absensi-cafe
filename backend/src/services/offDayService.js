@@ -111,8 +111,8 @@ class OffDayService {
       },
     });
 
-    // System auto-validate
-    await this.systemValidate(request.id);
+    // System auto-validate — jika ditolak sistem, return dengan flag rejected
+    const validation = await this.systemValidate(request.id);
 
     const updated = await prisma.offDayRequest.findUnique({
       where: { id: request.id },
@@ -121,6 +121,14 @@ class OffDayService {
         target: { select: { fullName: true } },
       },
     });
+
+    // Propagate rejection info ke caller agar controller bisa return 422
+    if (validation?.rejected) {
+      const err = new Error(validation.reason);
+      err.requestData = updated;
+      err.isBusinessRejection = true;
+      throw err;
+    }
 
     return updated;
   }
@@ -173,7 +181,8 @@ class OffDayService {
         'OFFDAY_REJECTED'
       );
 
-      throw new Error(conflicts.join(' | '));
+      // Jangan throw — return info rejection agar createRequest bisa return normally
+      return { rejected: true, reason: conflicts.join(' | ') };
     }
 
     // System passes → notify target

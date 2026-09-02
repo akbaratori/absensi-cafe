@@ -1,16 +1,26 @@
-const offDayService = require('../services/offDayService');
-const { successResponse } = require('../utils/response');
-const { asyncHandler } = require('../utils/response');
+﻿const offDayService = require('../services/offDayService');
+const { successResponse, errorResponse, asyncHandler } = require('../utils/response');
 
 /**
  * POST /api/v1/off-days
  * Create off-day swap request
  */
-exports.createRequest = asyncHandler(async (req, res) => {
-  const data = req.body;
-  const result = await offDayService.createRequest(req.user.id, data);
-  return successResponse(res, 201, { request: result });
-});
+exports.createRequest = async (req, res, next) => {
+  try {
+    const result = await offDayService.createRequest(req.user.id, req.body);
+    return successResponse(res, 201, { request: result });
+  } catch (err) {
+    if (err.isBusinessRejection) {
+      return errorResponse(res, 422, 'SYSTEM_REJECTED', err.message, {
+        request: err.requestData,
+      });
+    }
+    if (err.message && !err.stack?.includes('PrismaClient')) {
+      return errorResponse(res, 422, 'VALIDATION_FAILED', err.message);
+    }
+    next(err);
+  }
+};
 
 /**
  * POST /api/v1/off-days/:id/respond
@@ -18,7 +28,7 @@ exports.createRequest = asyncHandler(async (req, res) => {
  */
 exports.respondToRequest = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { action } = req.body; // 'ACCEPT' or 'REJECT'
+  const { action } = req.body;
 
   if (!action || !['ACCEPT', 'REJECT'].includes(action)) {
     return res.status(400).json({ success: false, message: 'Action harus ACCEPT atau REJECT.' });
@@ -34,7 +44,7 @@ exports.respondToRequest = asyncHandler(async (req, res) => {
  */
 exports.approveByAdmin = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { action } = req.body; // 'APPROVE' or 'REJECT'
+  const { action } = req.body;
 
   if (!action || !['APPROVE', 'REJECT'].includes(action)) {
     return res.status(400).json({ success: false, message: 'Action harus APPROVE atau REJECT.' });
@@ -56,7 +66,7 @@ exports.cancelRequest = asyncHandler(async (req, res) => {
 
 /**
  * GET /api/v1/off-days/my
- * Get current user's requests
+ * Get current user requests
  */
 exports.getMyRequests = asyncHandler(async (req, res) => {
   const { status } = req.query;
