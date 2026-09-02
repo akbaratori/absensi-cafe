@@ -133,8 +133,12 @@ class LeaveService {
         let noShowDays = 0;
         let absentDays = 0;
 
+        // Track which dates were already processed via UserSchedule
+        const countedDates = new Set();
+
         for (const sched of schedules) {
             const witaStr = new Date(sched.date.getTime() + WITA_OFFSET_MS).toISOString().slice(0, 10);
+            countedDates.add(witaStr);
 
             // Skip days already covered by a formal Leave entry (avoid double-count)
             if (leaveDateSet.has(witaStr)) continue;
@@ -148,6 +152,15 @@ class LeaveService {
                 absentDays++;
             }
             // PRESENT, LATE, HALF_DAY etc. — employee came in, don't count
+        }
+
+        // --- 4b. Also count ABSENT attendance records that have no UserSchedule row ---
+        // This handles manually-set ABSENT records when absent detection cron is disabled.
+        for (const [witaStr, status] of attendanceMap) {
+            if (status !== 'ABSENT') continue;
+            if (countedDates.has(witaStr)) continue;     // already counted above
+            if (leaveDateSet.has(witaStr)) continue;     // covered by formal leave
+            absentDays++;
         }
 
         const leaveDays = leaveDateSet.size;
