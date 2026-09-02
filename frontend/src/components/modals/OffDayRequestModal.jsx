@@ -254,10 +254,40 @@ const OffDayRequestModal = ({ onClose, onSuccess }) => {
           </div>
         )}
 
+        {/* Info: Hari kerja user bulan ini */}
+        <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700 rounded-xl p-4">
+          <p className="text-sm font-semibold text-green-800 dark:text-green-200 mb-2">💼 Hari Kerja Anda Bulan Ini</p>
+          {loadingSchedule ? (
+            <p className="text-xs text-green-600 dark:text-green-400 animate-pulse">Memuat jadwal...</p>
+          ) : myWorkDays.length === 0 ? (
+            <p className="text-xs text-gray-500 dark:text-gray-400 italic">Tidak ada hari kerja terjadwal bulan ini.</p>
+          ) : (
+            <div className="flex flex-wrap gap-2 max-h-28 overflow-y-auto">
+              {myWorkDays.map(d => (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => setFormData(prev => ({ ...prev, workDate: d }))}
+                  className={`inline-flex items-center px-2 py-1 rounded-lg text-xs font-medium transition-colors
+                    ${formData.workDate === d
+                      ? "bg-green-500 text-white"
+                      : "bg-green-100 dark:bg-green-800 text-green-800 dark:text-green-200 hover:bg-green-200 dark:hover:bg-green-700"
+                    }`}
+                >
+                  💼 {formatDateID(d)}
+                </button>
+              ))}
+            </div>
+          )}
+          <p className="text-xs text-green-600 dark:text-green-400 mt-2">
+            Pilih salah satu tanggal di atas sebagai <strong>"Tanggal Ganti Masuk"</strong> — hari yang Anda akan jadikan libur.
+          </p>
+        </div>
+
         {/* Tanggal ganti masuk (harus hari kerja user) */}
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Tanggal Ganti Masuk (Anda akan masuk di hari ini) <span className="text-red-500">*</span>
+            Tanggal Ganti Masuk (Anda akan libur di hari ini) <span className="text-red-500">*</span>
           </label>
           <Input
             type="date"
@@ -273,11 +303,6 @@ const OffDayRequestModal = ({ onClose, onSuccess }) => {
               validation.workDate.isValid === true ? "text-green-600" : "text-gray-500"
             }`}>
               {validation.workDate.isValid === false ? "❌" : validation.workDate.isValid === true ? "✅" : "ℹ️"} {validation.workDate.message}
-            </p>
-          )}
-          {myWorkDays.length > 0 && (
-            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-              Pilih tanggal yang Anda terjadwal masuk (bukan hari libur di jadwal Anda).
             </p>
           )}
         </div>
