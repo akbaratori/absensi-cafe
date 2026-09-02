@@ -176,7 +176,7 @@ const OffDayRequestModal = ({ onClose, onSuccess }) => {
   };
 
   return (
-    <Modal onClose={onClose} title="Ajukan Tukar Hari Libur">
+    <Modal isOpen={true} onClose={onClose} title="Ajukan Tukar Hari Libur">
       <form onSubmit={handleSubmit} className="space-y-4">
 
         {/* Info: Hari libur user bulan ini */}
