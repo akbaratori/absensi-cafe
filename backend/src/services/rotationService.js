@@ -695,28 +695,24 @@ class RotationService {
         })
       : [];
 
-    // Build swapsByDate per userId: { 'YYYY-MM-DD': { withUserName, originalShiftNumber, swappedShiftNumber } }
+    // Build swapsByDate per userId: { 'YYYY-MM-DD': { withUserName } }
     const swapsByDateMap = new Map(); // userId -> { dateISO -> swapInfo }
     for (const swap of swapRows) {
       const dateISO = toISO(swap.date);
-      // Requester: mendapat shift target
+      // Requester: tukar dengan target
       if (userIds.includes(swap.requesterId)) {
         if (!swapsByDateMap.has(swap.requesterId)) swapsByDateMap.set(swap.requesterId, {});
         swapsByDateMap.get(swap.requesterId)[dateISO] = {
           withUserId: swap.targetUserId,
           withUserName: swap.target?.fullName || `User #${swap.targetUserId}`,
-          originalShiftNumber: swap.requesterShiftNumber,
-          swappedShiftNumber: swap.targetShiftNumber,
         };
       }
-      // Target: mendapat shift requester
+      // Target: tukar dengan requester
       if (userIds.includes(swap.targetUserId)) {
         if (!swapsByDateMap.has(swap.targetUserId)) swapsByDateMap.set(swap.targetUserId, {});
         swapsByDateMap.get(swap.targetUserId)[dateISO] = {
           withUserId: swap.requesterId,
           withUserName: swap.requester?.fullName || `User #${swap.requesterId}`,
-          originalShiftNumber: swap.targetShiftNumber,
-          swappedShiftNumber: swap.requesterShiftNumber,
         };
       }
     }
@@ -906,11 +902,22 @@ class RotationService {
     }
 
     // Daily jobdesk (UserSchedule.kitchenStation) for this user in range
+    // Also include shiftId to detect swap overrides
     const jobdeskRows = await prisma.userSchedule.findMany({
       where: { userId, date: { gte: from, lte: to } },
-      select: { date: true, kitchenStation: true },
+      select: { date: true, kitchenStation: true, shiftId: true, isOffDay: true },
     });
     const jobdeskByDate = new Map(jobdeskRows.map(r => [toISO(r.date), r.kitchenStation || null]));
+    // Map date -> actual shiftId from UserSchedule (reflects swap overrides)
+    const userSchedShiftByDate = new Map(jobdeskRows.map(r => [toISO(r.date), { shiftId: r.shiftId, isOffDay: r.isOffDay }]));
+
+    // Ambil semua shift dari DB untuk mapping shiftId -> shiftNumber (1=Pagi, 2=Siang)
+    const allShifts = await prisma.shift.findMany({ select: { id: true, name: true } });
+    // Shift 1 = shift dengan startTime paling awal, atau nama mengandung "1"/"Pagi"
+    // Sort by id ascending: shift id 1 = Pagi (shift 1), id 2 = Siang (shift 2)
+    allShifts.sort((a, b) => a.id - b.id);
+    const shiftIdToNumber = new Map();
+    allShifts.forEach((sh, idx) => shiftIdToNumber.set(sh.id, idx + 1));
 
     // 7. ShiftSwap APPROVED yang melibatkan user ini dalam rentang tanggal
     const swapRows = await prisma.shiftSwap.findMany({
@@ -925,23 +932,15 @@ class RotationService {
       },
     });
 
-    // Build swapByDate: dateISO -> { withUserName, originalShiftNumber, swappedShiftNumber }
+    // Build swapByDate: dateISO -> { withUserName }
+    // shiftNumber diambil dari UserSchedule yang sudah diupdate saat approve
     const swapByDate = new Map();
     for (const swap of swapRows) {
       const iso = toISO(swap.date);
-      if (swap.requesterId === userId) {
-        swapByDate.set(iso, {
-          withUserName: swap.target?.fullName || `User #${swap.targetUserId}`,
-          originalShiftNumber: swap.requesterShiftNumber,
-          swappedShiftNumber: swap.targetShiftNumber,
-        });
-      } else {
-        swapByDate.set(iso, {
-          withUserName: swap.requester?.fullName || `User #${swap.requesterId}`,
-          originalShiftNumber: swap.targetShiftNumber,
-          swappedShiftNumber: swap.requesterShiftNumber,
-        });
-      }
+      const withUserName = swap.requesterId === userId
+        ? (swap.target?.fullName || `User #${swap.targetUserId}`)
+        : (swap.requester?.fullName || `User #${swap.requesterId}`);
+      swapByDate.set(iso, { withUserName });
     }
 
     // Build final list
@@ -950,11 +949,16 @@ class RotationService {
       const backup = backupByDate.get(iso);
       const swapInfo = swapByDate.get(iso) || null;
       const originalPositionName = s && s.position ? s.position.name : null;
+      const userSched = userSchedShiftByDate.get(iso) || null;
 
-      // Shift yang aktual ditampilkan: swap > backup > roster
+      // Shift aktual: ambil dari UserSchedule jika ada (mencerminkan swap/override),
+      // fallback ke weeklySchedule.shiftNumber, lalu backup
       let effectiveShift = s ? s.shiftNumber : null;
       if (backup) effectiveShift = backup.shiftNumber;
-      if (swapInfo) effectiveShift = swapInfo.swappedShiftNumber;
+      if (userSched && userSched.shiftId) {
+        const fromUserSched = shiftIdToNumber.get(userSched.shiftId) || null;
+        if (fromUserSched) effectiveShift = fromUserSched;
+      }
 
       return {
         date: iso,
@@ -962,7 +966,7 @@ class RotationService {
         positionName: backup ? backup.positionName : originalPositionName,
         positionId: backup ? backup.positionId : (s ? s.positionId : null),
         jobdesk: jobdeskByDate.get(iso) || null,
-        isOffDay: offSet.has(iso),
+        isOffDay: userSched ? userSched.isOffDay : offSet.has(iso),
         isBackup: !!backup,
         originalPositionName: backup ? originalPositionName : null,
         // Original roster shift, kept for display so staff sees the change
