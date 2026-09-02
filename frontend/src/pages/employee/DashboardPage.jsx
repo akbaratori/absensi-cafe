@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import { useSearchParams } from 'react-router-dom';
 import { Clock, Camera, RefreshCw } from 'lucide-react';
 import Webcam from 'react-webcam';
 import Card from '../../components/shared/Card';
@@ -11,12 +12,14 @@ import LatePenaltyWidget from '../../components/employee/LatePenaltyWidget';
 import { getTodayAttendance, clockIn, clockOut, getMonthlySummary } from '../../services/attendanceService';
 import { getUserSchedule } from '../../services/scheduleService';
 import { getLeaveQuota } from '../../services/leaveService';
+import { getInbox } from '../../services/swapService';
 import { formatTime, formatStatus, getStatusBadgeClass, formatDate } from '../../utils/formatters';
 import { showSuccess, showError } from '../../hooks/useToast';
 import Badge from '../../components/shared/Badge';
 
 const DashboardPage = () => {
   const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [currentTime, setCurrentTime] = useState(new Date());
   const [todayData, setTodayData] = useState(null);
   const [monthlySummary, setMonthlySummary] = useState(null);
@@ -25,6 +28,7 @@ const DashboardPage = () => {
   const [showSwapModal, setShowSwapModal] = useState(false);
   const [showInboxModal, setShowInboxModal] = useState(false);
   const [showOffDayModal, setShowOffDayModal] = useState(false);
+  const [inboxCount, setInboxCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
@@ -109,8 +113,30 @@ const DashboardPage = () => {
       fetchMonthlySummary();
       fetchLeaveQuota();
       fetchUpcomingSchedule();
+      fetchInboxCount();
     }
   }, [user]);
+
+  // Fetch jumlah permintaan tukar shift yang menunggu respons user ini
+  const fetchInboxCount = async () => {
+    try {
+      const response = await getInbox();
+      const data = response.data?.data ?? response.data ?? [];
+      setInboxCount(Array.isArray(data) ? data.length : 0);
+    } catch {
+      // Tidak kritikal — tidak perlu tampilkan error
+    }
+  };
+
+  // Auto-buka SwapInboxModal jika URL mengandung ?inbox=1
+  // (misal: klik notifikasi "Permintaan Tukar Shift Baru" dari TopBar)
+  useEffect(() => {
+    if (searchParams.get('inbox') === '1') {
+      setShowInboxModal(true);
+      // Hapus query param agar Back button tidak re-trigger
+      setSearchParams({}, { replace: true });
+    }
+  }, [searchParams]);
 
   // Face Detection Logic
   const [model, setModel] = useState(null);
@@ -316,8 +342,13 @@ const DashboardPage = () => {
               <Button size="sm" variant="secondary" onClick={() => setShowSwapModal(true)} className="text-sm">
                 🔄 Tukar Shift
               </Button>
-              <Button size="sm" variant="outline" onClick={() => setShowInboxModal(true)} className="text-sm">
+              <Button size="sm" variant="outline" onClick={() => setShowInboxModal(true)} className="text-sm relative">
                 📩 Inbox
+                {inboxCount > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center leading-none">
+                    {inboxCount > 9 ? '9+' : inboxCount}
+                  </span>
+                )}
               </Button>
               <Button size="sm" variant="secondary" onClick={() => setShowOffDayModal(true)} className="bg-orange-100 text-orange-800 hover:bg-orange-200 text-sm">
                 📅 Tukar Libur
@@ -621,7 +652,10 @@ const DashboardPage = () => {
 
       {showInboxModal && (
         <SwapInboxModal
-          onClose={() => setShowInboxModal(false)}
+          onClose={() => {
+            setShowInboxModal(false);
+            fetchInboxCount(); // Refresh badge setelah modal ditutup
+          }}
         />
       )}
 

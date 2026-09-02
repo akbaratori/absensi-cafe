@@ -19,7 +19,11 @@ exports.getUserNotifications = async (req, res) => {
         res.status(200).json({
             success: true,
             data: {
-                notifications,
+                // Tambah computed field 'link' berdasarkan type agar TopBar bisa navigate saat notif diklik
+                notifications: notifications.map(n => ({
+                    ...n,
+                    link: n.type === 'SHIFT_SWAP' ? '/dashboard?inbox=1' : null,
+                })),
                 unreadCount
             }
         });

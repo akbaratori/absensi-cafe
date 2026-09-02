@@ -152,7 +152,7 @@ class SwapService {
     const swap = await prisma.shiftSwap.findUnique({
       where: { id: swapId },
       include: {
-        requester: { select: { shiftId: true } },
+        requester: { select: { shiftId: true, fullName: true } },
         target: { select: { shiftId: true, isActive: true, fullName: true } },
       },
     });
