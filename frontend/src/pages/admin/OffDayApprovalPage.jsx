@@ -3,15 +3,14 @@ import { Check, XCircle, AlertTriangle } from "lucide-react";
 import Card from "../../components/shared/Card";
 import Button from "../../components/shared/Button";
 import Modal from "../../components/shared/Modal";
-import { getOffDayRequests } from "../../services/offDayService";
-import api from "../../services/api"; // Direct API for approve/reject short-circuit
+import { getOffDayRequests, approveOffDayByAdmin } from "../../services/offDayService";
 import { showSuccess, showError } from "../../hooks/useToast";
 
 const OffDayApprovalPage = () => {
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(null);
-  const [filterStatus, setFilterStatus] = useState("PENDING");
+  const [filterStatus, setFilterStatus] = useState("PENDING_APPROVAL");
 
   // Confirmation Modal State
   const [confirmModal, setConfirmModal] = useState({
@@ -63,10 +62,10 @@ const OffDayApprovalPage = () => {
 
     try {
       if (type === 'approve') {
-        await api.patch(`/off-days/${data.id}/approve`);
+        await approveOffDayByAdmin(data.id, 'APPROVE');
         showSuccess("Permintaan disetujui");
       } else {
-        await api.patch(`/off-days/${data.id}/reject`);
+        await approveOffDayByAdmin(data.id, 'REJECT');
         showSuccess("Permintaan ditolak");
       }
       fetchRequests();
@@ -97,8 +96,8 @@ const OffDayApprovalPage = () => {
 
         <div className="flex bg-gray-100 dark:bg-gray-700 p-1 rounded-lg">
           <button
-            onClick={() => setFilterStatus("PENDING")}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${filterStatus === "PENDING" ? "bg-white dark:bg-gray-600 text-primary-600 shadow-sm" : "text-gray-600 dark:text-gray-300 hover:text-gray-900"}`}
+            onClick={() => setFilterStatus("PENDING_APPROVAL")}
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${filterStatus === "PENDING_APPROVAL" ? "bg-white dark:bg-gray-600 text-primary-600 shadow-sm" : "text-gray-600 dark:text-gray-300 hover:text-gray-900"}`}
           >
             Pending
           </button>
