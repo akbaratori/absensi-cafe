@@ -905,11 +905,11 @@ class RotationService {
     // Also include shiftId to detect swap overrides
     const jobdeskRows = await prisma.userSchedule.findMany({
       where: { userId, date: { gte: from, lte: to } },
-      select: { date: true, kitchenStation: true, shiftId: true, isOffDay: true },
+      select: { date: true, kitchenStation: true, shiftId: true, isOffDay: true, temporaryDepartment: true },
     });
     const jobdeskByDate = new Map(jobdeskRows.map(r => [toISO(r.date), r.kitchenStation || null]));
     // Map date -> actual shiftId from UserSchedule (reflects swap overrides)
-    const userSchedShiftByDate = new Map(jobdeskRows.map(r => [toISO(r.date), { shiftId: r.shiftId, isOffDay: r.isOffDay }]));
+    const userSchedShiftByDate = new Map(jobdeskRows.map(r => [toISO(r.date), { shiftId: r.shiftId, isOffDay: r.isOffDay, temporaryDepartment: r.temporaryDepartment || null }]));
 
     // Ambil semua shift dari DB untuk mapping shiftId -> shiftNumber (1=Pagi, 2=Siang)
     const allShifts = await prisma.shift.findMany({ select: { id: true, name: true } });
@@ -966,6 +966,7 @@ class RotationService {
         positionName: backup ? backup.positionName : originalPositionName,
         positionId: backup ? backup.positionId : (s ? s.positionId : null),
         jobdesk: jobdeskByDate.get(iso) || null,
+        temporaryDepartment: userSched ? userSched.temporaryDepartment : null,
         isOffDay: userSched ? userSched.isOffDay : offSet.has(iso),
         isBackup: !!backup,
         originalPositionName: backup ? originalPositionName : null,

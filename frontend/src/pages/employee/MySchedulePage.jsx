@@ -401,9 +401,9 @@ const MySchedulePage = () => {
                                                 </div>
                                                 )}
 
-                                                {/* Badge Kompensasi Sakit */}
-                                                {schedule.temporaryDepartment && schedule.temporaryDepartment.includes('KOMPENSASI SAKIT') && (
-                                                <div className="w-full mt-1 flex items-center justify-center gap-0.5 text-[9px] leading-tight font-semibold text-amber-700 bg-amber-50 dark:text-amber-300 dark:bg-amber-900/30 px-1 py-0.5 rounded border border-amber-200 dark:border-amber-700">
+                                                {/* Badge Kompensasi Sakit / Pulang Sakit */}
+                                                {schedule.temporaryDepartment && (schedule.temporaryDepartment.includes('KOMPENSASI SAKIT') || schedule.temporaryDepartment.includes('PULANG SAKIT') || schedule.temporaryDepartment.includes('SAKIT')) && (
+                                                <div className="w-full mt-1 flex items-center justify-center gap-0.5 text-[9px] leading-tight font-semibold text-rose-700 bg-rose-50 dark:text-rose-300 dark:bg-rose-900/30 px-1 py-0.5 rounded border border-rose-200 dark:border-rose-700">
                                                     <span className="truncate">🏥 {schedule.temporaryDepartment}</span>
                                                 </div>
                                                 )}
@@ -495,6 +495,13 @@ const MySchedulePage = () => {
                                                     <p className="text-xs text-amber-600 dark:text-amber-400 italic">
                                                         Jadwal asli: {schedule.originalShiftNumber === 1 ? 'Pagi' : 'Siang'} → masuk {schedule.shiftNumber === 1 ? 'Pagi' : 'Siang'} (backup)
                                                     </p>
+                                                )}
+
+                                                {/* Badge Kompensasi Sakit / Pulang Sakit - mobile */}
+                                                {schedule.temporaryDepartment && (schedule.temporaryDepartment.includes('KOMPENSASI SAKIT') || schedule.temporaryDepartment.includes('PULANG SAKIT') || schedule.temporaryDepartment.includes('SAKIT')) && (
+                                                    <div className="inline-flex items-center gap-1 text-xs font-semibold text-rose-700 bg-rose-50 dark:text-rose-300 dark:bg-rose-900/30 px-2 py-0.5 rounded border border-rose-200 dark:border-rose-700 mt-0.5">
+                                                        🏥 {schedule.temporaryDepartment}
+                                                    </div>
                                                 )}
 
                                                 {/* Badge tukar shift - mobile */}

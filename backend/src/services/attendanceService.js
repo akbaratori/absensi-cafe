@@ -481,6 +481,33 @@ class AttendanceService {
       });
     }
 
+    // Update atau buat UserSchedule tanggal izin pulang sakit agar ada keterangan SAKIT di jadwal\
+    const sickDateStart = new Date(`${date}T00:00:00.000Z`);\
+    const sickDateEnd = new Date(`${date}T23:59:59.999Z`);\
+    const todaySchedule = await prisma.userSchedule.findFirst({\
+      where: {\
+        userId: parseInt(userId),\
+        date: { gte: sickDateStart, lte: sickDateEnd },\
+      },\
+    });\
+    if (todaySchedule) {\
+      await prisma.userSchedule.update({\
+        where: { id: todaySchedule.id },\
+        data: {\
+          temporaryDepartment: `PULANG SAKIT (${statusLabel})`,\
+        },\
+      });\
+    } else {\
+      await prisma.userSchedule.create({\
+        data: {\
+          userId: parseInt(userId),\
+          date: sickDateStart,\
+          temporaryDepartment: `PULANG SAKIT (${statusLabel})`,\
+          isManualOverride: true,\
+        },\
+      });\
+    }\
+
     let convertedSchedule = null;
 
     // 2. Jika admin memilih tanggal libur untuk dikompensasi (dijadikan hari kerja)
