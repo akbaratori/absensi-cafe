@@ -22,7 +22,7 @@ const OffDayApprovalPage = () => {
   const fetchRequests = async () => {
     setLoading(true);
     try {
-      const response = await getOffDayRequests(filterStatus === "ALL" ? undefined : filterStatus, true);
+      const response = await getOffDayRequests(filterStatus === "ALL" ? undefined : filterStatus);
       setRequests(response.data?.data?.requests || []);
     } catch (error) {
       console.error("Failed to fetch requests:", error);
@@ -58,7 +58,7 @@ const OffDayApprovalPage = () => {
     if (!type || !data) return;
 
     setActionLoading(data.id);
-    closeConfirmModal(); // Close modal immediately
+    closeConfirmModal();
 
     try {
       if (type === 'approve') {
@@ -78,12 +78,36 @@ const OffDayApprovalPage = () => {
 
   // Helper to format date
   const formatDate = (date) => {
+    if (!date) return "-";
     return new Date(date).toLocaleDateString("id-ID", {
-      weekday: "long",
+      weekday: "short",
       day: "numeric",
       month: "short",
       year: "numeric",
     });
+  };
+
+  const renderStatusBadge = (status) => {
+    let style = "bg-gray-100 text-gray-800 border-gray-200";
+    let label = status ? status.replace(/_/g, " ").toLowerCase() : "";
+
+    if (status === "APPROVED") {
+      style = "bg-green-100 text-green-800 border-green-200";
+    } else if (status?.startsWith("REJECTED")) {
+      style = "bg-red-100 text-red-800 border-red-200";
+    } else if (status === "PENDING_TARGET_RESPONSE") {
+      style = "bg-yellow-100 text-yellow-800 border-yellow-200";
+    } else if (status === "PENDING_APPROVAL") {
+      style = "bg-blue-100 text-blue-800 border-blue-200";
+    } else if (status === "CANCELLED") {
+      style = "bg-gray-100 text-gray-800 border-gray-200";
+    }
+
+    return (
+      <span className={`px-2 py-1 rounded-full text-xs font-medium border capitalize ${style}`}>
+        {label}
+      </span>
+    );
   };
 
   return (
@@ -94,18 +118,30 @@ const OffDayApprovalPage = () => {
           <p className="text-gray-600 dark:text-gray-400 mt-1">Review permintaan tukar hari libur karyawan.</p>
         </div>
 
-        <div className="flex bg-gray-100 dark:bg-gray-700 p-1 rounded-lg">
+        <div className="flex flex-wrap bg-gray-100 dark:bg-gray-700 p-1 rounded-lg">
           <button
             onClick={() => setFilterStatus("PENDING_APPROVAL")}
             className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${filterStatus === "PENDING_APPROVAL" ? "bg-white dark:bg-gray-600 text-primary-600 shadow-sm" : "text-gray-600 dark:text-gray-300 hover:text-gray-900"}`}
           >
-            Pending
+            Perlu Persetujuan
+          </button>
+          <button
+            onClick={() => setFilterStatus("PENDING_TARGET_RESPONSE")}
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${filterStatus === "PENDING_TARGET_RESPONSE" ? "bg-white dark:bg-gray-600 text-primary-600 shadow-sm" : "text-gray-600 dark:text-gray-300 hover:text-gray-900"}`}
+          >
+            Menunggu Karyawan
+          </button>
+          <button
+            onClick={() => setFilterStatus("APPROVED")}
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${filterStatus === "APPROVED" ? "bg-white dark:bg-gray-600 text-primary-600 shadow-sm" : "text-gray-600 dark:text-gray-300 hover:text-gray-900"}`}
+          >
+            Disetujui
           </button>
           <button
             onClick={() => setFilterStatus("ALL")}
             className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${filterStatus === "ALL" ? "bg-white dark:bg-gray-600 text-primary-600 shadow-sm" : "text-gray-600 dark:text-gray-300 hover:text-gray-900"}`}
           >
-            Semua
+            Semua Riwayat
           </button>
         </div>
       </div>
@@ -117,6 +153,7 @@ const OffDayApprovalPage = () => {
             <thead className="bg-gray-50 dark:bg-gray-800">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Pemohon</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Target</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Ingin Libur (Off)</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Ganti Masuk (Work)</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Alasan</th>
@@ -127,13 +164,13 @@ const OffDayApprovalPage = () => {
             <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
               {loading ? (
                 <tr>
-                  <td colSpan="6" className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan="7" className="px-6 py-12 text-center text-gray-500">
                     Loading...
                   </td>
                 </tr>
               ) : requests.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan="7" className="px-6 py-12 text-center text-gray-500">
                     Tidak ada data.
                   </td>
                 </tr>
@@ -144,22 +181,18 @@ const OffDayApprovalPage = () => {
                       <div className="text-sm font-medium text-gray-900 dark:text-white">{req.user?.fullName}</div>
                       <div className="text-xs text-gray-500">{req.user?.employeeId}</div>
                     </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900 dark:text-white">{req.target?.fullName || "-"}</div>
+                      <div className="text-xs text-gray-500">{req.target?.employeeId}</div>
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-red-600 font-medium">{formatDate(req.offDate)}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-green-600 font-medium">{formatDate(req.workDate)}</td>
                     <td className="px-6 py-4 text-sm text-gray-500 italic max-w-xs truncate">{req.reason}</td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span
-                        className={`px-2 py-1 rounded-full text-xs font-medium border capitalize
-                                                ${req.status === "APPROVED" ? "bg-green-100 text-green-800 border-green-200" : ""}
-                                                ${req.status === "REJECTED" ? "bg-red-100 text-red-800 border-red-200" : ""}
-                                                ${req.status === "PENDING" ? "bg-yellow-100 text-yellow-800 border-yellow-200" : ""}
-                                            `}
-                      >
-                        {req.status.toLowerCase()}
-                      </span>
+                      {renderStatusBadge(req.status)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      {req.status === "PENDING" && (
+                      {req.status === "PENDING_APPROVAL" && (
                         <div className="flex justify-end gap-2">
                           <Button
                             size="sm"
@@ -178,6 +211,21 @@ const OffDayApprovalPage = () => {
                             onClick={() => openConfirmModal('reject', req)}
                             loading={actionLoading === req.id}
                             disabled={actionLoading !== null}
+                          >
+                            <XCircle className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      )}
+                      {req.status === "PENDING_TARGET_RESPONSE" && (
+                        <div className="flex justify-end gap-2">
+                          <Button
+                            size="sm"
+                            variant="text"
+                            className="text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100"
+                            onClick={() => openConfirmModal('reject', req)}
+                            loading={actionLoading === req.id}
+                            disabled={actionLoading !== null}
+                            title="Tolak permintaan yang tertahan"
                           >
                             <XCircle className="w-4 h-4" />
                           </Button>
@@ -206,18 +254,12 @@ const OffDayApprovalPage = () => {
                       {req.user?.fullName}
                     </p>
                     <p className="text-xs text-gray-500 dark:text-gray-400">{req.user?.employeeId}</p>
-                    <span
-                      className={`px-2 py-0.5 mt-1 inline-block rounded-full text-xs font-medium border capitalize
-                                    ${req.status === "APPROVED" ? "bg-green-100 text-green-800 border-green-200" : ""}
-                                    ${req.status === "REJECTED" ? "bg-red-100 text-red-800 border-red-200" : ""}
-                                    ${req.status === "PENDING" ? "bg-yellow-100 text-yellow-800 border-yellow-200" : ""}
-                                `}
-                    >
-                      {req.status.toLowerCase()}
-                    </span>
+                    <div className="mt-1">
+                      {renderStatusBadge(req.status)}
+                    </div>
                   </div>
                   <div className="text-right">
-                    {req.status === "PENDING" && (
+                    {req.status === "PENDING_APPROVAL" && (
                       <div className="flex gap-2">
                         <Button
                           size="sm"
@@ -241,10 +283,32 @@ const OffDayApprovalPage = () => {
                         </Button>
                       </div>
                     )}
+                    {req.status === "PENDING_TARGET_RESPONSE" && (
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="text"
+                          className="text-red-600 hover:text-red-700 bg-red-50"
+                          onClick={() => openConfirmModal('reject', req)}
+                          loading={actionLoading === req.id}
+                          disabled={actionLoading !== null}
+                        >
+                          <XCircle className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 text-sm bg-gray-50 dark:bg-gray-700/50 p-3 rounded-lg">
+                  <div>
+                    <p className="text-xs text-gray-500">Pemohon</p>
+                    <p className="font-medium text-gray-900 dark:text-white">{req.user?.fullName}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">Target</p>
+                    <p className="font-medium text-gray-900 dark:text-white">{req.target?.fullName || "-"}</p>
+                  </div>
                   <div>
                     <p className="text-xs text-gray-500">Ingin Libur</p>
                     <p className="font-medium text-red-600">{formatDate(req.offDate)}</p>
@@ -280,7 +344,8 @@ const OffDayApprovalPage = () => {
               </p>
               {confirmModal.data && (
                 <div className="mt-2 text-sm opacity-90 space-y-1">
-                  <p><strong>Karyawan:</strong> {confirmModal.data.user?.fullName}</p>
+                  <p><strong>Pemohon:</strong> {confirmModal.data.user?.fullName}</p>
+                  <p><strong>Target:</strong> {confirmModal.data.target?.fullName || "-"}</p>
                   <p><strong>Libur (Off):</strong> {formatDate(confirmModal.data.offDate)}</p>
                   <p><strong>Masuk (Work):</strong> {formatDate(confirmModal.data.workDate)}</p>
                   <p><strong>Alasan:</strong> {confirmModal.data.reason}</p>
