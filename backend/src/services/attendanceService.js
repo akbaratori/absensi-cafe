@@ -443,24 +443,39 @@ class AttendanceService {
     }
 
     const clockOutDate = clockOut ? new Date(clockOut) : new Date();
-    const noteText = `[PULANG SAKIT] ${reason || 'Izin pulang awal karena sakit'}`;
+
+    // Hitung apakah pegawai sudah bekerja minimal setengah hari (misal >= 4 jam = 240 menit)
+    let finalStatus = 'PRESENT';
+    if (record && record.clockIn) {
+      const workDurationMinutes = (clockOutDate.getTime() - new Date(record.clockIn).getTime()) / (1000 * 60);
+      // Jika durasi kerja kurang dari 4 jam (240 menit), dihitung Setengah Hari / tidak dihitung full kerja
+      if (workDurationMinutes < 240) {
+        finalStatus = 'HALF_DAY';
+      }
+    } else {
+      // Belum ada clock-in sama sekali saat admin input pulang sakit
+      finalStatus = 'HALF_DAY';
+    }
+
+    const statusLabel = finalStatus === 'HALF_DAY' ? 'SETENGAH HARI' : 'HADIR FULL';
+    const noteText = `[PULANG SAKIT - ${statusLabel}] ${reason || 'Izin pulang awal karena sakit'}`;
 
     if (record) {
-      // Update record absensi yang sudah ada (clock-in tetap milik pegawai, update clock-out, status & notes)
+      // Update record absensi yang sudah ada
       record = await attendanceRepository.update(record.id, {
         clockOut: clockOutDate,
-        status: 'PRESENT', // Tetap dianggap hadir (tanpa penalti denda)
+        status: finalStatus,
         notes: record.notes ? `${record.notes} | ${noteText}` : noteText,
       });
     } else {
-      // Jika pegawai belum absen sama sekali hari ini, buat record baru
+      // Jika pegawai belum absen sama sekali hari ini, buat record baru setengah hari
       record = await prisma.attendance.create({
         data: {
           userId: parseInt(userId),
           date: startDate,
           clockIn: new Date(`${date}T08:00:00+08:00`),
           clockOut: clockOutDate,
-          status: 'PRESENT',
+          status: finalStatus,
           notes: noteText,
         },
       });
