@@ -138,6 +138,15 @@ class AdminController {
 
     return successResponse(res, 200, result, 'Attendance record updated');
   });
+  /**
+   * Catat pegawai pulang sakit & opsional kompensasi libur
+   * POST /api/v1/admin/attendance/sick-early-leave
+   */
+  processSickEarlyLeave = asyncHandler(async (req, res) => {
+    const result = await attendanceService.processSickEarlyLeave(req.body, req.user.id);
+    return successResponse(res, 200, result, result.message);
+  });
+
 
   /**
    * Delete attendance record

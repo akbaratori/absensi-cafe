@@ -398,6 +398,115 @@ class AttendanceService {
     });
 
     return {
+  /**
+   * Admin: Catat pegawai pulang cepat karena sakit & opsi kompensasi libur
+   */
+  async processSickEarlyLeave(data, adminId) {
+    const { userId, date, clockOut, reason, convertOffDayDate } = data;
+
+    // Convert date YYYY-MM-DD to UTC boundaries for Attendance query
+    const targetDateObj = new Date(`${date}T00:00:00.000Z`);
+
+    // 1. Cari atau buat record Attendance hari itu
+    let record = await prisma.attendance.findFirst({
+      where: {
+        userId: parseInt(userId),
+        date: {
+          gte: new Date(`${date}T00:00:00.000Z`),
+          lte: new Date(`${date}T23:59:59.999Z`),
+        },
+      },
+    });
+
+    const clockOutDate = clockOut ? new Date(clockOut) : new Date();
+    const noteText = `[PULANG SAKIT] ${reason || 'Izin pulang awal karena sakit'}`;
+
+    if (record) {
+      record = await attendanceRepository.update(record.id, {
+        clockOut: clockOutDate,
+        status: 'PRESENT', // Tetap dianggap hadir (tanpa penalti denda)
+        notes: record.notes ? `${record.notes} | ${noteText}` : noteText,
+      });
+    } else {
+      record = await prisma.attendance.create({
+        data: {
+          userId: parseInt(userId),
+          date: targetDateObj,
+          clockIn: new Date(`${date}T08:00:00.000Z`),
+          clockOut: clockOutDate,
+          status: 'PRESENT',
+          notes: noteText,
+        },
+      });
+    }
+
+    let convertedSchedule = null;
+
+    // 2. Jika admin memilih tanggal libur untuk dikompensasi (dijadikan hari kerja)
+    if (convertOffDayDate) {
+      const compDateStart = new Date(`${convertOffDayDate}T00:00:00.000Z`);
+      const compDateEnd = new Date(`${convertOffDayDate}T23:59:59.999Z`);
+
+      const existingSchedule = await prisma.userSchedule.findFirst({
+        where: {
+          userId: parseInt(userId),
+          date: { gte: compDateStart, lte: compDateEnd },
+        },
+      });
+
+      if (existingSchedule) {
+        convertedSchedule = await prisma.userSchedule.update({
+          where: { id: existingSchedule.id },
+          data: {
+            isOffDay: false,
+            isManualOverride: true,
+          },
+        });
+      } else {
+        convertedSchedule = await prisma.userSchedule.create({
+          data: {
+            userId: parseInt(userId),
+            date: compDateStart,
+            isOffDay: false,
+            isManualOverride: true,
+          },
+        });
+      }
+
+      // Kirim notifikasi ke pegawai tentang kompensasi libur
+      const notificationService = require('./notificationService');
+      const notifService = new notificationService();
+      await notifService.create(
+        parseInt(userId),
+        'Penyesuaian Jadwal Libur',
+        `Jadwal libur Anda pada ${convertOffDayDate} diubah menjadi HARI KERJA sebagai kompensasi izin pulang sakit (${date}).`,
+        'SCHEDULE_CHANGE'
+      );
+    }
+
+    // 3. Log Audit
+    await auditService.log({
+      userId: adminId,
+      action: 'SICK_EARLY_LEAVE',
+      entityType: 'ATTENDANCE',
+      entityId: record.id,
+      details: {
+        userId,
+        date,
+        clockOut: clockOutDate,
+        reason,
+        convertOffDayDate: convertOffDayDate || null,
+      },
+    });
+
+    return {
+      attendance: record,
+      convertedSchedule,
+      message: convertOffDayDate
+        ? `Absensi diset Pulang Sakit. Hari libur ${convertOffDayDate} berhasil diubah menjadi hari kerja.`
+        : 'Absensi diset Pulang Sakit tanpa kompensasi libur.',
+    };
+  }
       id: updatedRecord.id,
       userId: updatedRecord.userId,
       date: toWITADateString(updatedRecord.date),

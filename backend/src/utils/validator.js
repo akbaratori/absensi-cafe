@@ -96,6 +96,14 @@ const createAttendanceSchema = Joi.object({
   status: Joi.string().valid('PRESENT', 'LATE', 'ABSENT', 'HALF_DAY').optional().default('PRESENT'),
   notes: Joi.string().max(500).optional().allow('', null),
 });
+const sickEarlyLeaveSchema = Joi.object({
+  userId: Joi.number().integer().positive().required(),
+  date: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).required(),
+  clockOut: Joi.date().iso().optional().allow(null, ''),
+  reason: Joi.string().max(500).optional().allow('', null),
+  convertOffDayDate: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).optional().allow('', null),
+});
+
 
 const updateConfigSchema = Joi.object({
   workStartTime: Joi.string().pattern(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/).optional(),
@@ -193,6 +201,7 @@ module.exports = {
   adminAttendanceQuerySchema,
   updateAttendanceSchema,
   createAttendanceSchema,
+  sickEarlyLeaveSchema,
   updateConfigSchema,
   usersQuerySchema,
   reportQuerySchema,

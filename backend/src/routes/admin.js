@@ -11,6 +11,7 @@ const {
   adminAttendanceQuerySchema,
   updateAttendanceSchema,
   createAttendanceSchema,
+  sickEarlyLeaveSchema,
   updateConfigSchema,
   usersQuerySchema,
   reportQuerySchema,
@@ -89,6 +90,17 @@ router.post(
   validate(createAttendanceSchema),
   adminController.createAttendance
 );
+/**
+ * @route   POST /api/v1/admin/attendance/sick-early-leave
+ * @desc    Catat pulang sakit & opsi ubah libur menjadi hari kerja
+ * @access  Private (Admin)
+ */
+router.post(
+  '/attendance/sick-early-leave',
+  validate(sickEarlyLeaveSchema),
+  adminController.processSickEarlyLeave
+);
+
 
 /**
  * @route   PUT /api/v1/admin/attendance/:id

@@ -4,10 +4,11 @@ import { getAllAttendance, getAttendancePhotoData } from '../../services/attenda
 import { formatDate, formatTime, formatStatus } from '../../utils/formatters';
 import { SkeletonTable } from '../../components/shared/Loading';
 import Badge from '../../components/shared/Badge';
-import { Trash2, Trash, Pencil, Plus } from 'lucide-react';
+import { Trash2, Trash, Pencil, Plus, Stethoscope } from 'lucide-react';
 import Modal from '../../components/shared/Modal';
 import Button from '../../components/shared/Button';
-import { deleteAttendance, deleteAllAttendance, updateAttendance, createAttendance, getUsers } from '../../services/adminService';
+import { deleteAttendance, deleteAllAttendance, updateAttendance, createAttendance, getUsers, processSickEarlyLeave } from '../../services/adminService';
+import { getUserSchedule } from '../../services/scheduleService';
 import { showSuccess, showError } from '../../hooks/useToast';
 
 const STATUS_OPTIONS = [
@@ -49,6 +50,86 @@ const AttendanceAdminPage = () => {
   const [usersLoading, setUsersLoading] = useState(false);
   const [editForm, setEditForm] = useState({ clockIn: '', clockOut: '', status: '', notes: '' });
   const [addForm, setAddForm] = useState({ userId: '', date: '', clockIn: '', clockOut: '', status: 'PRESENT', notes: '' });
+  // Modal Pulang Sakit & Kompensasi Libur
+  const [sickModal, setSickModal] = useState(false);
+  const [sickForm, setSickForm] = useState({
+    userId: '',
+    date: new Date().toISOString().slice(0, 10),
+    clockOut: '',
+    reason: '',
+    convertOffDayDate: '',
+  });
+  const [userOffDays, setUserOffDays] = useState([]);
+  const [loadingSchedule, setLoadingSchedule] = useState(false);
+
+  const handleOpenSickModal = () => {
+    setSickForm({
+      userId: '',
+      date: new Date().toISOString().slice(0, 10),
+      clockOut: toWITAInputValue(new Date().toISOString()),
+      reason: 'Izin pulang awal karena sakit',
+      convertOffDayDate: '',
+    });
+    setUserOffDays([]);
+    if (users.length === 0) fetchUsers();
+    setSickModal(true);
+  };
+
+  // Saat userId atau date berubah, ambil jadwal libur karyawan bulan tersebut untuk pilihan kompensasi
+  useEffect(() => {
+    if (!sickForm.userId) {
+      setUserOffDays([]);
+      return;
+    }
+    const fetchOffDays = async () => {
+      setLoadingSchedule(true);
+      try {
+        const baseDate = sickForm.date ? new Date(sickForm.date) : new Date();
+        const y = baseDate.getFullYear();
+        const m = baseDate.getMonth();
+        const startDate = new Date(y, m, 1).toISOString().slice(0, 10);
+        const endDate = new Date(y, m + 1, 0).toISOString().slice(0, 10);
+        const res = await getUserSchedule(sickForm.userId, startDate, endDate);
+        const list = res.data?.data || res.data || [];
+        const offDays = (Array.isArray(list) ? list : [])
+          .filter((s) => s.isOffDay)
+          .map((s) => (typeof s.date === 'string' ? s.date.slice(0, 10) : new Date(s.date).toISOString().slice(0, 10)))
+          .sort();
+        setUserOffDays(offDays);
+      } catch {
+        setUserOffDays([]);
+      } finally {
+        setLoadingSchedule(false);
+      }
+    };
+    fetchOffDays();
+  }, [sickForm.userId, sickForm.date]);
+
+  const handleSickSubmit = async (e) => {
+    e.preventDefault();
+    if (!sickForm.userId || !sickForm.date) {
+      showError('Pilih karyawan dan tanggal');
+      return;
+    }
+    setActionLoading(true);
+    try {
+      const payload = {
+        userId: parseInt(sickForm.userId),
+        date: sickForm.date,
+        clockOut: sickForm.clockOut ? witaInputToISO(sickForm.clockOut) : null,
+        reason: sickForm.reason,
+        convertOffDayDate: sickForm.convertOffDayDate || null,
+      };
+      const res = await processSickEarlyLeave(payload);
+      showSuccess(res.message || 'Berhasil mencatat pulang sakit');
+      setSickModal(false);
+      fetchAttendance(currentPage);
+    } catch (err) {
+      showError(err?.response?.data?.error?.message || err?.response?.data?.message || 'Gagal mencatat pulang sakit');
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
   const fetchAttendance = async (page = currentPage, currentFilters = filters) => {
     setLoading(true);
@@ -236,6 +317,13 @@ const AttendanceAdminPage = () => {
           <p className="text-gray-600 dark:text-gray-400 mt-1">Kelola dan koreksi rekap absensi karyawan</p>
         </div>
         <div className="flex gap-2">
+          <button
+            onClick={handleOpenSickModal}
+            className="flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
+          >
+            <Stethoscope size={16} />
+            Pulang Sakit
+          </button>
           <button
             onClick={handleAddClick}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
@@ -461,6 +549,119 @@ const AttendanceAdminPage = () => {
           </div>
         </form>
       </Modal>
+      {/* Modal Pulang Sakit & Kompensasi Libur */}
+      <Modal isOpen={sickModal} onClose={() => setSickModal(false)} title="Pulang Sakit & Kompensasi Libur" size="md">
+        <form onSubmit={handleSickSubmit} className="space-y-4">
+          <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg p-3 text-sm text-amber-800 dark:text-amber-300">
+            Gunakan untuk mencatat pegawai yang izin pulang awal karena sakit. Status absensi tetap HADIR tanpa denda, dan Anda dapat memilih tanggal libur di jadwalnya untuk diubah menjadi HARI KERJA sebagai kompensasi.
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Karyawan <span className="text-red-500">*</span>
+            </label>
+            <select
+              value={sickForm.userId}
+              onChange={(e) => setSickForm({ ...sickForm, userId: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+              required
+            >
+              <option value="">-- Pilih Karyawan --</option>
+              {usersLoading ? (
+                <option disabled>Memuat...</option>
+              ) : (
+                users.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.fullName}{u.employeeId ? ` (${u.employeeId})` : ''}
+                  </option>
+                ))
+              )}
+            </select>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Tanggal Sakit <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="date"
+                value={sickForm.date}
+                onChange={(e) => setSickForm({ ...sickForm, date: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Jam Pulang (WITA)
+              </label>
+              <input
+                type="datetime-local"
+                value={sickForm.clockOut}
+                onChange={(e) => setSickForm({ ...sickForm, clockOut: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Keterangan / Alasan
+            </label>
+            <textarea
+              value={sickForm.reason}
+              onChange={(e) => setSickForm({ ...sickForm, reason: e.target.value })}
+              rows={2}
+              placeholder="Contoh: Demam tinggi, izin pulang istirahat"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white resize-none"
+            />
+          </div>
+
+          {/* Opsi Kompensasi Libur */}
+          <div className="border-t border-gray-200 dark:border-gray-700 pt-3">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              🗓️ Kompensasi: Jadikan Tanggal Libur Menjadi Masuk (Opsional)
+            </label>
+            {loadingSchedule ? (
+              <p className="text-xs text-blue-500 animate-pulse">Memuat jadwal libur karyawan...</p>
+            ) : !sickForm.userId ? (
+              <p className="text-xs text-gray-400 italic">Pilih karyawan terlebih dahulu untuk melihat hari libur.</p>
+            ) : userOffDays.length === 0 ? (
+              <p className="text-xs text-amber-600 dark:text-amber-400">Tidak ada jadwal libur bulan ini yang terdaftar.</p>
+            ) : (
+              <div>
+                <select
+                  value={sickForm.convertOffDayDate}
+                  onChange={(e) => setSickForm({ ...sickForm, convertOffDayDate: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                >
+                  <option value="">-- Tanpa Kompensasi (Libur Tetap Berlaku) --</option>
+                  {userOffDays.map((d) => (
+                    <option key={d} value={d}>
+                      Libur {d} → Ubah jadi Hari Masuk Kerja
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-400 mt-1">
+                  Pilih salah satu tanggal libur yang ingin dihilangkan/diganti menjadi masuk kerja.
+                </p>
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-end gap-3 pt-2">
+            <Button type="button" variant="ghost" onClick={() => setSickModal(false)} disabled={actionLoading}>
+              Batal
+            </Button>
+            <Button type="submit" variant="primary" loading={actionLoading}>
+              Simpan & Terapkan
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
 
       {/* Modal Hapus */}
       <Modal isOpen={deleteModal.isOpen} onClose={() => setDeleteModal({ isOpen: false, recordId: null, employeeName: '' })}

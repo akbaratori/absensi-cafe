@@ -85,6 +85,15 @@ export const updateAttendance = async (id, data) => {
  * body: { userId, date (YYYY-MM-DD), clockIn (HH:mm), clockOut (HH:mm), status, notes }
  */
 export const createAttendance = async (data) => {
+/**
+ * Catat pulang awal sakit & opsi kompensasi libur
+ * @param {Object} data { userId, date, clockOut, reason, convertOffDayDate }
+ */
+export const processSickEarlyLeave = async (data) => {
+  const response = await api.post('/admin/attendance/sick-early-leave', data);
+  return response.data;
+};
+
   const response = await api.post('/admin/attendance', data);
   return response.data;
 };
