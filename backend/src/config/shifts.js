@@ -11,7 +11,7 @@ module.exports = {
     SHIFT_2: {
         id: 'SHIFT_2',
         name: 'Shift 2 (Siang)',
-        startTime: '11:15',
+        startTime: '11:00',
         endTime: '23:00',
     },
 };
