@@ -1,6 +1,7 @@
 const prisma = require('../utils/database');
 const { ErrorCodes } = require('../utils/AppError');
 const notificationService = require('./notificationService');
+const rotationService = require('./rotationService');
 const { canTransition } = require('../utils/swapStateMachine');
 const { checkEmployeeScheduleConflict } = require('../utils/conflictValidator');
 
@@ -45,37 +46,39 @@ class OffDayService {
       throw new Error('Karyawan tujuan tidak tersedia.');
     }
 
-    // Check requester has off-day on offDate
-    const requesterOffSchedule = await prisma.userSchedule.findUnique({
-      where: { userId_date: { userId: requesterId, date: offDateObj } },
-    });
+    // Dynamic fallback checking: try UserSchedule table first, if missing fallback to rotationService
+    const isUserOffDayOnDate = async (userId, dateObj) => {
+      const dbSched = await prisma.userSchedule.findUnique({
+        where: { userId_date: { userId, date: dateObj } },
+      });
+      if (dbSched) return dbSched.isOffDay;
 
-    if (!requesterOffSchedule || !requesterOffSchedule.isOffDay) {
+      // Fallback: Check generated rotation
+      const isoStr = dateObj.toISOString().slice(0, 10);
+      const year = dateObj.getUTCFullYear();
+      const month = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
+      const monthStr = `${year}-${month}`;
+      const offEntries = await rotationService.getAllOffDayEntries(monthStr);
+      return offEntries.some(o => o.userId === userId && o.date === isoStr);
+    };
+
+    const requesterIsOff = await isUserOffDayOnDate(requesterId, offDateObj);
+    if (!requesterIsOff) {
       throw new Error(`Anda tidak memiliki jadwal libur pada ${offDateObj.toLocaleDateString('id-ID')}.`);
     }
 
-    // Check target has off-day on workDate (the day requester will work for target)
-    const targetOffSchedule = await prisma.userSchedule.findUnique({
-      where: { userId_date: { userId: targetId, date: workDateObj } },
-    });
-
-    if (!targetOffSchedule || !targetOffSchedule.isOffDay) {
+    const targetIsOffOnWorkDate = await isUserOffDayOnDate(targetId, workDateObj);
+    if (!targetIsOffOnWorkDate) {
       throw new Error(`${target.fullName} tidak memiliki jadwal libur pada ${workDateObj.toLocaleDateString('id-ID')}.`);
     }
 
-    // Check requester works on workDate (a shift is assigned)
-    const requesterWorkSchedule = await prisma.userSchedule.findUnique({
-      where: { userId_date: { userId: requesterId, date: workDateObj } },
-    });
-    if (!requesterWorkSchedule || requesterWorkSchedule.isOffDay) {
+    const requesterIsOffOnWorkDate = await isUserOffDayOnDate(requesterId, workDateObj);
+    if (requesterIsOffOnWorkDate) {
       throw new Error(`Anda tidak memiliki jadwal kerja pada ${workDateObj.toLocaleDateString('id-ID')}.`);
     }
 
-    // Check target works on offDate (has a shift assigned)
-    const targetWorkSchedule = await prisma.userSchedule.findUnique({
-      where: { userId_date: { userId: targetId, date: offDateObj } },
-    });
-    if (!targetWorkSchedule || targetWorkSchedule.isOffDay) {
+    const targetIsOffOnOffDate = await isUserOffDayOnDate(targetId, offDateObj);
+    if (targetIsOffOnOffDate) {
       throw new Error(`${target.fullName} tidak memiliki jadwal kerja pada ${offDateObj.toLocaleDateString('id-ID')}.`);
     }
 
