@@ -133,6 +133,27 @@ class OffDayService {
       throw err;
     }
 
+    // Notify WA Group Laporan Absen on new request
+    try {
+      const axios = require('axios');
+      const fmtOff = offDateObj.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+      const fmtWork = workDateObj.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+      let waMsg = `🔄 *PENGAJUAN TUKAR LIBUR*\n\n`;
+      waMsg += `👤 *Pemohon:* ${updated.user.fullName}\n`;
+      waMsg += `👥 *Ditukar Dengan:* ${updated.target.fullName}\n`;
+      waMsg += `🏖️ *Tanggal Libur Ditolak/Ditukar:* ${fmtOff}\n`;
+      waMsg += `💼 *Tanggal Ganti Kerja:* ${fmtWork}\n`;
+      if (reason) waMsg += `💬 *Alasan:* ${reason}\n`;
+      waMsg += `\n⏳ *Status:* Menunggu tanggapan karyawan tujuan`;
+      
+      axios.post('http://127.0.0.1:3000/send', {
+        chatId: '120363411684764754@g.us',
+        message: waMsg
+      }, { timeout: 5000 }).catch(() => {});
+    } catch (e) {
+      console.error('[OffDayService] Failed to send WA notification:', e.message);
+    }
+
     return updated;
   }
 

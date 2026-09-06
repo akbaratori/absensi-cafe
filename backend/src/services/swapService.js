@@ -95,6 +95,25 @@ class SwapService {
       },
     });
 
+    // Notify WA Group Laporan Absen on new request
+    try {
+      const axios = require('axios');
+      const formattedDate = swapDate.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+      let waMsg = `🔄 *PENGAJUAN TUKAR SHIFT*\n\n`;
+      waMsg += `👤 *Pemohon:* ${updatedSwap.requester.fullName}\n`;
+      waMsg += `👥 *Ditukar Dengan:* ${updatedSwap.target.fullName}\n`;
+      waMsg += `📅 *Tanggal:* ${formattedDate}\n`;
+      if (reason) waMsg += `💬 *Alasan:* ${reason}\n`;
+      waMsg += `\n⏳ *Status:* Menunggu tanggapan karyawan tujuan`;
+      
+      axios.post('http://127.0.0.1:3000/send', {
+        chatId: '120363411684764754@g.us',
+        message: waMsg
+      }, { timeout: 5000 }).catch(() => {});
+    } catch (e) {
+      console.error('[SwapService] Failed to send WA notification:', e.message);
+    }
+
     return updatedSwap;
   }
 
