@@ -349,50 +349,40 @@ class OffDayService {
         tx.userSchedule.findUnique({ where: { userId_date: { userId: req.targetUserId, date: req.workDate } } }),
       ]);
 
-      // Determine shift IDs to assign when swapping off-day to work-day
-      // Priority: use the shift of the target user who was working, or fallback to default
-      const shiftForRequesterOnWorkDate = reqWorkDateSched?.shiftId || requesterDefaultShift;
-      const shiftForTargetOnOffDate = targetOffDateSched?.shiftId || targetDefaultShift;
+      // Determine shifts when swapping off-days:
+      // offDate: Requester originally OFF, Target originally WORK.
+      // After swap: Requester WORKS on offDate (taking Target's shift), Target is OFF on offDate.
+      // workDate: Target originally OFF, Requester originally WORK.
+      // After swap: Target WORKS on workDate (taking Requester's shift), Requester is OFF on workDate.
+      const shiftForRequesterOnOffDate = targetOffDateSched?.shiftId || requesterDefaultShift;
+      const shiftForTargetOnWorkDate = reqWorkDateSched?.shiftId || targetDefaultShift;
 
-      // Update Requester on offDate: target works for requester on offDate, so requester works on workDate, target works on offDate
-      // Requester is OFF on offDate -> now target works on offDate, requester stays OFF on offDate
-      // Requester on workDate: requester was working on workDate -> now requester is OFF on workDate, target works on workDate
-      // Actually swap off-days:
-      // offDate is requester's OFF day -> after swap, requester works on workDate, target works on offDate (target was working on offDate, now target is OFF on workDate)
-      // Requester: is OFF on offDate (keep or ensure OFF), becomes OFF on workDate? No!
-      // In off-day request: offDate = requester's OFF day, workDate = target's OFF day.
-      // Requester works on workDate (giving up target's off-day), target works on offDate (giving up requester's off-day).
-      // So requester becomes OFF on workDate, Target becomes OFF on offDate!
-      // Wait: requester requested offDate off -> target worked offDate. Requester gave target workDate off (target was off workDate).
-      // So on offDate: Requester stays OFF (isOffDay = true), Target becomes WORK (isOffDay = false, gets shift).
-      // On workDate: Target stays OFF (isOffDay = true), Requester becomes WORK (isOffDay = false, gets shift).
-
-      // 1. Requester on offDate: isOffDay = true
+      // 1. Requester on offDate: isOffDay = false (Requester works replacing Target)
       await tx.userSchedule.upsert({
         where: { userId_date: { userId: req.userId, date: req.offDate } },
-        update: { isOffDay: true, isManualOverride: true },
-        create: { userId: req.userId, date: req.offDate, isOffDay: true, isManualOverride: true },
+        update: { isOffDay: false, shiftId: shiftForRequesterOnOffDate, isManualOverride: true },
+        create: { userId: req.userId, date: req.offDate, isOffDay: false, shiftId: shiftForRequesterOnOffDate, isManualOverride: true },
       });
 
-      // 2. Target on offDate: isOffDay = false (target works instead)
+      // 2. Target on offDate: isOffDay = true (Target gets Requester's off-day)
       await tx.userSchedule.upsert({
         where: { userId_date: { userId: req.targetUserId, date: req.offDate } },
-        update: { isOffDay: false, shiftId: shiftForTargetOnOffDate, isManualOverride: true },
-        create: { userId: req.targetUserId, date: req.offDate, isOffDay: false, shiftId: shiftForTargetOnOffDate, isManualOverride: true },
-      });
-
-      // 3. Target on workDate: isOffDay = true
-      await tx.userSchedule.upsert({
-        where: { userId_date: { userId: req.targetUserId, date: req.workDate } },
         update: { isOffDay: true, isManualOverride: true },
-        create: { userId: req.targetUserId, date: req.workDate, isOffDay: true, isManualOverride: true },
+        create: { userId: req.targetUserId, date: req.offDate, isOffDay: true, isManualOverride: true },
       });
 
-      // 4. Requester on workDate: isOffDay = false (requester works instead)
+      // 3. Requester on workDate: isOffDay = true (Requester gets Target's off-day)
       await tx.userSchedule.upsert({
         where: { userId_date: { userId: req.userId, date: req.workDate } },
-        update: { isOffDay: false, shiftId: shiftForRequesterOnWorkDate, isManualOverride: true },
-        create: { userId: req.userId, date: req.workDate, isOffDay: false, shiftId: shiftForRequesterOnWorkDate, isManualOverride: true },
+        update: { isOffDay: true, isManualOverride: true },
+        create: { userId: req.userId, date: req.workDate, isOffDay: true, isManualOverride: true },
+      });
+
+      // 4. Target on workDate: isOffDay = false (Target works replacing Requester)
+      await tx.userSchedule.upsert({
+        where: { userId_date: { userId: req.targetUserId, date: req.workDate } },
+        update: { isOffDay: false, shiftId: shiftForTargetOnWorkDate, isManualOverride: true },
+        create: { userId: req.targetUserId, date: req.workDate, isOffDay: false, shiftId: shiftForTargetOnWorkDate, isManualOverride: true },
       });
 
       // Update OffDayRequest status
