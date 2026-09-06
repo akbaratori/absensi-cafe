@@ -501,6 +501,7 @@ class AttendanceService {
           data: {
             isOffDay: false,
             isManualOverride: true,
+            temporaryDepartment: `KOMPENSASI SAKIT (${date})`,
           },
         });
       } else {
@@ -510,6 +511,7 @@ class AttendanceService {
             date: compDateStart,
             isOffDay: false,
             isManualOverride: true,
+            temporaryDepartment: `KOMPENSASI SAKIT (${date})`,
           },
         });
       }
@@ -542,9 +544,13 @@ class AttendanceService {
     return {
       attendance: record,
       convertedSchedule,
-      message: convertOffDayDate
-        ? `Absensi diset Pulang Sakit. Hari libur ${convertOffDayDate} berhasil diubah menjadi hari kerja.`
-        : 'Absensi diset Pulang Sakit tanpa kompensasi libur.',
+      isHalfDay: finalStatus === 'HALF_DAY',
+      status: finalStatus,
+      message: `Absensi diset Pulang Sakit (${statusLabel}).${
+        convertOffDayDate
+          ? ` Hari libur ${convertOffDayDate} berhasil diubah menjadi hari kerja (Kompensasi Sakit ${date}).`
+          : ''
+      }`,
     };
   }
 

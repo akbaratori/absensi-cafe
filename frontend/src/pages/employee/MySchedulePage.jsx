@@ -401,6 +401,13 @@ const MySchedulePage = () => {
                                                 </div>
                                                 )}
 
+                                                {/* Badge Kompensasi Sakit */}
+                                                {schedule.temporaryDepartment && schedule.temporaryDepartment.includes('KOMPENSASI SAKIT') && (
+                                                <div className="w-full mt-1 flex items-center justify-center gap-0.5 text-[9px] leading-tight font-semibold text-amber-700 bg-amber-50 dark:text-amber-300 dark:bg-amber-900/30 px-1 py-0.5 rounded border border-amber-200 dark:border-amber-700">
+                                                    <span className="truncate">🏥 {schedule.temporaryDepartment}</span>
+                                                </div>
+                                                )}
+
                                                 {/* Badge tukar shift */}
                                                 {schedule.swap && (
                                                 <div className="w-full mt-1 flex items-center justify-center gap-0.5 text-[9px] leading-tight font-semibold text-purple-700 bg-purple-50 dark:text-purple-300 dark:bg-purple-900/30 px-1 py-0.5 rounded border border-purple-200 dark:border-purple-700">

@@ -323,6 +323,13 @@ const ScheduleCalendar = () => {
                                                     </span>
                                                 )}
 
+                                                {/* Kompensasi Libur Sakit Indicator */}
+                                                {!schedule.isOffDay && schedule.temporaryDepartment && schedule.temporaryDepartment.includes('KOMPENSASI SAKIT') && (
+                                                    <span className="block mt-0.5 text-[8px] font-bold text-amber-200 bg-amber-800 px-1 rounded border border-amber-700 w-fit">
+                                                        🏥 {schedule.temporaryDepartment}
+                                                    </span>
+                                                )}
+
 
                                             </span>
 
