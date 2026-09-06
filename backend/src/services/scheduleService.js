@@ -665,7 +665,8 @@ class ScheduleService {
     async upsertSingleSchedule(data) {
         const { userId, date, shiftId, isOffDay, kitchenStation, temporaryDepartment } = data;
         
-        const scheduleDate = new Date(date);
+        const cleanDateStr = typeof date === 'string' ? date.slice(0, 10) : date.toISOString().slice(0, 10);
+        const scheduleDate = new Date(`${cleanDateStr}T00:00:00.000Z`);
 
         const upsertData = {
             shiftId: isOffDay ? null : (shiftId ? parseInt(shiftId) : null),
@@ -676,6 +677,15 @@ class ScheduleService {
                 ? null
                 : temporaryDepartment,
         };
+
+        if (!isOffDay) {
+            await prisma.manualOffDay.deleteMany({
+                where: {
+                    userId: parseInt(userId),
+                    date: scheduleDate,
+                }
+            }).catch(() => {});
+        }
 
         return await prisma.userSchedule.upsert({
             where: {

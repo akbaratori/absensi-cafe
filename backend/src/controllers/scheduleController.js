@@ -183,6 +183,35 @@ class ScheduleController {
         }
     }
 
+    async updateUserScheduleCell(req, res, next) {
+        try {
+            const { userId, date, shiftId, isOffDay, kitchenStation, temporaryDepartment } = req.body;
+
+            if (!userId || !date) {
+                return res.status(400).json({ success: false, message: 'User ID and Date are required' });
+            }
+
+            const updatedSchedule = await scheduleService.upsertSingleSchedule({
+                userId,
+                date,
+                shiftId: isOffDay ? null : (shiftId ? parseInt(shiftId) : null),
+                isOffDay: Boolean(isOffDay),
+                kitchenStation: isOffDay ? null : kitchenStation,
+                temporaryDepartment,
+            });
+
+            // Audit trail
+            const auditService = require('../services/auditService');
+            await auditService.logScheduleChange(req.user.id, updatedSchedule.id, {
+                userId, date, shiftId, isOffDay, kitchenStation, temporaryDepartment
+            });
+
+            return successResponse(res, 200, updatedSchedule, 'Sel jadwal berhasil diperbarui');
+        } catch (err) {
+            next(err);
+        }
+    }
+
     async deleteSchedule(req, res, next) {
         try {
             const { id } = req.params;

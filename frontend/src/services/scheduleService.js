@@ -36,6 +36,11 @@ export const upsertSingleSchedule = async (data) => {
     return response.data;
 };
 
+export const updateUserScheduleCell = async (data) => {
+    const response = await api.put('/schedules/user-schedule-cell', data);
+    return response.data;
+};
+
 export const getUserSchedule = async (userId, startDate, endDate) => {
     return api.get(`/schedules/${userId}`, {
         params: { startDate, endDate }

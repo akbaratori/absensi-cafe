@@ -633,15 +633,24 @@ class RotationService {
     const userSchedRows = userIds.length > 0
       ? await prisma.userSchedule.findMany({
           where: { userId: { in: userIds }, date: { in: weekDates } },
-          select: { userId: true, date: true, kitchenStation: true, isOffDay: true },
+          select: { userId: true, date: true, kitchenStation: true, isOffDay: true, shiftId: true, temporaryDepartment: true },
         })
       : [];
     // Map: userId -> { dateISO -> jobdeskName }
     const jobdeskMap = new Map();
+    const overrideMap = new Map();
     for (const r of userSchedRows) {
       const iso = toISO(r.date);
       if (!jobdeskMap.has(r.userId)) jobdeskMap.set(r.userId, {});
       jobdeskMap.get(r.userId)[iso] = r.kitchenStation || null;
+
+      if (!overrideMap.has(r.userId)) overrideMap.set(r.userId, {});
+      overrideMap.get(r.userId)[iso] = {
+        shiftId: r.shiftId,
+        isOffDay: r.isOffDay,
+        kitchenStation: r.kitchenStation,
+        temporaryDepartment: r.temporaryDepartment,
+      };
     }
 
     // Fallback untuk backup user: jika dia tidak punya jobdesk sendiri hari itu
@@ -726,6 +735,8 @@ class RotationService {
           : { id: s.userId, fullName: `User ${s.userId}`, username: null, department: null },
         // jobdesk per hari: { 'YYYY-MM-DD': 'Main Cook', ... }
         jobdesksByDate: jobdeskMap.get(s.userId) || {},
+        // userSchedules detail per hari: { 'YYYY-MM-DD': { shiftId, isOffDay, kitchenStation, temporaryDepartment } }
+        userSchedulesByDate: overrideMap.get(s.userId) || {},
         // swap per hari: { 'YYYY-MM-DD': { withUserName, originalShiftNumber, swappedShiftNumber } }
         swapsByDate: swapsByDateMap.get(s.userId) || {},
       };
@@ -1078,6 +1089,24 @@ class RotationService {
       if (dateISOs.includes(iso)) mark(m.userId, iso);
     }
 
+    // 6. UserSchedule overrides (manual cell edits take highest priority)
+    const scheduleOverrides = await prisma.userSchedule.findMany({
+      where: {
+        userId: { in: rosterUserIds },
+        date: { gte: minDate, lte: maxDate },
+      },
+      select: { userId: true, date: true, isOffDay: true, isManualOverride: true },
+    });
+    for (const s of scheduleOverrides) {
+      const iso = toISO(s.date);
+      if (!dateISOs.includes(iso)) continue;
+      if (s.isOffDay) {
+        mark(s.userId, iso);
+      } else if (s.isManualOverride) {
+        offMap.get(s.userId)?.delete(iso);
+      }
+    }
+
     return offMap;
   }
 
@@ -1149,6 +1178,20 @@ class RotationService {
       select: { userId: true, date: true },
     });
     for (const m of manualOffDays) mark(m.userId, toISO(m.date));
+
+    // 6. UserSchedule overrides (manual cell edits take highest priority)
+    const scheduleOverrides = await prisma.userSchedule.findMany({
+      where: { userId: { in: userIds }, date: { gte: fromDate, lte: toDate } },
+      select: { userId: true, date: true, isOffDay: true, isManualOverride: true },
+    });
+    for (const s of scheduleOverrides) {
+      const iso = toISO(s.date);
+      if (s.isOffDay) {
+        mark(s.userId, iso);
+      } else if (s.isManualOverride) {
+        offSet.delete(`${s.userId}_${iso}`);
+      }
+    }
 
     return [...offSet].map((key) => {
       const [userId, date] = key.split('_');

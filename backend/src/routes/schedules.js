@@ -41,6 +41,9 @@ router.post('/closing-config', authorize('ADMIN'), asyncHandler(async (req, res)
     return successResponse(res, 200, { config: req.body }, 'Konfigurasi closing berhasil disimpan');
 }));
 
+// Update single schedule cell by user & date (Admin only)
+router.put('/user-schedule-cell', authorize('ADMIN'), scheduleController.updateUserScheduleCell);
+
 // Manual update schedule (Admin only)
 router.put('/:id', authorize('ADMIN'), scheduleController.updateSchedule);
 

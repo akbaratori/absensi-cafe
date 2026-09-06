@@ -1,7 +1,13 @@
-﻿import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import html2canvas from 'html2canvas';
+import { Clock, Calendar, ChefHat, User, Check, X, Edit2, AlertCircle } from 'lucide-react';
 import rotationService from '../../services/rotationService';
+import { getAllShifts } from '../../services/shiftService';
+import { updateUserScheduleCell } from '../../services/scheduleService';
 import BackupPanel from '../../components/admin/BackupPanel';
+import Modal from '../../components/shared/Modal';
+import Button from '../../components/shared/Button';
+import { showSuccess, showError } from '../../hooks/useToast';
 
 function LoadingSpinner() {
   return (
@@ -49,10 +55,11 @@ function getMondaysInMonth(mon) {
 }
 
 function getUsersOnDayWithOffDay(schedule, dateISO, shiftNum, offDaySet, backupsOnDay = [], currentPositionId = null) {
-  if (!schedule || !schedule.schedules?.length) return { working: [], offDay: [], deployedElsewhere: [], movedToOtherShift: [] };
+  if (!schedule || !schedule.schedules?.length) return { working: [], offDay: [], deployedElsewhere: [], movedToOtherShift: [], absent: [] };
   const all = schedule.schedules
     .filter(s => s.shiftNumber === shiftNum)
     .map(s => ({
+      ...s,
       name: s.user?.fullName || `User #${s.userId}`,
       userId: s.userId,
       // Jobdesk hari ini (rotasi harian). null jika posisi tidak punya jobdesk.
@@ -114,6 +121,29 @@ export default function FullSchedulePage() {
   const [backupsByDate, setBackupsByDate] = useState(new Map());
   const [backupDate, setBackupDate]   = useState(null);
   const [showBackupPanel, setShowBackupPanel] = useState(false);
+
+  // Quick cell edit modal state
+  const [allShifts, setAllShifts] = useState([]);
+  const [showEditCellModal, setShowEditCellModal] = useState(false);
+  const [editCellData, setEditCellData] = useState({
+    userId: null,
+    userName: '',
+    dateISO: '',
+    positionId: null,
+    positionName: '',
+    currentShiftId: null,
+    currentJobdesk: '',
+    isOff: false,
+    temporaryDepartment: '',
+    jobdesksList: [],
+  });
+  const [saveLoading, setSaveLoading] = useState(false);
+
+  useEffect(() => {
+    getAllShifts().then(res => {
+      setAllShifts(res.data?.shifts || []);
+    }).catch(() => {});
+  }, []);
 
   const activeMonth = useMemo(() => {
     if (viewMode === 'month') return monthView;
@@ -212,7 +242,61 @@ export default function FullSchedulePage() {
     ? data.map(d => d.position).filter(Boolean)
     : (monthData?.weeks?.[0]?.positions || []).map(p => p.position).filter(Boolean);
 
-  const openBackupPanel = (dateISO) => { setBackupDate(dateISO); setShowBackupPanel(true); };
+  const handleCellClick = (userObj, dateISO, position, defaultShiftNum) => {
+    const userSched = userObj.userSchedulesByDate?.[dateISO];
+    const isCurrentlyOff = offDaySet.has(`${userObj.userId}_${dateISO}`) || userSched?.isOffDay;
+    
+    // Pick active shift: user override shiftId -> shift matching defaultShiftNum -> default fallback
+    let foundShiftId = userSched?.shiftId;
+    if (!foundShiftId && defaultShiftNum && allShifts.length > 0) {
+      const match = allShifts.find(s => s.name.includes(String(defaultShiftNum)));
+      if (match) foundShiftId = match.id;
+    }
+    if (!foundShiftId && allShifts.length > 0) {
+      foundShiftId = allShifts[0].id;
+    }
+
+    setEditCellData({
+      userId: userObj.userId,
+      userName: userObj.user?.fullName || `User #${userObj.userId}`,
+      dateISO,
+      positionId: position.id,
+      positionName: position.name,
+      currentShiftId: foundShiftId || '',
+      currentJobdesk: userObj.jobdesksByDate?.[dateISO] || '',
+      isOff: Boolean(isCurrentlyOff),
+      temporaryDepartment: userSched?.temporaryDepartment || '',
+      jobdesksList: position.jobdesks || [],
+    });
+    setShowEditCellModal(true);
+  };
+
+  const handleSaveCell = async (e) => {
+    e.preventDefault();
+    setSaveLoading(true);
+    try {
+      await updateUserScheduleCell({
+        userId: editCellData.userId,
+        date: editCellData.dateISO,
+        shiftId: editCellData.isOff ? null : (editCellData.currentShiftId ? parseInt(editCellData.currentShiftId) : null),
+        isOffDay: editCellData.isOff,
+        kitchenStation: editCellData.isOff ? null : (editCellData.currentJobdesk || null),
+        temporaryDepartment: editCellData.temporaryDepartment || null,
+      });
+
+      showSuccess(`Jadwal ${editCellData.userName} tanggal ${editCellData.dateISO} berhasil diperbarui`);
+      setShowEditCellModal(false);
+
+      // Refresh schedule views
+      if (viewMode === 'week') fetchWeek(); else fetchMonth();
+      fetchOffDays(activeMonth);
+    } catch (err) {
+      console.error('[FullSchedule] Save cell failed:', err);
+      showError(err?.response?.data?.message || 'Gagal menyimpan perubahan jadwal');
+    } finally {
+      setSaveLoading(false);
+    }
+  };
   // Backup bar
   const BackupBar = ({ ws }) => (
     <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-3 mb-4 overflow-x-auto">
@@ -273,14 +357,21 @@ export default function FullSchedulePage() {
                       return (
                         <td key={dl.date} className={`px-3 py-2 align-top ${dl.isToday ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''}`}>
                           {working.length > 0 && <ul className="space-y-0.5 mb-1">{working.map((u,i) => (
-                            <li key={i} className="whitespace-nowrap text-gray-600 dark:text-gray-300">
-                              {u.name}
-                              {u.jobdesk && <span className="ml-1 inline-block px-1 py-px rounded bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 text-[10px] font-medium align-middle">{u.jobdesk}</span>}
-                              {u.swapInfo && (
-                                <span className="ml-1 inline-flex items-center gap-0.5 px-1 py-px rounded bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 text-[10px] font-medium align-middle">
-                                  ⇄ {u.swapInfo.withUserName}
-                                </span>
-                              )}
+                            <li key={i}
+                              onClick={() => handleCellClick(u, dl.date, position, shiftNum)}
+                              className="whitespace-nowrap text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 cursor-pointer rounded px-1 -mx-1 transition-colors flex items-center justify-between group/cell"
+                              title="Klik untuk edit jadwal/stasiun ini"
+                            >
+                              <span>
+                                {u.name}
+                                {u.jobdesk && <span className="ml-1 inline-block px-1 py-px rounded bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 text-[10px] font-medium align-middle">{u.jobdesk}</span>}
+                                {u.swapInfo && (
+                                  <span className="ml-1 inline-flex items-center gap-0.5 px-1 py-px rounded bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 text-[10px] font-medium align-middle">
+                                    ⇄ {u.swapInfo.withUserName}
+                                  </span>
+                                )}
+                              </span>
+                              <Edit2 className="w-3 h-3 opacity-0 group-hover/cell:opacity-100 text-blue-500 ml-1 flex-shrink-0" />
                             </li>
                           ))}</ul>}
                           {movedToOtherShift.length > 0 && <ul className="space-y-0.5 mb-1">{movedToOtherShift.map((u,i) => (
@@ -297,7 +388,16 @@ export default function FullSchedulePage() {
                               {u.backupName && (<><span className="text-gray-400 mx-1">&rarr;</span><span className="text-green-700 dark:text-green-400 font-medium">{u.backupName}</span></>)}
                             </li>
                           ))}</ul>}
-                          {offDay.length > 0 && <ul className="space-y-0.5">{offDay.map((u,i) => <li key={i} className="whitespace-nowrap text-orange-500 dark:text-orange-400 text-xs line-through">&#127958; {u.name}</li>)}</ul>}
+                          {offDay.length > 0 && <ul className="space-y-0.5">{offDay.map((u,i) => (
+                            <li key={i}
+                              onClick={() => handleCellClick(u, dl.date, position, shiftNum)}
+                              className="whitespace-nowrap text-orange-500 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 hover:bg-orange-100/50 dark:hover:bg-orange-900/30 cursor-pointer rounded px-1 -mx-1 transition-colors text-xs line-through flex items-center justify-between group/cell"
+                              title="Klik untuk ubah jadwal (masuk / tukar shift)"
+                            >
+                              <span>&#127958; {u.name}</span>
+                              <Edit2 className="w-3 h-3 opacity-0 group-hover/cell:opacity-100 text-orange-600 ml-1 flex-shrink-0" />
+                            </li>
+                          ))}</ul>}
                           {working.length === 0 && offDay.length === 0 && deployedElsewhere.length === 0 && movedToOtherShift.length === 0 && absent.length === 0 && <span className="text-gray-400 text-xs">&mdash;</span>}
                         </td>
                       );
@@ -308,10 +408,23 @@ export default function FullSchedulePage() {
                   <tr className="border-t border-orange-100 dark:border-orange-900/30 bg-orange-50/30 dark:bg-orange-900/10">
                     <td className="px-3 py-2 font-medium text-orange-600 dark:text-orange-400 whitespace-nowrap text-xs">&#127958; Libur</td>
                     {dLabels.map(dl => {
-                      const offUsers = (schedule.schedules || []).filter(s => !s.isBackupOnly && offDaySet.has(`${s.userId}_${dl.date}`)).map(s => s.user?.fullName || `User #${s.userId}`);
+                      const offScheds = (schedule.schedules || []).filter(s => !s.isBackupOnly && offDaySet.has(`${s.userId}_${dl.date}`));
                       return (
                         <td key={dl.date} className={`px-3 py-2 text-xs ${dl.isToday ? 'bg-blue-50/30 dark:bg-blue-900/5' : ''}`}>
-                          {offUsers.length > 0 ? <ul className="space-y-0.5">{offUsers.map((n,i) => <li key={i} className="text-orange-600 dark:text-orange-400 whitespace-nowrap">{n}</li>)}</ul> : <span className="text-gray-300 dark:text-gray-700">&mdash;</span>}
+                          {offScheds.length > 0 ? (
+                            <ul className="space-y-0.5">
+                              {offScheds.map((s,i) => (
+                                <li key={i}
+                                  onClick={() => handleCellClick(s, dl.date, position, s.shiftNumber || 1)}
+                                  className="whitespace-nowrap text-orange-600 dark:text-orange-400 hover:text-orange-800 dark:hover:text-orange-200 hover:bg-orange-100/60 dark:hover:bg-orange-900/40 cursor-pointer rounded px-1 -mx-1 transition-colors flex items-center justify-between group/libur"
+                                  title="Klik untuk ubah jadwal karyawan ini (buka libur / ubah shift)"
+                                >
+                                  <span>{s.user?.fullName || `User #${s.userId}`}</span>
+                                  <Edit2 className="w-3 h-3 opacity-0 group-hover/libur:opacity-100 text-orange-700 ml-1 flex-shrink-0" />
+                                </li>
+                              ))}
+                            </ul>
+                          ) : <span className="text-gray-300 dark:text-gray-700">&mdash;</span>}
                         </td>
                       );
                     })}
@@ -610,6 +723,105 @@ export default function FullSchedulePage() {
           }}
         />
       )}
+
+      {/* Modal Quick Edit Cell Schedule */}
+      <Modal
+        isOpen={showEditCellModal}
+        onClose={() => setShowEditCellModal(false)}
+        title={`Edit Jadwal & Stasiun (${editCellData.positionName})`}
+      >
+        <form onSubmit={handleSaveCell} className="space-y-4">
+          <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg text-sm">
+            <div className="font-semibold text-blue-900 dark:text-blue-200">{editCellData.userName}</div>
+            <div className="text-blue-700 dark:text-blue-300 text-xs mt-0.5">
+              Tanggal: <span className="font-mono font-medium">{editCellData.dateISO}</span> &middot; Posisi: <span className="font-medium">{editCellData.positionName}</span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="isOffCell"
+              checked={editCellData.isOff}
+              onChange={(e) => setEditCellData({ ...editCellData, isOff: e.target.checked })}
+              className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500 h-4 w-4"
+            />
+            <label htmlFor="isOffCell" className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer">
+              Set status Libur (OFF) pada tanggal ini
+            </label>
+          </div>
+
+          {!editCellData.isOff && (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Pilih Shift Jam Kerja
+                </label>
+                <select
+                  value={editCellData.currentShiftId}
+                  onChange={(e) => setEditCellData({ ...editCellData, currentShiftId: e.target.value })}
+                  className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 focus:border-blue-500 focus:ring-blue-500 text-sm"
+                  required
+                >
+                  <option value="">-- Pilih Shift --</option>
+                  {allShifts.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} ({s.startTime} - {s.endTime})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {editCellData.jobdesksList.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Jobdesk / Stasiun Kerja <span className="text-gray-400 font-normal">(opsional)</span>
+                  </label>
+                  <select
+                    value={editCellData.currentJobdesk}
+                    onChange={(e) => setEditCellData({ ...editCellData, currentJobdesk: e.target.value })}
+                    className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 focus:border-blue-500 focus:ring-blue-500 text-sm"
+                  >
+                    <option value="">-- Tidak Ada --</option>
+                    {editCellData.jobdesksList.map((jd) => (
+                      <option key={jd.id || jd.name} value={jd.name}>
+                        {jd.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </>
+          )}
+
+          <div className="border-t border-dashed border-amber-300 dark:border-amber-700 pt-3">
+            <label className="block text-sm font-medium text-amber-700 dark:text-amber-400 mb-1">
+              🔄 Penugasan Departemen Sementara (Cross-dept)
+            </label>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+              Hanya berlaku 1 hari ini. Departemen asli karyawan tetap tidak berubah.
+            </p>
+            <select
+              value={editCellData.temporaryDepartment}
+              onChange={(e) => setEditCellData({ ...editCellData, temporaryDepartment: e.target.value })}
+              className="w-full rounded-md border-amber-300 dark:border-amber-700 focus:border-amber-500 focus:ring-amber-500 bg-amber-50 dark:bg-gray-700 text-sm"
+            >
+              <option value="">-- Gunakan Dept Asli Karyawan --</option>
+              <option value="BAR">BAR</option>
+              <option value="KITCHEN">KITCHEN</option>
+            </select>
+          </div>
+
+          <div className="pt-4 flex justify-end gap-2 border-t border-gray-200 dark:border-gray-700">
+            <Button variant="outline" type="button" onClick={() => setShowEditCellModal(false)}>
+              Batal
+            </Button>
+            <Button type="submit" loading={saveLoading}>
+              Simpan Perubahan
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }
