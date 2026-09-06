@@ -1,4 +1,4 @@
-const prisma = require('../utils/database');
+﻿const prisma = require('../utils/database');
 const { ErrorCodes } = require('../utils/AppError');
 const notificationService = require('./notificationService');
 const rotationService = require('./rotationService');
@@ -82,7 +82,7 @@ class OffDayService {
       throw new Error(`${target.fullName} tidak memiliki jadwal kerja pada ${offDateObj.toLocaleDateString('id-ID')}.`);
     }
 
-    // Run conflict validators
+    // Run conflict validators (sebelum record dibuat)
     const requesterOffConflict = await checkEmployeeScheduleConflict(requesterId, workDateObj);
     const requesterWorkConflict = await checkEmployeeScheduleConflict(requesterId, offDateObj);
     const targetOffConflict = await checkEmployeeScheduleConflict(targetId, workDateObj);
@@ -114,7 +114,7 @@ class OffDayService {
       },
     });
 
-    // System auto-validate — jika ditolak sistem, return dengan flag rejected
+    // System auto-validate — passing ID request agar tidak memicu self-conflict dengan record yang baru dibuat
     const validation = await this.systemValidate(request.id);
 
     const updated = await prisma.offDayRequest.findUnique({
@@ -155,11 +155,11 @@ class OffDayService {
       throw new Error(transition.error);
     }
 
-    // Revalidate conflicts fresh from DB
-    const requesterOffConflict = await checkEmployeeScheduleConflict(req.userId, req.workDate);
-    const requesterWorkConflict = await checkEmployeeScheduleConflict(req.userId, req.offDate);
-    const targetOffConflict = await checkEmployeeScheduleConflict(req.targetUserId, req.workDate);
-    const targetWorkConflict = await checkEmployeeScheduleConflict(req.targetUserId, req.offDate);
+    // Revalidate conflicts fresh from DB with excludeOffDayId = requestId agar tidak self-conflict
+    const requesterOffConflict = await checkEmployeeScheduleConflict(req.userId, req.workDate, null, requestId);
+    const requesterWorkConflict = await checkEmployeeScheduleConflict(req.userId, req.offDate, null, requestId);
+    const targetOffConflict = await checkEmployeeScheduleConflict(req.targetUserId, req.workDate, null, requestId);
+    const targetWorkConflict = await checkEmployeeScheduleConflict(req.targetUserId, req.offDate, null, requestId);
 
     const conflicts = [];
     if (requesterOffConflict.hasConflict) conflicts.push(requesterOffConflict.reason);
@@ -245,10 +245,10 @@ class OffDayService {
         'OFFDAY_REJECTED'
       );
 
-      return { status: transition.nextStatus, message: 'Pengajuan ditolak.' };
+      return { status: transition.nextStatus, message: 'Permintaan tukar libur berhasil ditolak.' };
     }
 
-    // ACCEPT
+    // Target ACCEPT -> update status & timestamp, then notify requester & admin
     await prisma.offDayRequest.update({
       where: { id: parseInt(requestId) },
       data: {
@@ -260,27 +260,31 @@ class OffDayService {
     await notificationService.create(
       req.userId,
       'Tukar Libur Disetujui Rekan',
-      `${req.target.fullName} menyetujui permintaan tukar libur Anda. Menunggu persetujuan admin.`,
+      `${req.target.fullName} menyetujui permintaan tukar libur Anda. Menunggu persetujuan Admin/Manager.`,
       'OFFDAY'
     );
 
-    const admins = await prisma.user.findMany({ where: { role: { in: ['ADMIN', 'OWNER'] }, isActive: true } });
+    // Notify all active Admin/Manager
+    const admins = await prisma.user.findMany({
+      where: { role: { in: ['ADMIN', 'MANAGER'] }, isActive: true },
+      select: { id: true },
+    });
     for (const admin of admins) {
       await notificationService.create(
         admin.id,
         'Persetujuan Tukar Libur Diperlukan',
-        `${req.user.fullName} dan ${req.target.fullName} menunggu persetujuan tukar libur.`,
-        'OFFDAY_ADMIN'
+        `${req.user.fullName} dan ${req.target.fullName} mengajukan tukar libur. Silakan tinjau.`,
+        'OFFDAY_ADMIN_APPROVAL'
       );
     }
 
-    return { status: transition.nextStatus, message: 'Pengajuan disetujui, menunggu admin.' };
+    return { status: transition.nextStatus, message: 'Permintaan berhasil disetujui, menunggu persetujuan Admin/Manager.' };
   }
 
   /**
    * Admin approves or rejects - Step 3
    */
-  async approveByAdmin(requestId, adminId, action) {
+  async approveByAdmin(requestId, adminUserId, action) {
     const req = await prisma.offDayRequest.findUnique({
       where: { id: parseInt(requestId) },
       include: {
@@ -305,8 +309,8 @@ class OffDayService {
         where: { id: parseInt(requestId) },
         data: {
           status: transition.nextStatus,
-          rejectionNote: 'Ditolak oleh admin.',
-          approverId: adminId,
+          rejectionNote: 'Ditolak oleh Admin/Manager.',
+          approvedById: adminUserId,
           approvedAt: now,
         },
       });
@@ -314,96 +318,90 @@ class OffDayService {
       await notificationService.create(
         req.userId,
         'Tukar Libur Ditolak Admin',
-        'Permintaan tukar libur Anda ditolak oleh admin.',
+        'Permintaan tukar libur Anda ditolak oleh Admin/Manager.',
         'OFFDAY_REJECTED'
       );
 
       await notificationService.create(
         req.targetUserId,
         'Tukar Libur Ditolak Admin',
-        'Permintaan tukar libur ditolak oleh admin.',
+        'Permintaan tukar libur yang Anda setujui ditolak oleh Admin/Manager.',
         'OFFDAY_REJECTED'
       );
 
-      return { status: transition.nextStatus, message: 'Pengajuan ditolak oleh admin.' };
+      return { status: transition.nextStatus, message: 'Permintaan tukar libur ditolak.' };
     }
 
-    // APPROVE - swap off-days in schedule
+    // Apply schedule changes using transaction with upsert for safety
     await prisma.$transaction(async (tx) => {
-      // Update status
+      // 1. Get shift IDs for requester and target (from User.shiftId or default)
+      const requesterUser = await tx.user.findUnique({ where: { id: req.userId }, select: { shiftId: true } });
+      const targetUser = await tx.user.findUnique({ where: { id: req.targetUserId }, select: { shiftId: true } });
+
+      const requesterDefaultShift = requesterUser?.shiftId || 1;
+      const targetDefaultShift = targetUser?.shiftId || 1;
+
+      // Fetch existing schedules if any
+      const [reqOffDateSched, reqWorkDateSched, targetOffDateSched, targetWorkDateSched] = await Promise.all([
+        tx.userSchedule.findUnique({ where: { userId_date: { userId: req.userId, date: req.offDate } } }),
+        tx.userSchedule.findUnique({ where: { userId_date: { userId: req.userId, date: req.workDate } } }),
+        tx.userSchedule.findUnique({ where: { userId_date: { userId: req.targetUserId, date: req.offDate } } }),
+        tx.userSchedule.findUnique({ where: { userId_date: { userId: req.targetUserId, date: req.workDate } } }),
+      ]);
+
+      // Determine shift IDs to assign when swapping off-day to work-day
+      // Priority: use the shift of the target user who was working, or fallback to default
+      const shiftForRequesterOnWorkDate = reqWorkDateSched?.shiftId || requesterDefaultShift;
+      const shiftForTargetOnOffDate = targetOffDateSched?.shiftId || targetDefaultShift;
+
+      // Update Requester on offDate: target works for requester on offDate, so requester works on workDate, target works on offDate
+      // Requester is OFF on offDate -> now target works on offDate, requester stays OFF on offDate
+      // Requester on workDate: requester was working on workDate -> now requester is OFF on workDate, target works on workDate
+      // Actually swap off-days:
+      // offDate is requester's OFF day -> after swap, requester works on workDate, target works on offDate (target was working on offDate, now target is OFF on workDate)
+      // Requester: is OFF on offDate (keep or ensure OFF), becomes OFF on workDate? No!
+      // In off-day request: offDate = requester's OFF day, workDate = target's OFF day.
+      // Requester works on workDate (giving up target's off-day), target works on offDate (giving up requester's off-day).
+      // So requester becomes OFF on workDate, Target becomes OFF on offDate!
+      // Wait: requester requested offDate off -> target worked offDate. Requester gave target workDate off (target was off workDate).
+      // So on offDate: Requester stays OFF (isOffDay = true), Target becomes WORK (isOffDay = false, gets shift).
+      // On workDate: Target stays OFF (isOffDay = true), Requester becomes WORK (isOffDay = false, gets shift).
+
+      // 1. Requester on offDate: isOffDay = true
+      await tx.userSchedule.upsert({
+        where: { userId_date: { userId: req.userId, date: req.offDate } },
+        update: { isOffDay: true, isManualOverride: true },
+        create: { userId: req.userId, date: req.offDate, isOffDay: true, isManualOverride: true },
+      });
+
+      // 2. Target on offDate: isOffDay = false (target works instead)
+      await tx.userSchedule.upsert({
+        where: { userId_date: { userId: req.targetUserId, date: req.offDate } },
+        update: { isOffDay: false, shiftId: shiftForTargetOnOffDate, isManualOverride: true },
+        create: { userId: req.targetUserId, date: req.offDate, isOffDay: false, shiftId: shiftForTargetOnOffDate, isManualOverride: true },
+      });
+
+      // 3. Target on workDate: isOffDay = true
+      await tx.userSchedule.upsert({
+        where: { userId_date: { userId: req.targetUserId, date: req.workDate } },
+        update: { isOffDay: true, isManualOverride: true },
+        create: { userId: req.targetUserId, date: req.workDate, isOffDay: true, isManualOverride: true },
+      });
+
+      // 4. Requester on workDate: isOffDay = false (requester works instead)
+      await tx.userSchedule.upsert({
+        where: { userId_date: { userId: req.userId, date: req.workDate } },
+        update: { isOffDay: false, shiftId: shiftForRequesterOnWorkDate, isManualOverride: true },
+        create: { userId: req.userId, date: req.workDate, isOffDay: false, shiftId: shiftForRequesterOnWorkDate, isManualOverride: true },
+      });
+
+      // Update OffDayRequest status
       await tx.offDayRequest.update({
         where: { id: parseInt(requestId) },
         data: {
           status: transition.nextStatus,
-          approverId: adminId,
+          approvedById: adminUserId,
           approvedAt: now,
-        },
-      });
-
-      // On offDate: Requester is OFF → Target becomes OFF (requester works now)
-      // On workDate: Target is OFF → Requester becomes OFF (target works now)
-
-      // Swap: requester's schedule on offDate
-      await tx.userSchedule.upsert({
-        where: {
-          userId_date: {
-            userId: req.userId,
-            date: req.offDate,
-          },
-        },
-        update: { isOffDay: false },
-        create: {
-          userId: req.userId,
-          date: req.offDate,
-          isOffDay: false,
-        },
-      });
-
-      // target's schedule on offDate
-      await tx.userSchedule.upsert({
-        where: {
-          userId_date: {
-            userId: req.targetUserId,
-            date: req.offDate,
-          },
-        },
-        update: { isOffDay: true },
-        create: {
-          userId: req.targetUserId,
-          date: req.offDate,
-          isOffDay: true,
-        },
-      });
-
-      // requester's schedule on workDate
-      await tx.userSchedule.upsert({
-        where: {
-          userId_date: {
-            userId: req.userId,
-            date: req.workDate,
-          },
-        },
-        update: { isOffDay: true },
-        create: {
-          userId: req.userId,
-          date: req.workDate,
-          isOffDay: true,
-        },
-      });
-
-      // target's schedule on workDate
-      await tx.userSchedule.upsert({
-        where: {
-          userId_date: {
-            userId: req.targetUserId,
-            date: req.workDate,
-          },
-        },
-        update: { isOffDay: false },
-        create: {
-          userId: req.targetUserId,
-          date: req.workDate,
-          isOffDay: false,
         },
       });
     });

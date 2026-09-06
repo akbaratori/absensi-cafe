@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Reusable conflict validator for schedule conflicts.
  * Used by both ShiftSwap and OffDayRequest flows.
  */
@@ -14,10 +14,11 @@ const prisma = require('./database');
  * 
  * @param {number} employeeId
  * @param {Date} date
- * @param {number} [excludeSwapId] - ID swap yang sedang divalidasi, agar tidak cocok dengan dirinya sendiri
+ * @param {number} [excludeSwapId] - ID shift swap yang sedang divalidasi
+ * @param {number} [excludeOffDayId] - ID off day request yang sedang divalidasi
  * @returns {Promise<{ hasConflict: boolean, reason: string|null }>}
  */
-async function checkEmployeeScheduleConflict(employeeId, date, excludeSwapId = null) {
+async function checkEmployeeScheduleConflict(employeeId, date, excludeSwapId = null, excludeOffDayId = null) {
   const checkDate = new Date(date);
   checkDate.setUTCHours(0, 0, 0, 0);
 
@@ -61,17 +62,19 @@ async function checkEmployeeScheduleConflict(employeeId, date, excludeSwapId = n
   }
 
   // Check 3: Approved off-day request on the same day
-  const offDay = await prisma.offDayRequest.findFirst({
-    where: {
-      status: 'APPROVED',
-      OR: [
-        { userId: employeeId, offDate: checkDate },
-        { userId: employeeId, workDate: checkDate },
-        { targetUserId: employeeId, offDate: checkDate },
-        { targetUserId: employeeId, workDate: checkDate },
-      ],
-    },
-  });
+  const offDayWhere = {
+    status: 'APPROVED',
+    OR: [
+      { userId: employeeId, offDate: checkDate },
+      { userId: employeeId, workDate: checkDate },
+      { targetUserId: employeeId, offDate: checkDate },
+      { targetUserId: employeeId, workDate: checkDate },
+    ],
+  };
+  if (excludeOffDayId) {
+    offDayWhere.id = { not: excludeOffDayId };
+  }
+  const offDay = await prisma.offDayRequest.findFirst({ where: offDayWhere });
 
   if (offDay) {
     return {
@@ -103,17 +106,19 @@ async function checkEmployeeScheduleConflict(employeeId, date, excludeSwapId = n
   }
 
   // Check 5: Pending off-day request
-  const pendingOffDay = await prisma.offDayRequest.findFirst({
-    where: {
-      status: { in: ['PENDING_VALIDATION', 'PENDING_TARGET_RESPONSE', 'PENDING_APPROVAL'] },
-      OR: [
-        { userId: employeeId, offDate: checkDate },
-        { userId: employeeId, workDate: checkDate },
-        { targetUserId: employeeId, offDate: checkDate },
-        { targetUserId: employeeId, workDate: checkDate },
-      ],
-    },
-  });
+  const pendingOffDayWhere = {
+    status: { in: ['PENDING_VALIDATION', 'PENDING_TARGET_RESPONSE', 'PENDING_APPROVAL'] },
+    OR: [
+      { userId: employeeId, offDate: checkDate },
+      { userId: employeeId, workDate: checkDate },
+      { targetUserId: employeeId, offDate: checkDate },
+      { targetUserId: employeeId, workDate: checkDate },
+    ],
+  };
+  if (excludeOffDayId) {
+    pendingOffDayWhere.id = { not: excludeOffDayId };
+  }
+  const pendingOffDay = await prisma.offDayRequest.findFirst({ where: pendingOffDayWhere });
 
   if (pendingOffDay) {
     return {
