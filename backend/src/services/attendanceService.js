@@ -398,6 +398,16 @@ class AttendanceService {
     });
 
     return {
+      id: updatedRecord.id,
+      userId: updatedRecord.userId,
+      date: toWITADateString(updatedRecord.date),
+      clockIn: updatedRecord.clockIn.toISOString(),
+      clockOut: updatedRecord.clockOut ? updatedRecord.clockOut.toISOString() : null,
+      status: formatStatus(updatedRecord.status),
+      notes: updatedRecord.notes,
+    };
+  }
+
   /**
    * Admin: Catat pegawai pulang cepat karena sakit & opsi kompensasi libur
    */
@@ -475,8 +485,7 @@ class AttendanceService {
 
       // Kirim notifikasi ke pegawai tentang kompensasi libur
       const notificationService = require('./notificationService');
-      const notifService = new notificationService();
-      await notifService.create(
+      await notificationService.create(
         parseInt(userId),
         'Penyesuaian Jadwal Libur',
         `Jadwal libur Anda pada ${convertOffDayDate} diubah menjadi HARI KERJA sebagai kompensasi izin pulang sakit (${date}).`,
@@ -505,15 +514,6 @@ class AttendanceService {
       message: convertOffDayDate
         ? `Absensi diset Pulang Sakit. Hari libur ${convertOffDayDate} berhasil diubah menjadi hari kerja.`
         : 'Absensi diset Pulang Sakit tanpa kompensasi libur.',
-    };
-  }
-      id: updatedRecord.id,
-      userId: updatedRecord.userId,
-      date: toWITADateString(updatedRecord.date),
-      clockIn: updatedRecord.clockIn.toISOString(),
-      clockOut: updatedRecord.clockOut ? updatedRecord.clockOut.toISOString() : null,
-      status: formatStatus(updatedRecord.status),
-      notes: updatedRecord.notes,
     };
   }
 
