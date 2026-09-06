@@ -414,10 +414,11 @@ class AttendanceService {
   async processSickEarlyLeave(data, adminId) {
     const { userId, date, clockOut, reason, convertOffDayDate } = data;
 
-    // Convert date YYYY-MM-DD to UTC boundaries for Attendance query
-    const targetDateObj = new Date(`${date}T00:00:00.000Z`);
+    // Boundary pencarian hari (WITA +08:00 & UTC)
+    const startDate = new Date(`${date}T00:00:00+08:00`);
+    const endDate = new Date(`${date}T23:59:59+08:00`);
 
-    // 1. Cari atau buat record Attendance hari itu
+    // 1. Cari record Attendance hari tersebut
     let record = await prisma.attendance.findFirst({
       where: {
         userId: parseInt(userId),
@@ -428,21 +429,36 @@ class AttendanceService {
       },
     });
 
+    // Fallback jika disimpan dengan boundary WITA
+    if (!record) {
+      record = await prisma.attendance.findFirst({
+        where: {
+          userId: parseInt(userId),
+          date: {
+            gte: startDate,
+            lte: endDate,
+          },
+        },
+      });
+    }
+
     const clockOutDate = clockOut ? new Date(clockOut) : new Date();
     const noteText = `[PULANG SAKIT] ${reason || 'Izin pulang awal karena sakit'}`;
 
     if (record) {
+      // Update record absensi yang sudah ada (clock-in tetap milik pegawai, update clock-out, status & notes)
       record = await attendanceRepository.update(record.id, {
         clockOut: clockOutDate,
         status: 'PRESENT', // Tetap dianggap hadir (tanpa penalti denda)
         notes: record.notes ? `${record.notes} | ${noteText}` : noteText,
       });
     } else {
+      // Jika pegawai belum absen sama sekali hari ini, buat record baru
       record = await prisma.attendance.create({
         data: {
           userId: parseInt(userId),
-          date: targetDateObj,
-          clockIn: new Date(`${date}T08:00:00.000Z`),
+          date: startDate,
+          clockIn: new Date(`${date}T08:00:00+08:00`),
           clockOut: clockOutDate,
           status: 'PRESENT',
           notes: noteText,
