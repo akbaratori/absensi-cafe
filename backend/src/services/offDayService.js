@@ -310,7 +310,7 @@ class OffDayService {
         data: {
           status: transition.nextStatus,
           rejectionNote: 'Ditolak oleh Admin/Manager.',
-          approvedById: adminUserId,
+          approverId: adminUserId,
           approvedAt: now,
         },
       });
@@ -400,7 +400,7 @@ class OffDayService {
         where: { id: parseInt(requestId) },
         data: {
           status: transition.nextStatus,
-          approvedById: adminUserId,
+          approverId: adminUserId,
           approvedAt: now,
         },
       });
