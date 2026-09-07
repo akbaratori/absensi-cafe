@@ -18,10 +18,11 @@ class AttendanceService {
    * Clock in user
    */
   async clockIn(userId, location, notes, photo, ipAddress) {
-    // Use UTC midnight boundaries — consistent with how backupController stores dates (T00:00:00Z)
+    // Use UTC midnight boundaries of today's WITA date to match how dates are stored (T00:00:00Z)
     const now = new Date();
-    const todayUTCStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
-    const todayUTCEnd   = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
+    const todayWITAStr = toWITADateString(now);
+    const todayUTCStart = new Date(`${todayWITAStr}T00:00:00.000Z`);
+    const todayUTCEnd   = new Date(`${todayWITAStr}T23:59:59.999Z`);
 
     // Check backup assignment first — backup duty overrides any schedule off-day
     const backupTodayClockIn = await prisma.backupAssignment.findFirst({
@@ -32,23 +33,31 @@ class AttendanceService {
     let todaySchedule = null;
 
     if (!backupTodayClockIn) {
-      // ManualOffDay takes priority — check before UserSchedule
+      const scheduleService = require('./scheduleService');
+      todaySchedule = await scheduleService.getTodaySchedule(userId);
+
       const manualOffTodayClockIn = await prisma.manualOffDay.findFirst({
         where: { userId, date: { gte: todayUTCStart, lte: todayUTCEnd } },
       });
-      if (manualOffTodayClockIn) {
-        throw ErrorCodes.ATTENDANCE_ERRORS.OFF_DAY_WORK;
-      }
 
-      // No backup override — check schedule
-      const scheduleService = require('./scheduleService');
-      todaySchedule = await scheduleService.getTodaySchedule(userId);
-      if (todaySchedule && todaySchedule.isOffDay) {
-        // Schedule explicitly says off day — block clock-in
-        throw ErrorCodes.ATTENDANCE_ERRORS.OFF_DAY_WORK;
-      } else if (!todaySchedule) {
+      let isClockInOffDay = false;
+      if (todaySchedule) {
+        if (todaySchedule.isManualOverride) {
+          isClockInOffDay = todaySchedule.isOffDay;
+        } else if (manualOffTodayClockIn) {
+          isClockInOffDay = true;
+        } else {
+          isClockInOffDay = todaySchedule.isOffDay;
+        }
+      } else if (manualOffTodayClockIn) {
+        isClockInOffDay = true;
+      } else {
         // No schedule exists — block clock-in entirely
         throw ErrorCodes.ATTENDANCE_ERRORS.NO_SCHEDULE;
+      }
+
+      if (isClockInOffDay) {
+        throw ErrorCodes.ATTENDANCE_ERRORS.OFF_DAY_WORK;
       }
     }
     // If backup exists, or no ManualOffDay and todaySchedule.isOffDay=false → working day, proceed
@@ -218,10 +227,11 @@ class AttendanceService {
     const record = await attendanceRepository.findTodayByUserId(userId);
 
     // Single backup query reused for isOffDay, isBackup, and backupPositionName.
-    // Use UTC midnight boundaries to match how backupController stores dates (T00:00:00Z).
+    // Use UTC midnight boundaries of today's WITA date to match how dates are stored (T00:00:00Z).
     const now = new Date();
-    const todayUTCStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
-    const todayUTCEnd   = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
+    const todayWITAStr = toWITADateString(now);
+    const todayUTCStart = new Date(`${todayWITAStr}T00:00:00.000Z`);
+    const todayUTCEnd   = new Date(`${todayWITAStr}T23:59:59.999Z`);
     const backupToday = await prisma.backupAssignment.findFirst({
       where: { backupUserId: userId, date: { gte: todayUTCStart, lte: todayUTCEnd } },
     });
@@ -248,11 +258,18 @@ class AttendanceService {
     // Determine off-day status — backup duty always overrides any off-day source
     let isOffDay = false;
     if (!backupToday) {
-      if (manualOffToday) {
-        // ManualOffDay takes priority — may exist even when UserSchedule.isOffDay=false
+      if (todaySchedule) {
+        // UserSchedule takes precedence (reflects dynamic rotation, off-day swaps, manual overrides)
+        if (todaySchedule.isManualOverride) {
+          isOffDay = todaySchedule.isOffDay;
+        } else if (manualOffToday) {
+          isOffDay = true;
+        } else {
+          isOffDay = todaySchedule.isOffDay;
+        }
+      } else if (manualOffToday) {
+        // Fallback to ManualOffDay when no UserSchedule row exists
         isOffDay = true;
-      } else if (todaySchedule) {
-        isOffDay = todaySchedule.isOffDay;
       }
       // If no schedule and no record → noSchedule flag handles this below (not an off day)
       // If record exists but no schedule, user already clocked in → not an off day

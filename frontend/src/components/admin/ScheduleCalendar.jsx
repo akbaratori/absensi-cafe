@@ -70,9 +70,11 @@ const ScheduleCalendar = () => {
                 endDate,
                 department: departmentFilter
             });
-            setSchedules(response.data.data);
+            const dataList = response.data?.data;
+            setSchedules(Array.isArray(dataList) ? dataList : []);
         } catch (error) {
             console.error('Failed to fetch schedules:', error);
+            setSchedules([]);
         } finally {
             setLoading(false);
         }
@@ -98,7 +100,7 @@ const ScheduleCalendar = () => {
     // Helper to group schedules by date
     const getSchedulesForDate = (day) => {
         const dateKey = formatDateKey(new Date(currentDate.getFullYear(), currentDate.getMonth(), day));
-        return schedules.filter(s => s.date.startsWith(dateKey));
+        return (Array.isArray(schedules) ? schedules : []).filter(s => s?.date && s.date.startsWith(dateKey));
     };
 
     /**
@@ -107,10 +109,10 @@ const ScheduleCalendar = () => {
      */
     const getStationAssignments = (dateKey, excludeUserId) => {
         const map = {}; // { 'A - Main Cook': 'Indy', ... }
-        schedules
-            .filter(s => s.date.startsWith(dateKey) && !s.isOffDay && s.kitchenStation)
+        (Array.isArray(schedules) ? schedules : [])
+            .filter(s => s?.date && s.date.startsWith(dateKey) && !s.isOffDay && s.kitchenStation)
             .forEach(s => {
-                if (s.userId !== excludeUserId) {
+                if (s.userId !== excludeUserId && s.user?.fullName) {
                     map[s.kitchenStation] = s.user.fullName;
                 }
             });
@@ -570,7 +572,7 @@ const ScheduleCalendar = () => {
                                         Hanya untuk hari ini. Departemen permanen karyawan tidak berubah.
                                     </p>
                                     <select
-                                        className="w-full rounded-md border-amber-300 dark:border-amber-700 dark:bg-gray-700 focus:border-amber-500 focus:ring-amber-500 bg-amber-50 dark:bg-gray-700"
+                                        className="w-full rounded-md border-amber-300 dark:border-amber-700 focus:border-amber-500 focus:ring-amber-500 bg-amber-50 dark:bg-gray-700"
                                         value={editForm.temporaryDepartment}
                                         onChange={(e) => setEditForm({ ...editForm, temporaryDepartment: e.target.value })}
                                     >
@@ -718,7 +720,7 @@ const ScheduleCalendar = () => {
                                         Hanya untuk hari ini. Departemen permanen karyawan tidak berubah.
                                     </p>
                                     <select
-                                        className="w-full rounded-md border-amber-300 dark:border-amber-700 dark:bg-gray-700 focus:border-amber-500 focus:ring-amber-500 bg-amber-50 dark:bg-gray-700"
+                                        className="w-full rounded-md border-amber-300 dark:border-amber-700 focus:border-amber-500 focus:ring-amber-500 bg-amber-50 dark:bg-gray-700"
                                         value={addForm.temporaryDepartment}
                                         onChange={(e) => setAddForm({ ...addForm, temporaryDepartment: e.target.value })}
                                     >

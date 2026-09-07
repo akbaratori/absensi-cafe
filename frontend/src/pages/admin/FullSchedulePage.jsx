@@ -56,17 +56,34 @@ function getMondaysInMonth(mon) {
 
 function getUsersOnDayWithOffDay(schedule, dateISO, shiftNum, offDaySet, backupsOnDay = [], currentPositionId = null) {
   if (!schedule || !schedule.schedules?.length) return { working: [], offDay: [], deployedElsewhere: [], movedToOtherShift: [], absent: [] };
-  const all = schedule.schedules
-    .filter(s => s.shiftNumber === shiftNum)
-    .map(s => ({
-      ...s,
-      name: s.user?.fullName || `User #${s.userId}`,
-      userId: s.userId,
-      // Jobdesk hari ini (rotasi harian). null jika posisi tidak punya jobdesk.
-      jobdesk: s.jobdesksByDate?.[dateISO] || null,
-      // Info tukar shift (swap APPROVED) di tanggal ini, jika ada
-      swapInfo: s.swapsByDate?.[dateISO] || null,
-    }));
+  
+  const all = [];
+  for (const s of schedule.schedules) {
+    if (s.isBackupOnly) continue;
+
+    const userSched = s.userSchedulesByDate?.[dateISO];
+    const isOff = offDaySet.has(`${s.userId}_${dateISO}`) || Boolean(userSched?.isOffDay);
+
+    // Effective shift for this day (prioritize manual override from userSchedule)
+    let effectiveShift = s.shiftNumber;
+    if (userSched?.shiftNumber != null) {
+      effectiveShift = userSched.shiftNumber;
+    }
+
+    if (effectiveShift === shiftNum) {
+      all.push({
+        ...s,
+        name: s.user?.fullName || `User #${s.userId}`,
+        userId: s.userId,
+        // Jobdesk hari ini (rotasi harian atau manual override). null jika posisi tidak punya jobdesk.
+        jobdesk: userSched?.kitchenStation || s.jobdesksByDate?.[dateISO] || null,
+        // Info tukar shift (swap APPROVED) di tanggal ini, jika ada
+        swapInfo: s.swapsByDate?.[dateISO] || null,
+        _isOff: isOff,
+      });
+    }
+  }
+
   const deployedMap = new Map();
   // Peta user yang dipindah ke SHIFT LAIN di posisi yang sama
   // (backup yang absentPositionId-nya = posisi ini). shiftNumber pada backup
@@ -90,17 +107,17 @@ function getUsersOnDayWithOffDay(schedule, dateISO, shiftNum, offDaySet, backups
     if (b.absentUserId && b.absentPositionId === currentPositionId)
       absentMap.set(b.absentUserId, b.backupUser?.fullName || (b.backupUserId ? `#${b.backupUserId}` : null));
   });
-  const offDay            = all.filter(u => offDaySet.has(`${u.userId}_${dateISO}`));
+  const offDay            = all.filter(u => u._isOff);
   const deployedElsewhere = all
-    .filter(u => !offDaySet.has(`${u.userId}_${dateISO}`) && deployedMap.has(u.userId))
+    .filter(u => !u._isOff && deployedMap.has(u.userId))
     .map(u => ({ ...u, targetPositionName: deployedMap.get(u.userId) }));
   const movedToOtherShift = all
-    .filter(u => !offDaySet.has(`${u.userId}_${dateISO}`) && movedShiftMap.has(u.userId))
+    .filter(u => !u._isOff && movedShiftMap.has(u.userId))
     .map(u => ({ ...u, targetShift: movedShiftMap.get(u.userId) }));
   const absent            = all
-    .filter(u => !offDaySet.has(`${u.userId}_${dateISO}`) && absentMap.has(u.userId))
+    .filter(u => !u._isOff && absentMap.has(u.userId))
     .map(u => ({ ...u, backupName: absentMap.get(u.userId) }));
-  const working           = all.filter(u => !offDaySet.has(`${u.userId}_${dateISO}`) && !deployedMap.has(u.userId) && !movedShiftMap.has(u.userId) && !absentMap.has(u.userId));
+  const working           = all.filter(u => !u._isOff && !deployedMap.has(u.userId) && !movedShiftMap.has(u.userId) && !absentMap.has(u.userId));
   return { working, offDay, deployedElsewhere, movedToOtherShift, absent };
 }
 export default function FullSchedulePage() {
@@ -404,11 +421,11 @@ export default function FullSchedulePage() {
                     })}
                   </tr>
                 ))}
-                {wDates.some(dateISO => (schedule.schedules || []).some(s => offDaySet.has(`${s.userId}_${dateISO}`))) && (
+                {wDates.some(dateISO => (schedule.schedules || []).some(s => offDaySet.has(`${s.userId}_${dateISO}`) || Boolean(s.userSchedulesByDate?.[dateISO]?.isOffDay))) && (
                   <tr className="border-t border-orange-100 dark:border-orange-900/30 bg-orange-50/30 dark:bg-orange-900/10">
                     <td className="px-3 py-2 font-medium text-orange-600 dark:text-orange-400 whitespace-nowrap text-xs">&#127958; Libur</td>
                     {dLabels.map(dl => {
-                      const offScheds = (schedule.schedules || []).filter(s => !s.isBackupOnly && offDaySet.has(`${s.userId}_${dl.date}`));
+                      const offScheds = (schedule.schedules || []).filter(s => !s.isBackupOnly && (offDaySet.has(`${s.userId}_${dl.date}`) || Boolean(s.userSchedulesByDate?.[dl.date]?.isOffDay)));
                       return (
                         <td key={dl.date} className={`px-3 py-2 text-xs ${dl.isToday ? 'bg-blue-50/30 dark:bg-blue-900/5' : ''}`}>
                           {offScheds.length > 0 ? (

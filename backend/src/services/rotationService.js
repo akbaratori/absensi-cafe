@@ -628,6 +628,12 @@ class RotationService {
       : [];
     const userMap = new Map(users.map((u) => [u.id, u]));
 
+    // Fetch shifts to map shiftId -> shiftNumber
+    const allShifts = await prisma.shift.findMany({ select: { id: true, name: true } });
+    allShifts.sort((a, b) => a.id - b.id);
+    const shiftIdToNumber = new Map();
+    allShifts.forEach((sh, idx) => shiftIdToNumber.set(sh.id, idx + 1));
+
     // Ambil penugasan jobdesk harian (UserSchedule.kitchenStation) untuk
     // minggu ini agar frontend bisa menampilkan jobdesk tiap staff per hari.
     const userSchedRows = userIds.length > 0
@@ -647,6 +653,7 @@ class RotationService {
       if (!overrideMap.has(r.userId)) overrideMap.set(r.userId, {});
       overrideMap.get(r.userId)[iso] = {
         shiftId: r.shiftId,
+        shiftNumber: r.shiftId ? (shiftIdToNumber.get(r.shiftId) || null) : null,
         isOffDay: r.isOffDay,
         kitchenStation: r.kitchenStation,
         temporaryDepartment: r.temporaryDepartment,
