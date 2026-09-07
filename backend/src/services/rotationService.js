@@ -852,12 +852,33 @@ class RotationService {
       }
     }
 
-    // 2. OffDayRequest APPROVED
+    // 2. OffDayRequest APPROVED — swap-aware:
+    //    - Swap (targetUserId ada): pemohon LIBUR di workDate (dia ambil libur
+    //      target), target LIBUR di offDate (dia ambil libur pemohon).
+    //    - Legacy (targetUserId null): pemohon libur di offDate biasa.
     const offRequests = await prisma.offDayRequest.findMany({
-      where: { userId, status: 'APPROVED', offDate: { gte: from, lte: to } },
-      select: { offDate: true },
+      where: {
+        status: 'APPROVED',
+        OR: [
+          { userId, offDate: { gte: from, lte: to } },
+          { userId, workDate: { gte: from, lte: to } },
+          { targetUserId: userId, offDate: { gte: from, lte: to } },
+        ],
+      },
+      select: { userId: true, targetUserId: true, offDate: true, workDate: true },
     });
-    for (const r of offRequests) mark(toISO(r.offDate));
+    for (const r of offRequests) {
+      const offISO = toISO(r.offDate);
+      const workISO = toISO(r.workDate);
+      if (r.targetUserId == null) {
+        // Legacy: permintaan libur biasa tanpa swap
+        if (dateISOs.includes(offISO)) mark(offISO);
+        continue;
+      }
+      // Swap: pemohon libur di workDate, target libur di offDate
+      if (r.userId === userId && dateISOs.includes(workISO)) mark(workISO);
+      if (r.targetUserId === userId && dateISOs.includes(offISO)) mark(offISO);
+    }
 
     // 3. User.offDay (recurring weekly day-off index 0=Sun..6=Sat)
     // offDay=0 (Sunday) is now valid — Sunday can be a day off.
@@ -916,7 +937,35 @@ class RotationService {
         positionId: b.absentPositionId,
         // Shift yang dibackup = shift masuk backup user hari itu
         shiftNumber: b.shiftNumber || 1,
+        fallbackJobdesk: null,
       });
+    }
+
+    // Fallback jobdesk untuk backup user: jika UserSchedule tidak punya
+    // kitchenStation di tanggal tersebut, ambil jobdesk yang sedang di-cover
+    // di posisi backup hari itu (via getSchedule), agar hari backup tidak
+    // tampak seperti kosong/tidak ada jadwal.
+    const backupFallbackDates = [...backupByDate.keys()];
+    if (backupFallbackDates.length > 0) {
+      try {
+        const fallbackResults = await Promise.all(
+          backupFallbackDates.map(async (iso) => {
+            const info = backupByDate.get(iso);
+            if (!info.positionId) return null;
+            const full = await this.getSchedule(info.positionId, iso);
+            if (!full || !Array.isArray(full.schedules)) return null;
+            const covered = full.schedules
+              .map((s) => (s.jobdesksByDate && s.jobdesksByDate[iso]) || null)
+              .filter(Boolean);
+            return covered.length ? { iso, covered: covered.join(' + ') } : null;
+          })
+        );
+        for (const r of fallbackResults) {
+          if (r) backupByDate.get(r.iso).fallbackJobdesk = r.covered;
+        }
+      } catch (err) {
+        console.warn('[rotation] Gagal mengambil fallback jobdesk backup:', err?.message);
+      }
     }
 
     // Daily jobdesk (UserSchedule.kitchenStation) for this user in range
@@ -983,7 +1032,7 @@ class RotationService {
         shiftNumber: effectiveShift,
         positionName: backup ? backup.positionName : originalPositionName,
         positionId: backup ? backup.positionId : (s ? s.positionId : null),
-        jobdesk: jobdeskByDate.get(iso) || null,
+        jobdesk: jobdeskByDate.get(iso) || (backup ? (backup.fallbackJobdesk || null) : null),
         temporaryDepartment: userSched ? userSched.temporaryDepartment : null,
         isOffDay: userSched ? userSched.isOffDay : offSet.has(iso),
         isBackup: !!backup,
@@ -1039,17 +1088,45 @@ class RotationService {
       }
     }
 
-    // 2. OffDayRequest APPROVED — user is OFF on offDate (not workDate)
+    // 2. OffDayRequest APPROVED — swap-aware:
+    //    - Swap (targetUserId ada): pemohon LIBUR di workDate (dia ambil libur
+    //      target), target LIBUR di offDate (dia ambil libur pemohon).
+    //    - Legacy (targetUserId null): pemohon libur di offDate biasa.
     const offRequests = await prisma.offDayRequest.findMany({
       where: {
-        userId: { in: rosterUserIds },
         status: 'APPROVED',
-        offDate: { in: dates },
+        AND: [
+          {
+            OR: [
+              { userId: { in: rosterUserIds } },
+              { targetUserId: { in: rosterUserIds } },
+            ],
+          },
+          {
+            OR: [
+              { offDate: { in: dates } },
+              { workDate: { in: dates } },
+            ],
+          },
+        ],
       },
-      select: { userId: true, offDate: true },
+      select: { userId: true, targetUserId: true, offDate: true, workDate: true },
     });
     for (const r of offRequests) {
-      mark(r.userId, toISO(r.offDate));
+      const offISO = toISO(r.offDate);
+      const workISO = toISO(r.workDate);
+      if (r.targetUserId == null) {
+        // Legacy: permintaan libur biasa tanpa swap
+        if (dateISOs.includes(offISO)) mark(r.userId, offISO);
+        continue;
+      }
+      // Swap: pemohon libur di workDate, target libur di offDate
+      if (rosterUserIds.includes(r.userId) && dateISOs.includes(workISO)) {
+        mark(r.userId, workISO);
+      }
+      if (r.targetUserId && rosterUserIds.includes(r.targetUserId) && dateISOs.includes(offISO)) {
+        mark(r.targetUserId, offISO);
+      }
     }
 
     // 3. User.offDay (recurring weekly day-off index: 0=Sun..6=Sat)

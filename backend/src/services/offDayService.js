@@ -417,6 +417,20 @@ class OffDayService {
       });
     });
 
+    // Lepas flag override harian kedua pihak pada kedua tanggal swap.
+    // Nilai harian UserSchedule tetap berlaku untuk minggu berjalan, tapi
+    // regenerasi mingguan berikutnya tidak lagi membekukan override basi —
+    // jadwal kedua pihak dibangun ulang normal dari sumber libur terkini
+    // (getOffDayUserIds kini memahami arah swap).
+    try {
+      await this._revertWeeklyScheduleForOverride(req.userId, req.offDate);
+      await this._revertWeeklyScheduleForOverride(req.userId, req.workDate);
+      await this._revertWeeklyScheduleForOverride(req.targetUserId, req.offDate);
+      await this._revertWeeklyScheduleForOverride(req.targetUserId, req.workDate);
+    } catch (revertErr) {
+      console.warn('[offday] Gagal revert WeeklySchedule:', revertErr?.message);
+    }
+
     await notificationService.create(
       req.userId,
       'Tukar Libur Disetujui',
@@ -432,6 +446,27 @@ class OffDayService {
     );
 
     return { status: transition.nextStatus, message: 'Tukar libur berhasil disetujui dan jadwal telah diupdate.' };
+  }
+
+  /**
+   * Unflag snapshot UserSchedule override (isManualOverride) milik user pada
+   * `dateObj`. Dipanggil saat tukar libur disetujui: nilai harian swap tetap
+   * berlaku (isOffDay/shiftId sudah benar), tapi flag override dilepas supaya
+   * regenerasi mingguan berikutnya TIDAK membekukan override basi — regen akan
+   * me-rebuild jadwal normal dari sumber libur terkini (getOffDayUserIds kini
+   * swap-aware).
+   */
+  async _revertWeeklyScheduleForOverride(userId, dateObj) {
+    if (!userId || !dateObj) return;
+
+    const target = new Date(dateObj);
+    if (isNaN(target.getTime())) return;
+    target.setUTCHours(0, 0, 0, 0);
+
+    await prisma.userSchedule.updateMany({
+      where: { userId, date: target, isManualOverride: true },
+      data: { isManualOverride: false },
+    });
   }
 
   /**
