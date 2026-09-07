@@ -244,7 +244,10 @@ class BackupController {
       if (existing) {
         await prisma.userSchedule.update({
           where: { id: existing.id },
-          data: { kitchenStation: jobdesk },
+          data: {
+            kitchenStation: jobdesk,
+            isManualOverride: true, // lindungi dari overwrite saat regenerate
+          },
         });
       } else {
         await prisma.userSchedule.create({

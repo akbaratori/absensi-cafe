@@ -140,6 +140,12 @@ class RotationController {
                 const startDate = new Date(Date.UTC(year, mon - 1, 1));
                 const endDate = new Date(Date.UTC(year, mon, 0, 23, 59, 59, 999));
 
+                // Ambil data lama SEBELUM dihapus — perlu sinkron UserSchedule
+                const oldOffDays = await prisma.manualOffDay.findMany({
+                    where: { date: { gte: startDate, lte: endDate } },
+                    select: { userId: true, date: true },
+                });
+
                 await prisma.$transaction([
                     prisma.manualOffDay.deleteMany({
                         where: { date: { gte: startDate, lte: endDate } },
@@ -156,8 +162,24 @@ class RotationController {
                         skipDuplicates: true,
                     }),
                 ]);
+
+                // Sinkron UserSchedule untuk semua tanggal yang berubah (lama + baru)
+                const syncPairs = [
+                    ...oldOffDays.map((r) => ({ userId: r.userId, date: r.date })),
+                    ...offDays.map((item) => ({ userId: parseInt(item.userId), date: item.date })),
+                ];
+                rotationService.syncSchedulesForUserDates(syncPairs).catch((err) =>
+                    console.warn('[saveManualOffDays] sinkron UserSchedule gagal:', err?.message)
+                );
             } else {
                 const weekStartDate = new Date(weekStart);
+
+                // Ambil data lama SEBELUM dihapus
+                const oldOffDays = await prisma.manualOffDay.findMany({
+                    where: { weekStart: weekStartDate },
+                    select: { userId: true, date: true },
+                });
+
                 await prisma.$transaction([
                     prisma.manualOffDay.deleteMany({ where: { weekStart: weekStartDate } }),
                     prisma.manualOffDay.createMany({
@@ -168,6 +190,15 @@ class RotationController {
                         })),
                     }),
                 ]);
+
+                // Sinkron UserSchedule untuk semua tanggal yang berubah
+                const syncPairs = [
+                    ...oldOffDays.map((r) => ({ userId: r.userId, date: r.date })),
+                    ...offDays.map((item) => ({ userId: parseInt(item.userId), date: item.date })),
+                ];
+                rotationService.syncSchedulesForUserDates(syncPairs).catch((err) =>
+                    console.warn('[saveManualOffDays] sinkron UserSchedule gagal:', err?.message)
+                );
             }
 
             return successResponse(res, 200, null, 'Manual off-days berhasil diperbarui');

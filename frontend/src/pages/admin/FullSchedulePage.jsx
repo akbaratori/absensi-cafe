@@ -461,10 +461,15 @@ export default function FullSchedulePage() {
                                 <span className="text-gray-400 mx-1">&rarr;</span>
                                 <span className="text-green-700 dark:text-green-400 font-medium">{b.backupUser?.fullName || `#${b.backupUserId}`}</span>
                                 {(() => {
-                                  // Jobdesk yang dicover backup = jobdesk milik staff yang absen
-                                  // hari itu (fallback: jobdesk backup user sendiri jika sudah ditempel).
-                                  const jd = (schedule.schedules || []).find(s => s.userId === b.absentUserId)?.jobdesksByDate?.[dl.date]
-                                    || (schedule.schedules || []).find(s => s.userId === b.backupUserId)?.jobdesksByDate?.[dl.date]
+                                  // Jobdesk yang dicover backup: kitchenStation UserSchedule
+                                  // (absent/backup) di tanggal itu, fallback jobdesk rotasi.
+                                  // userSchedulesByDate.kitchenStation = jobdesk yang ditempelkan
+                                  // _assignBackupJobdesk saat backup dibuat.
+                                  const rowOf = (uid) => (schedule.schedules || []).find(s => s.userId === uid);
+                                  const jd = rowOf(b.absentUserId)?.userSchedulesByDate?.[dl.date]?.kitchenStation
+                                    || rowOf(b.backupUserId)?.userSchedulesByDate?.[dl.date]?.kitchenStation
+                                    || rowOf(b.absentUserId)?.jobdesksByDate?.[dl.date]
+                                    || rowOf(b.backupUserId)?.jobdesksByDate?.[dl.date]
                                     || null;
                                   return jd ? <span className="ml-1 inline-block px-1 py-px rounded bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 text-[10px] font-medium align-middle">{jd}</span> : null;
                                 })()}

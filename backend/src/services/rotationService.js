@@ -674,9 +674,31 @@ class RotationService {
       for (const r of absentSchedRows) {
         absentJobdesk.set(`${r.userId}_${toISO(r.date)}`, r.kitchenStation || null);
       }
+      const absentStationsByUser = new Map(); // userId -> [{ iso, station }]
+      for (const r of absentSchedRows) {
+        if (!r.kitchenStation) continue;
+        if (!absentStationsByUser.has(r.userId)) absentStationsByUser.set(r.userId, []);
+        absentStationsByUser.get(r.userId).push({ iso: toISO(r.date), station: r.kitchenStation });
+      }
+      for (const list of absentStationsByUser.values()) {
+        list.sort((x, y) => x.iso.localeCompare(y.iso));
+      }
+      // Infer jobdesk absent user dari hari kerja TERDEKAT di minggu itu —
+      // pada hari liburnya kitchenStation null, sama seperti _resolveBackupJobdesk.
+      const inferStation = (userId, iso) => {
+        const list = absentStationsByUser.get(userId);
+        if (!list || !list.length) return null;
+        let best = null;
+        let bestDiff = Infinity;
+        for (const item of list) {
+          const diff = Math.abs(new Date(`${item.iso}T00:00:00Z`) - new Date(`${iso}T00:00:00Z`)) / 86400000;
+          if (diff < bestDiff) { bestDiff = diff; best = item.station; }
+        }
+        return best;
+      };
       for (const b of backupRows) {
         const iso = toISO(b.date);
-        const covered = absentJobdesk.get(`${b.absentUserId}_${iso}`);
+        const covered = absentJobdesk.get(`${b.absentUserId}_${iso}`) || inferStation(b.absentUserId, iso);
         if (!covered) continue;
         if (!jobdeskMap.has(b.backupUserId)) jobdeskMap.set(b.backupUserId, {});
         const existing = jobdeskMap.get(b.backupUserId)[iso];
@@ -1018,14 +1040,17 @@ class RotationService {
       const originalPositionName = s && s.position ? s.position.name : null;
       const userSched = userSchedShiftByDate.get(iso) || null;
 
-      // Shift aktual: ambil dari UserSchedule jika ada (mencerminkan swap/override),
-      // fallback ke weeklySchedule.shiftNumber, lalu backup
+      // Shift aktual: userSched.shiftId (override tukar shift) →
+      // weeklySchedule.shiftNumber → backup.shiftNumber. Backup diletakkan
+      // TERAKHIR agar jadwal di sisi user MENGIKUTI jadwal backup yang
+      // tertampil di halaman Jadwal Lengkap admin (posisi + shift yang
+      // dicover), bukan shift lama di UserSchedule.
       let effectiveShift = s ? s.shiftNumber : null;
-      if (backup) effectiveShift = backup.shiftNumber;
       if (userSched && userSched.shiftId) {
         const fromUserSched = shiftIdToNumber.get(userSched.shiftId) || null;
         if (fromUserSched) effectiveShift = fromUserSched;
       }
+      if (backup) effectiveShift = backup.shiftNumber;
 
       return {
         date: iso,
@@ -1034,7 +1059,10 @@ class RotationService {
         positionId: backup ? backup.positionId : (s ? s.positionId : null),
         jobdesk: jobdeskByDate.get(iso) || (backup ? (backup.fallbackJobdesk || null) : null),
         temporaryDepartment: userSched ? userSched.temporaryDepartment : null,
-        isOffDay: userSched ? userSched.isOffDay : offSet.has(iso),
+        // Backup user dari KITCHEN ditandai isOffDay oleh _removeFromKitchenSchedule,
+        // padahal hari itu dia BEKERJA sebagai backup (tampil di baris 🔁 Backup
+        // Jadwal Lengkap). Paksa tidak-libur saat ada assignment backup.
+        isOffDay: (userSched ? userSched.isOffDay : offSet.has(iso)) && !backup,
         isBackup: !!backup,
         originalPositionName: backup ? originalPositionName : null,
         // Original roster shift, kept for display so staff sees the change
@@ -1550,6 +1578,205 @@ class RotationService {
       });
     }
     return { date: toISO(dateObj), userId, removed: !!existing?.isManualOverride };
+  }
+
+  /**
+   * Sinkronkan UserSchedule setelah admin mengubah ManualOffDay.
+   * Panel libur hanya menulis ManualOffDay; tanpa sinkronisasi ini baris
+   * UserSchedule lama (isOffDay=true) tetap tercoret di jadwal dan memicu
+   * backup yang tidak perlu. Method ini hitung ulang status libur dari semua
+   * sumber lalu selaraskan UserSchedule + batalkan backup usang.
+   * @param {Array<{userId:number|string, date:Date|string}>} pairs
+   */
+  async syncSchedulesForUserDates(pairs) {
+    if (!Array.isArray(pairs) || pairs.length === 0) return 0;
+
+    const shifts = await prisma.shift.findMany({ select: { id: true, name: true } });
+    shifts.sort((a, b) => a.id - b.id);
+    const shiftIdByNumber = new Map(shifts.map((sh, idx) => [idx + 1, sh.id]));
+
+    let synced = 0;
+    for (const p of pairs) {
+      try {
+        const uid = parseInt(p.userId);
+        if (!uid || !p.date) continue;
+        const dateObj = p.date instanceof Date
+          ? new Date(Date.UTC(p.date.getUTCFullYear(), p.date.getUTCMonth(), p.date.getUTCDate()))
+          : new Date(`${String(p.date).slice(0, 10)}T00:00:00Z`);
+        const iso = toISO(dateObj);
+
+        // ---- Union status libur dari semua sumber (tanpa UserSchedule) ----
+        let isOff = false;
+
+        // 1) Leave APPROVED
+        const leave = await prisma.leave.findFirst({
+          where: { userId: uid, status: 'APPROVED', startDate: { lte: dateObj }, endDate: { gte: dateObj } },
+          select: { id: true },
+        });
+        if (leave) isOff = true;
+
+        // 2) OffDayRequest APPROVED (swap-aware)
+        if (!isOff) {
+          const reqs = await prisma.offDayRequest.findMany({
+            where: {
+              status: 'APPROVED',
+              OR: [
+                { userId: uid, offDate: dateObj },
+                { userId: uid, workDate: dateObj },
+                { targetUserId: uid, offDate: dateObj },
+              ],
+            },
+            select: { userId: true, targetUserId: true, offDate: true, workDate: true },
+          });
+          for (const r of reqs) {
+            if (r.targetUserId == null) {
+              if (toISO(r.offDate) === iso) { isOff = true; break; }
+              continue;
+            }
+            if (r.userId === uid && toISO(r.workDate) === iso) { isOff = true; break; }
+            if (r.targetUserId === uid && toISO(r.offDate) === iso) { isOff = true; break; }
+          }
+        }
+
+        // 3) User.offDay mingguan (1-6 valid; 0 = tidak diset, hari kerja)
+        if (!isOff) {
+          const u = await prisma.user.findUnique({ where: { id: uid }, select: { offDay: true } });
+          const off = u?.offDay;
+          if (off !== null && off !== undefined && off >= 1 && off <= 6 && off === dateObj.getUTCDay()) isOff = true;
+        }
+
+        // 4) PublicHoliday
+        if (!isOff) {
+          const h = await prisma.publicHoliday.findUnique({ where: { date: dateObj } });
+          if (h) isOff = true;
+        }
+
+        // 5) ManualOffDay (sumber yang baru saja diubah admin)
+        if (!isOff) {
+          const m = await prisma.manualOffDay.findUnique({
+            where: { userId_date: { userId: uid, date: dateObj } },
+          });
+          if (m) isOff = true;
+        }
+
+        const existing = await prisma.userSchedule.findUnique({
+          where: { userId_date: { userId: uid, date: dateObj } },
+        });
+
+        if (isOff) {
+          // Tandai libur + bersihkan shift & jobdesk
+          await prisma.userSchedule.upsert({
+            where: { userId_date: { userId: uid, date: dateObj } },
+            update: { isOffDay: true, shiftId: null, kitchenStation: null, isManualOverride: true },
+            create: { userId: uid, date: dateObj, isOffDay: true, isManualOverride: true },
+          });
+        } else {
+          // Tidak libur lagi: selaraskan ke jadwal kerja
+          const data = { isOffDay: false, isManualOverride: false };
+          let station = existing?.kitchenStation || null;
+          if (!station && (!existing || existing.isOffDay)) {
+            station = await this._inferNearestStation(uid, dateObj);
+          }
+          if (station) data.kitchenStation = station;
+          if (!existing || !existing.shiftId || existing.isOffDay) {
+            const ws = await prisma.weeklySchedule.findFirst({
+              where: { userId: uid, weekStart: getMonday(dateObj) },
+              select: { shiftNumber: true },
+            });
+            if (ws && shiftIdByNumber.has(ws.shiftNumber)) data.shiftId = shiftIdByNumber.get(ws.shiftNumber);
+          }
+          await prisma.userSchedule.upsert({
+            where: { userId_date: { userId: uid, date: dateObj } },
+            update: data,
+            create: { userId: uid, date: dateObj, ...data },
+          });
+
+          // Batalkan backup usang bila libur user dicabut
+          await this._cancelStaleBackup(uid, dateObj);
+        }
+        synced += 1;
+      } catch (err) {
+        console.warn(`[rotation] Gagal sinkron UserSchedule ${p.userId} @ ${p.date}:`, err?.message);
+      }
+    }
+    return synced;
+  }
+
+  /**
+   * Batalkan BackupAssignment yang sudah tidak relevan karena libur
+   * absentUser dicabut: kembalikan jadwal backupUser ke normal.
+   */
+  async _cancelStaleBackup(absentUserId, dateObj) {
+    const ba = await prisma.backupAssignment.findUnique({
+      where: { date_absentUserId: { date: dateObj, absentUserId } },
+    });
+    if (!ba) return;
+
+    try {
+      // Kembalikan baris UserSchedule backup user: bersihkan isOffDay override
+      // yang dipasang saat backup diset (_removeFromKitchenSchedule).
+      await prisma.userSchedule.updateMany({
+        where: { userId: ba.backupUserId, date: dateObj, isManualOverride: true },
+        data: { isOffDay: false, isManualOverride: false, kitchenStation: null },
+      });
+
+      // Pastikan WeeklySchedule backup user minggu itu masih ada (dicabut saat
+      // backup ditetapkan via _removeFromKitchenSchedule).
+      const roster = await prisma.positionRoster.findFirst({
+        where: { userId: ba.backupUserId },
+        select: { positionId: true, shiftNumber: true },
+      });
+      if (roster) {
+        const monday = getMonday(dateObj);
+        const exists = await prisma.weeklySchedule.findUnique({
+          where: {
+            positionId_weekStart_userId: {
+              positionId: roster.positionId,
+              weekStart: monday,
+              userId: ba.backupUserId,
+            },
+          },
+        }).catch(() => null);
+        if (!exists) {
+          await prisma.weeklySchedule.create({
+            data: {
+              positionId: roster.positionId,
+              weekStart: monday,
+              userId: ba.backupUserId,
+              shiftNumber: roster.shiftNumber || 1,
+              isGenerated: true,
+            },
+          }).catch(() => {});
+        }
+      }
+
+      await prisma.backupAssignment.delete({ where: { id: ba.id } });
+      console.log(`[rotation] Backup usang dibatalkan: backupUser=${ba.backupUserId} absentUser=${absentUserId} date=${ba.date}`);
+    } catch (err) {
+      console.warn('[rotation] Gagal batalkan backup usang:', err?.message);
+    }
+  }
+
+  /**
+   * Infer kitchenStation user dari hari kerja terdekat ±1 minggu.
+   * Dipakai saat baris UserSchedule lama kosong (sebelumnya hari libur).
+   */
+  async _inferNearestStation(userId, dateObj) {
+    try {
+      const weekStart = getMonday(dateObj);
+      const from = addDays(weekStart, -7);
+      const to = addDays(weekStart, 13);
+      const rows = await prisma.userSchedule.findMany({
+        where: { userId, date: { gte: from, lte: to }, isOffDay: false, kitchenStation: { not: null } },
+        select: { date: true, kitchenStation: true },
+      });
+      if (!rows.length) return null;
+      rows.sort((a, b) => Math.abs(a.date - dateObj) - Math.abs(b.date - dateObj));
+      return rows[0].kitchenStation || null;
+    } catch (err) {
+      console.warn('[rotation] Gagal infer station:', err?.message);
+      return null;
+    }
   }
 }
 
