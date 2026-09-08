@@ -451,7 +451,8 @@ class RotationService {
     }
 
     if (pairs.length) {
-      const department = position.name === 'Kitchen' ? 'KITCHEN' : 'BAR';
+      const KITCHEN_NAMES = new Set(['Kitchen', 'Dapur', 'kitchen', 'dapur']);
+      const department = KITCHEN_NAMES.has(position.name) ? 'KITCHEN' : 'BAR';
 
       // Fetch existing manual-override rows for the week to preserve them.
       const existingRows = await prisma.userSchedule.findMany({
@@ -604,6 +605,7 @@ class RotationService {
     if (!Array.isArray(dateObjs) || !dateObjs.length) return;
 
     try {
+      // Ambil roster beserta order_index agar urutan konsisten dengan generateWeek
       const positions = await prisma.position.findMany({
         where: {
           OR: [{ name: 'Kitchen' }, { name: 'Dapur' }],
@@ -611,7 +613,7 @@ class RotationService {
         },
         include: {
           jobdesks: { orderBy: { orderIndex: 'asc' } },
-          rosters: { select: { userId: true } },
+          rosters: { select: { userId: true, orderIndex: true }, orderBy: { orderIndex: 'asc' } },
         },
       });
 
@@ -624,12 +626,15 @@ class RotationService {
         const heavyIdx = jobdeskObjs.map((j, idx) => (j.isHeavy ? idx : -1)).filter((idx) => idx >= 0);
         const isHeavyJd = (jd) => heavyIdx.includes(jd);
 
+        // Map userId -> order_index roster (untuk sort konsisten)
+        const rosterOrder = new Map(position.rosters.map((r) => [r.userId, r.orderIndex]));
+        const rosterUserIds = position.rosters.map((r) => r.userId);
+
         for (const rawDate of dateObjs) {
           const dateObj = new Date(rawDate);
           if (isNaN(dateObj.getTime())) continue;
           dateObj.setUTCHours(0, 0, 0, 0);
 
-          const rosterUserIds = position.rosters.map((r) => r.userId);
           const userSchedules = await prisma.userSchedule.findMany({
             where: {
               date: dateObj,
@@ -638,30 +643,53 @@ class RotationService {
                 { temporaryDepartment: 'KITCHEN' },
               ],
             },
-            select: { id: true, userId: true, isOffDay: true },
+            select: { id: true, userId: true, isOffDay: true, isManualOverride: true, temporaryDepartment: true },
           });
 
-          const working = userSchedules.filter((s) => !s.isOffDay).map((s) => s.userId).sort((a, b) => a - b);
-          const off = userSchedules.filter((s) => s.isOffDay).map((s) => s.userId);
+          // Jangan overwrite manual override
+          const manualOverrideIds = new Set(
+            userSchedules.filter((s) => s.isManualOverride).map((s) => s.userId)
+          );
 
+          const off = userSchedules.filter((s) => s.isOffDay).map((s) => s.userId);
           if (off.length) {
             await prisma.userSchedule.updateMany({
-              where: { date: dateObj, userId: { in: off } },
+              where: { date: dateObj, userId: { in: off }, isManualOverride: false },
               data: { kitchenStation: null },
             });
           }
+
+          // Staff aktif di kitchen hari ini:
+          // - tidak libur
+          // - tidak manual override (jobdesk sudah dikunci manual)
+          // - temporaryDepartment null (masih di kitchen) ATAU 'KITCHEN' (dipindah ke kitchen)
+          // Staff roster kitchen yang temporaryDepartment-nya ke dept lain (BAR, dll) SKIP
+          const KITCHEN_DEPTS = new Set(['KITCHEN', 'Dapur', null, undefined]);
+          const working = userSchedules
+            .filter((s) =>
+              !s.isOffDay &&
+              !manualOverrideIds.has(s.userId) &&
+              KITCHEN_DEPTS.has(s.temporaryDepartment)
+            )
+            .map((s) => s.userId)
+            .sort((a, b) => {
+              const oa = rosterOrder.has(a) ? rosterOrder.get(a) : 9999;
+              const ob = rosterOrder.has(b) ? rosterOrder.get(b) : 9999;
+              return oa !== ob ? oa - ob : a - b;
+            });
 
           if (!working.length) continue;
 
           const nStaff = working.length;
           const nJd = jobdeskList.length;
+          // dayIdx sebagai offset rotasi harian — sama persis dengan generateWeek
           const dayIdx = Math.floor(dateObj.getTime() / 86400000);
 
           const assign = new Map();
           working.forEach((uid) => assign.set(uid, []));
-          const locked = new Set();
+          const locked = new Set(); // pemegang jobdesk BERAT tidak boleh rangkap
           const covered = new Set();
-          const pending = [];
+          const pending = []; // jobdesk yang belum ter-assign
 
           const give = (uid, jd) => {
             assign.get(uid).push(jobdeskList[jd]);
@@ -669,36 +697,51 @@ class RotationService {
             if (isHeavyJd(jd)) locked.add(uid);
           };
 
+          // 1) Bagi jobdesk BERAT ke pemegang utamanya, kunci orangnya
           heavyIdx.forEach((jd) => {
             const uid = working[(dayIdx + jd) % nStaff];
             give(uid, jd);
           });
 
+          // 2) Jobdesk non-berat: ke pemegang utamanya bila belum terkunci
+          //    Jika nStaff > nJd, offset (dayIdx+jd)%nStaff bisa sama untuk
+          //    dua jobdesk berbeda → simpan di pending, bukan dobel ke uid yang sama
           for (let jd = 0; jd < nJd; jd++) {
             if (isHeavyJd(jd)) continue;
             const uid = working[(dayIdx + jd) % nStaff];
-            if (locked.has(uid)) { pending.push(jd); continue; }
+            if (locked.has(uid) || assign.get(uid).length > 0) {
+              // uid sudah dapat jobdesk → antri, cari penerima lain
+              pending.push(jd);
+              continue;
+            }
             give(uid, jd);
           }
 
-          for (let jd = 0; jd < nJd; jd++) if (!covered.has(jd)) pending.push(jd);
-          const free = working.filter((uid) => !locked.has(uid));
+          // 3) Alihkan pending ke staff yang belum dapat jobdesk (bergilir adil)
+          const free = working.filter((uid) => !locked.has(uid) && assign.get(uid).length === 0);
           pending.forEach((jd, k) => {
-            if (covered.has(jd) || !free.length) return;
-            const holder = free[(dayIdx + k) % free.length];
-            if (!assign.get(holder).includes(jobdeskList[jd])) give(holder, jd);
+            if (covered.has(jd)) return;
+            if (free.length) {
+              const holder = free[(dayIdx + k) % free.length];
+              give(holder, jd);
+            }
           });
+
+          // 4) Putaran pengaman: jobdesk belum ter-cover sama sekali → paksa rangkap
           for (let jd = 0; jd < nJd; jd++) {
-            if (covered.has(jd) || !free.length) continue;
-            const holder = free.find((uid) => !assign.get(uid).includes(jobdeskList[jd])) || free[0];
+            if (covered.has(jd)) continue;
+            // Cari staff bebas (tidak locked) yang belum pegang jobdesk ini
+            const eligible = working.filter((uid) => !locked.has(uid) && !assign.get(uid).includes(jobdeskList[jd]));
+            const holder = eligible.length ? eligible[(dayIdx + jd) % eligible.length] : working[0];
             give(holder, jd);
           }
 
+          // Tulis ke DB
           for (const uid of working) {
             const jobs = assign.get(uid) || [];
             const stationStr = jobs.length ? jobs.join(' + ') : null;
             await prisma.userSchedule.updateMany({
-              where: { date: dateObj, userId: uid },
+              where: { date: dateObj, userId: uid, isManualOverride: false },
               data: { kitchenStation: stationStr },
             });
           }
