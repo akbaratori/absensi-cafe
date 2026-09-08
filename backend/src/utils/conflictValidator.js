@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Reusable conflict validator for schedule conflicts.
  * Used by both ShiftSwap and OffDayRequest flows.
  */
@@ -16,9 +16,16 @@ const prisma = require('./database');
  * @param {Date} date
  * @param {number} [excludeSwapId] - ID shift swap yang sedang divalidasi
  * @param {number} [excludeOffDayId] - ID off day request yang sedang divalidasi
+ * @param {'SHIFT_SWAP'|'OFF_DAY'|'ALL'} [context] - Konteks validasi (default: 'ALL')
  * @returns {Promise<{ hasConflict: boolean, reason: string|null }>}
  */
-async function checkEmployeeScheduleConflict(employeeId, date, excludeSwapId = null, excludeOffDayId = null) {
+async function checkEmployeeScheduleConflict(
+  employeeId,
+  date,
+  excludeSwapId = null,
+  excludeOffDayId = null,
+  context = 'ALL'
+) {
   const checkDate = new Date(date);
   checkDate.setUTCHours(0, 0, 0, 0);
 
@@ -43,16 +50,18 @@ async function checkEmployeeScheduleConflict(employeeId, date, excludeSwapId = n
   }
 
   // Check 2: Approved shift swap on the same day (as requester or target)
-  const shiftSwap = await prisma.shiftSwap.findFirst({
-    where: {
-      date: checkDate,
-      status: 'APPROVED',
-      OR: [
-        { requesterId: employeeId },
-        { targetUserId: employeeId },
-      ],
-    },
-  });
+  const shiftSwapWhere = {
+    date: checkDate,
+    status: 'APPROVED',
+    OR: [
+      { requesterId: employeeId },
+      { targetUserId: employeeId },
+    ],
+  };
+  if (excludeSwapId) {
+    shiftSwapWhere.id = { not: excludeSwapId };
+  }
+  const shiftSwap = await prisma.shiftSwap.findFirst({ where: shiftSwapWhere });
 
   if (shiftSwap) {
     return {
@@ -62,15 +71,31 @@ async function checkEmployeeScheduleConflict(employeeId, date, excludeSwapId = n
   }
 
   // Check 3: Approved off-day request on the same day
-  const offDayWhere = {
-    status: 'APPROVED',
-    OR: [
-      { userId: employeeId, offDate: checkDate },
-      { userId: employeeId, workDate: checkDate },
-      { targetUserId: employeeId, offDate: checkDate },
-      { targetUserId: employeeId, workDate: checkDate },
-    ],
-  };
+  // Saat konteks SHIFT_SWAP:
+  // - Requester masuk kerja pada offDate (menggantikan target), libur pada workDate.
+  // - Target masuk kerja pada workDate (menggantikan requester), libur pada offDate.
+  // Jika karyawan MASUK KERJA pada checkDate, BUKAN konflik tukar shift (jadwal kerja aktif bisa ditukar).
+  // Hanya bentrok jika karyawan berstatus LIBUR di tanggal checkDate.
+  let offDayWhere;
+  if (context === 'SHIFT_SWAP') {
+    offDayWhere = {
+      status: 'APPROVED',
+      OR: [
+        { userId: employeeId, workDate: checkDate },
+        { targetUserId: employeeId, offDate: checkDate },
+      ],
+    };
+  } else {
+    offDayWhere = {
+      status: 'APPROVED',
+      OR: [
+        { userId: employeeId, offDate: checkDate },
+        { userId: employeeId, workDate: checkDate },
+        { targetUserId: employeeId, offDate: checkDate },
+        { targetUserId: employeeId, workDate: checkDate },
+      ],
+    };
+  }
   if (excludeOffDayId) {
     offDayWhere.id = { not: excludeOffDayId };
   }
@@ -106,15 +131,26 @@ async function checkEmployeeScheduleConflict(employeeId, date, excludeSwapId = n
   }
 
   // Check 5: Pending off-day request
-  const pendingOffDayWhere = {
-    status: { in: ['PENDING_VALIDATION', 'PENDING_TARGET_RESPONSE', 'PENDING_APPROVAL'] },
-    OR: [
-      { userId: employeeId, offDate: checkDate },
-      { userId: employeeId, workDate: checkDate },
-      { targetUserId: employeeId, offDate: checkDate },
-      { targetUserId: employeeId, workDate: checkDate },
-    ],
-  };
+  let pendingOffDayWhere;
+  if (context === 'SHIFT_SWAP') {
+    pendingOffDayWhere = {
+      status: { in: ['PENDING_VALIDATION', 'PENDING_TARGET_RESPONSE', 'PENDING_APPROVAL'] },
+      OR: [
+        { userId: employeeId, workDate: checkDate },
+        { targetUserId: employeeId, offDate: checkDate },
+      ],
+    };
+  } else {
+    pendingOffDayWhere = {
+      status: { in: ['PENDING_VALIDATION', 'PENDING_TARGET_RESPONSE', 'PENDING_APPROVAL'] },
+      OR: [
+        { userId: employeeId, offDate: checkDate },
+        { userId: employeeId, workDate: checkDate },
+        { targetUserId: employeeId, offDate: checkDate },
+        { targetUserId: employeeId, workDate: checkDate },
+      ],
+    };
+  }
   if (excludeOffDayId) {
     pendingOffDayWhere.id = { not: excludeOffDayId };
   }
@@ -164,14 +200,14 @@ async function validateSwapEligibility(requesterId, targetUserId, date, excludeS
     return { valid: false, errors };
   }
 
-  // Check requester conflicts
-  const requesterConflict = await checkEmployeeScheduleConflict(requesterId, date, excludeSwapId);
+  // Check requester conflicts (context SHIFT_SWAP)
+  const requesterConflict = await checkEmployeeScheduleConflict(requesterId, date, excludeSwapId, null, 'SHIFT_SWAP');
   if (requesterConflict.hasConflict) {
     errors.push(`Pemohon: ${requesterConflict.reason}`);
   }
 
-  // Check target conflicts
-  const targetConflict = await checkEmployeeScheduleConflict(targetUserId, date, excludeSwapId);
+  // Check target conflicts (context SHIFT_SWAP)
+  const targetConflict = await checkEmployeeScheduleConflict(targetUserId, date, excludeSwapId, null, 'SHIFT_SWAP');
   if (targetConflict.hasConflict) {
     errors.push(`Karyawan tujuan: ${targetConflict.reason}`);
   }
