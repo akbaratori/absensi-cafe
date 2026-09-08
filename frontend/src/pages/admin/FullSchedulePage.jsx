@@ -62,30 +62,44 @@ function getUsersOnDayWithOffDay(schedule, dateISO, shiftNum, offDaySet, backups
     if (s.isBackupOnly) continue;
 
     const userSched = s.userSchedulesByDate?.[dateISO];
-    const hasSwap = Boolean(s.swapsByDate?.[dateISO]);
+    const swapInfo = s.swapsByDate?.[dateISO];
+    const hasSwap = Boolean(swapInfo);
     // Jika UserSchedule.isManualOverride=true dan isOffDay=false (KOMPENSASI SAKIT),
     // atau jika user memiliki swap APPROVED (tukar shift/libur),
     // paksa bukan libur jika userSched.isOffDay = false / ada swap aktif yang bekerja.
-    const forcedWork = Boolean((userSched?.isManualOverride && !userSched?.isOffDay) || (hasSwap && userSched && !userSched.isOffDay));
+    const forcedWork = Boolean((userSched?.isManualOverride && !userSched?.isOffDay) || (hasSwap && (!userSched || !userSched.isOffDay)));
     const isOff = !forcedWork && (offDaySet.has(`${s.userId}_${dateISO}`) || Boolean(userSched?.isOffDay));
 
-    // Effective shift for this day (prioritize manual override from userSchedule)
+    // Effective shift for this day (prioritize manual override from userSchedule, then swap target shift)
     let effectiveShift = s.shiftNumber;
     if (userSched?.shiftNumber != null) {
       // Map shift 3 (DB id 3 / shift 2) or custom shift numbers to valid table rows (1 or 2)
       // If userSched has shiftId / shiftNumber, use it; if shiftNumber > 2 or mismatch, fallback to weekly shiftNumber
-      effectiveShift = userSched.shiftNumber > 2 ? s.shiftNumber : userSched.shiftNumber;
+      effectiveShift = userSched.shiftNumber > 2 ? 2 : userSched.shiftNumber;
+    } else if (hasSwap && swapInfo?.withUserId) {
+      // Fallback jika userSched belum tersinkron shiftId: gunakan shift lawan swap di roster
+      const partnerSched = schedule.schedules.find(p => p.userId === swapInfo.withUserId);
+      if (partnerSched?.shiftNumber) {
+        effectiveShift = partnerSched.shiftNumber;
+      }
     }
 
     if (effectiveShift === shiftNum) {
+      // Cari jobdesk hari ini (dari userSched, rotasi mingguan, atau jika swap ambil dari partner swap jika sendiri null)
+      let resolvedJobdesk = userSched?.kitchenStation || s.jobdesksByDate?.[dateISO] || null;
+      if (!resolvedJobdesk && hasSwap && swapInfo?.withUserId) {
+        const partnerSched = schedule.schedules.find(p => p.userId === swapInfo.withUserId);
+        resolvedJobdesk = partnerSched?.userSchedulesByDate?.[dateISO]?.kitchenStation || partnerSched?.jobdesksByDate?.[dateISO] || null;
+      }
+
       all.push({
         ...s,
         name: s.user?.fullName || `User #${s.userId}`,
         userId: s.userId,
-        // Jobdesk hari ini (rotasi harian atau manual override). null jika posisi tidak punya jobdesk.
-        jobdesk: userSched?.kitchenStation || s.jobdesksByDate?.[dateISO] || null,
+        // Jobdesk hari ini (rotasi harian, manual override, atau swap)
+        jobdesk: resolvedJobdesk,
         // Info tukar shift (swap APPROVED) di tanggal ini, jika ada
-        swapInfo: s.swapsByDate?.[dateISO] || null,
+        swapInfo: swapInfo || null,
         _isOff: isOff,
       });
     }
