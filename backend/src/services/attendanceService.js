@@ -549,6 +549,29 @@ class AttendanceService {
           },
         });
       } else {
+        // Tidak ada UserSchedule existing — buat baru.
+        // Coba ambil shiftId dari WeeklySchedule minggu ini agar shift terisi.
+        let compShiftId = null;
+        try {
+          const compMonday = (() => {
+            const d = new Date(compDateStart);
+            const day = d.getUTCDay();
+            const diff = (day === 0 ? -6 : 1 - day);
+            d.setUTCDate(d.getUTCDate() + diff);
+            d.setUTCHours(0, 0, 0, 0);
+            return d;
+          })();
+          const ws = await prisma.weeklySchedule.findFirst({
+            where: { userId: parseInt(userId), weekStart: compMonday },
+            select: { shiftNumber: true },
+          });
+          if (ws?.shiftNumber) {
+            const shifts = await prisma.shift.findMany({ select: { id: true }, orderBy: { id: 'asc' } });
+            const shiftEntry = shifts[ws.shiftNumber - 1];
+            if (shiftEntry) compShiftId = shiftEntry.id;
+          }
+        } catch (_) { /* tidak kritis, lanjut tanpa shiftId */ }
+
         convertedSchedule = await prisma.userSchedule.create({
           data: {
             userId: parseInt(userId),
@@ -556,6 +579,7 @@ class AttendanceService {
             isOffDay: false,
             isManualOverride: true,
             temporaryDepartment: `KOMPENSASI SAKIT (${date})`,
+            ...(compShiftId ? { shiftId: compShiftId } : {}),
           },
         });
       }

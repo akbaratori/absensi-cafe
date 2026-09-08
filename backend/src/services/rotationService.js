@@ -1681,8 +1681,11 @@ class RotationService {
             create: { userId: uid, date: dateObj, isOffDay: true, isManualOverride: true },
           });
         } else {
-          // Tidak libur lagi: selaraskan ke jadwal kerja
-          const data = { isOffDay: false, isManualOverride: false };
+          // Tidak libur lagi: selaraskan ke jadwal kerja.
+          // Pertahankan isManualOverride jika record sudah di-set manual
+          // (mis. kompensasi sakit) agar override tidak tertimpa balik ke false.
+          const keepOverride = existing?.isManualOverride === true;
+          const data = { isOffDay: false, isManualOverride: keepOverride };
           let station = existing?.kitchenStation || null;
           if (!station && (!existing || existing.isOffDay)) {
             station = await this._inferNearestStation(uid, dateObj);
