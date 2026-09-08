@@ -415,6 +415,18 @@ class OffDayService {
           approvedAt: now,
         },
       });
+
+      // Hapus ManualOffDay stale agar fallback offDaySet tidak salah baca libur
+      await tx.manualOffDay.deleteMany({
+        where: {
+          OR: [
+            { userId: req.userId, date: req.offDate },
+            { userId: req.userId, date: req.workDate },
+            { userId: req.targetUserId, date: req.offDate },
+            { userId: req.targetUserId, date: req.workDate },
+          ],
+        },
+      });
     });
 
     // Lepas flag override harian kedua pihak pada kedua tanggal swap.

@@ -421,6 +421,16 @@ class SwapService {
           isOffDay: reqSched.isOffDay,
         },
       });
+
+      // Hapus ManualOffDay stale kedua pihak agar offDaySet tidak salah baca libur
+      await tx.manualOffDay.deleteMany({
+        where: {
+          OR: [
+            { userId: swap.requesterId, date: swap.date },
+            { userId: swap.targetUserId, date: swap.date },
+          ],
+        },
+      });
     });
 
     // Auto-distribusi jobdesk Kitchen jika swap melibatkan staff Kitchen

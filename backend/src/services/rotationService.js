@@ -792,7 +792,6 @@ class RotationService {
       const match = sh.name?.match(/\d+/);
       const num = match ? parseInt(match[0], 10) : (idx + 1);
       shiftIdToNumber.set(sh.id, num);
-      shiftIdToNumber.set(num, num);
     });
 
     // Ambil penugasan jobdesk harian (UserSchedule.kitchenStation) untuk
@@ -1181,7 +1180,6 @@ class RotationService {
       const match = sh.name?.match(/\d+/);
       const num = match ? parseInt(match[0], 10) : (idx + 1);
       shiftIdToNumber.set(sh.id, num);
-      shiftIdToNumber.set(num, num);
     });
 
     // 7. ShiftSwap APPROVED yang melibatkan user ini dalam rentang tanggal
