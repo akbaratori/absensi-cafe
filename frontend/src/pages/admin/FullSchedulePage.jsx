@@ -62,9 +62,11 @@ function getUsersOnDayWithOffDay(schedule, dateISO, shiftNum, offDaySet, backups
     if (s.isBackupOnly) continue;
 
     const userSched = s.userSchedulesByDate?.[dateISO];
+    const hasSwap = Boolean(s.swapsByDate?.[dateISO]);
     // Jika UserSchedule.isManualOverride=true dan isOffDay=false (KOMPENSASI SAKIT),
-    // paksa bukan libur meski offDaySet atau isOffDay DB masih marka hari ini.
-    const forcedWork = Boolean(userSched?.isManualOverride && !userSched?.isOffDay);
+    // atau jika user memiliki swap APPROVED (tukar shift/libur),
+    // paksa bukan libur jika userSched.isOffDay = false / ada swap aktif yang bekerja.
+    const forcedWork = Boolean((userSched?.isManualOverride && !userSched?.isOffDay) || (hasSwap && userSched && !userSched.isOffDay));
     const isOff = !forcedWork && (offDaySet.has(`${s.userId}_${dateISO}`) || Boolean(userSched?.isOffDay));
 
     // Effective shift for this day (prioritize manual override from userSchedule)
@@ -432,11 +434,22 @@ export default function FullSchedulePage() {
                     })}
                   </tr>
                 ))}
-                {wDates.some(dateISO => (schedule.schedules || []).some(s => offDaySet.has(`${s.userId}_${dateISO}`) || Boolean(s.userSchedulesByDate?.[dateISO]?.isOffDay))) && (
+                {wDates.some(dateISO => (schedule.schedules || []).some(s => {
+                  const userSched = s.userSchedulesByDate?.[dateISO];
+                  const hasSwap = Boolean(s.swapsByDate?.[dateISO]);
+                  const forcedWork = Boolean((userSched?.isManualOverride && !userSched?.isOffDay) || (hasSwap && userSched && !userSched.isOffDay));
+                  return !forcedWork && (offDaySet.has(`${s.userId}_${dateISO}`) || Boolean(userSched?.isOffDay));
+                })) && (
                   <tr className="border-t border-orange-100 dark:border-orange-900/30 bg-orange-50/30 dark:bg-orange-900/10">
                     <td className="px-3 py-2 font-medium text-orange-600 dark:text-orange-400 whitespace-nowrap text-xs">&#127958; Libur</td>
                     {dLabels.map(dl => {
-                      const offScheds = (schedule.schedules || []).filter(s => !s.isBackupOnly && (offDaySet.has(`${s.userId}_${dl.date}`) || Boolean(s.userSchedulesByDate?.[dl.date]?.isOffDay)));
+                      const offScheds = (schedule.schedules || []).filter(s => {
+                        if (s.isBackupOnly) return false;
+                        const userSched = s.userSchedulesByDate?.[dl.date];
+                        const hasSwap = Boolean(s.swapsByDate?.[dl.date]);
+                        const forcedWork = Boolean((userSched?.isManualOverride && !userSched?.isOffDay) || (hasSwap && userSched && !userSched.isOffDay));
+                        return !forcedWork && (offDaySet.has(`${s.userId}_${dl.date}`) || Boolean(userSched?.isOffDay));
+                      });
                       return (
                         <td key={dl.date} className={`px-3 py-2 text-xs ${dl.isToday ? 'bg-blue-50/30 dark:bg-blue-900/5' : ''}`}>
                           {offScheds.length > 0 ? (
