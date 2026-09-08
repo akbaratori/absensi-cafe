@@ -639,7 +639,7 @@ class RotationService {
     const userSchedRows = userIds.length > 0
       ? await prisma.userSchedule.findMany({
           where: { userId: { in: userIds }, date: { in: weekDates } },
-          select: { userId: true, date: true, kitchenStation: true, isOffDay: true, shiftId: true, temporaryDepartment: true },
+          select: { userId: true, date: true, kitchenStation: true, isOffDay: true, isManualOverride: true, shiftId: true, temporaryDepartment: true },
         })
       : [];
     // Map: userId -> { dateISO -> jobdeskName }
@@ -655,6 +655,7 @@ class RotationService {
         shiftId: r.shiftId,
         shiftNumber: r.shiftId ? (shiftIdToNumber.get(r.shiftId) || null) : null,
         isOffDay: r.isOffDay,
+        isManualOverride: r.isManualOverride,
         kitchenStation: r.kitchenStation,
         temporaryDepartment: r.temporaryDepartment,
       };
@@ -994,11 +995,20 @@ class RotationService {
     // Also include shiftId to detect swap overrides
     const jobdeskRows = await prisma.userSchedule.findMany({
       where: { userId, date: { gte: from, lte: to } },
-      select: { date: true, kitchenStation: true, shiftId: true, isOffDay: true, temporaryDepartment: true },
+      select: { date: true, kitchenStation: true, shiftId: true, isOffDay: true, isManualOverride: true, temporaryDepartment: true },
     });
     const jobdeskByDate = new Map(jobdeskRows.map(r => [toISO(r.date), r.kitchenStation || null]));
     // Map date -> actual shiftId from UserSchedule (reflects swap overrides)
-    const userSchedShiftByDate = new Map(jobdeskRows.map(r => [toISO(r.date), { shiftId: r.shiftId, isOffDay: r.isOffDay, temporaryDepartment: r.temporaryDepartment || null }]));
+    const userSchedShiftByDate = new Map(jobdeskRows.map(r => [toISO(r.date), { shiftId: r.shiftId, isOffDay: r.isOffDay, isManualOverride: r.isManualOverride, temporaryDepartment: r.temporaryDepartment || null }]));
+
+    // Jika UserSchedule.isManualOverride=true dan isOffDay=false (mis. KOMPENSASI SAKIT),
+    // paksa hapus dari offSet agar hari tersebut tidak dianggap libur meskipun
+    // ManualOffDay atau sumber libur lain masih ada di DB.
+    for (const [iso, us] of userSchedShiftByDate) {
+      if (us.isManualOverride && !us.isOffDay) {
+        offSet.delete(iso);
+      }
+    }
 
     // Ambil semua shift dari DB untuk mapping shiftId -> shiftNumber (1=Pagi, 2=Siang)
     const allShifts = await prisma.shift.findMany({ select: { id: true, name: true } });

@@ -560,6 +560,16 @@ class AttendanceService {
         });
       }
 
+      // Hapus ManualOffDay untuk tanggal kompensasi agar sumber libur union
+      // (getMySchedule/syncSchedulesForUserDates) tidak lagi menandai hari
+      // tersebut sebagai libur setelah dijadikan hari kerja pengganti.
+      await prisma.manualOffDay.deleteMany({
+        where: {
+          userId: parseInt(userId),
+          date: { gte: compDateStart, lte: new Date(`${convertOffDayDate}T23:59:59.999Z`) },
+        },
+      });
+
       // Kirim notifikasi ke pegawai tentang kompensasi libur
       const notificationService = require('./notificationService');
       await notificationService.create(

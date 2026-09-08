@@ -62,7 +62,10 @@ function getUsersOnDayWithOffDay(schedule, dateISO, shiftNum, offDaySet, backups
     if (s.isBackupOnly) continue;
 
     const userSched = s.userSchedulesByDate?.[dateISO];
-    const isOff = offDaySet.has(`${s.userId}_${dateISO}`) || Boolean(userSched?.isOffDay);
+    // Jika UserSchedule.isManualOverride=true dan isOffDay=false (KOMPENSASI SAKIT),
+    // paksa bukan libur meski offDaySet atau isOffDay DB masih marka hari ini.
+    const forcedWork = Boolean(userSched?.isManualOverride && !userSched?.isOffDay);
+    const isOff = !forcedWork && (offDaySet.has(`${s.userId}_${dateISO}`) || Boolean(userSched?.isOffDay));
 
     // Effective shift for this day (prioritize manual override from userSchedule)
     let effectiveShift = s.shiftNumber;
