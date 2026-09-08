@@ -70,7 +70,9 @@ function getUsersOnDayWithOffDay(schedule, dateISO, shiftNum, offDaySet, backups
     // Effective shift for this day (prioritize manual override from userSchedule)
     let effectiveShift = s.shiftNumber;
     if (userSched?.shiftNumber != null) {
-      effectiveShift = userSched.shiftNumber;
+      // Map shift 3 (DB id 3 / shift 2) or custom shift numbers to valid table rows (1 or 2)
+      // If userSched has shiftId / shiftNumber, use it; if shiftNumber > 2 or mismatch, fallback to weekly shiftNumber
+      effectiveShift = userSched.shiftNumber > 2 ? s.shiftNumber : userSched.shiftNumber;
     }
 
     if (effectiveShift === shiftNum) {
