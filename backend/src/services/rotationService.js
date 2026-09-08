@@ -596,6 +596,119 @@ class RotationService {
     return this.getSchedule(positionId, mondayISO);
   }
 
+  /**
+   * Distribusi ulang Jobdesk Kitchen untuk tanggal-tanggal yang ditentukan
+   * Memastikan SEMUA staff yang MASUK KERJA (isOffDay === false) mendapat jobdesk adil.
+   */
+  async distributeKitchenJobdesksForDates(dateObjs) {
+    if (!Array.isArray(dateObjs) || !dateObjs.length) return;
+
+    try {
+      const positions = await prisma.position.findMany({
+        where: {
+          OR: [{ name: 'Kitchen' }, { name: 'Dapur' }],
+          isActive: true,
+        },
+        include: {
+          jobdesks: { orderBy: { orderIndex: 'asc' } },
+          rosters: { select: { userId: true } },
+        },
+      });
+
+      if (!positions.length) return;
+
+      for (const position of positions) {
+        const jobdeskObjs = position.jobdesks || [];
+        if (!jobdeskObjs.length) continue;
+        const jobdeskList = jobdeskObjs.map((j) => j.name);
+        const heavyIdx = jobdeskObjs.map((j, idx) => (j.isHeavy ? idx : -1)).filter((idx) => idx >= 0);
+        const isHeavyJd = (jd) => heavyIdx.includes(jd);
+
+        for (const rawDate of dateObjs) {
+          const dateObj = new Date(rawDate);
+          if (isNaN(dateObj.getTime())) continue;
+          dateObj.setUTCHours(0, 0, 0, 0);
+
+          const rosterUserIds = position.rosters.map((r) => r.userId);
+          const userSchedules = await prisma.userSchedule.findMany({
+            where: {
+              date: dateObj,
+              OR: [
+                { userId: { in: rosterUserIds } },
+                { temporaryDepartment: 'KITCHEN' },
+              ],
+            },
+            select: { id: true, userId: true, isOffDay: true },
+          });
+
+          const working = userSchedules.filter((s) => !s.isOffDay).map((s) => s.userId).sort((a, b) => a - b);
+          const off = userSchedules.filter((s) => s.isOffDay).map((s) => s.userId);
+
+          if (off.length) {
+            await prisma.userSchedule.updateMany({
+              where: { date: dateObj, userId: { in: off } },
+              data: { kitchenStation: null },
+            });
+          }
+
+          if (!working.length) continue;
+
+          const nStaff = working.length;
+          const nJd = jobdeskList.length;
+          const dayIdx = Math.floor(dateObj.getTime() / 86400000);
+
+          const assign = new Map();
+          working.forEach((uid) => assign.set(uid, []));
+          const locked = new Set();
+          const covered = new Set();
+          const pending = [];
+
+          const give = (uid, jd) => {
+            assign.get(uid).push(jobdeskList[jd]);
+            covered.add(jd);
+            if (isHeavyJd(jd)) locked.add(uid);
+          };
+
+          heavyIdx.forEach((jd) => {
+            const uid = working[(dayIdx + jd) % nStaff];
+            give(uid, jd);
+          });
+
+          for (let jd = 0; jd < nJd; jd++) {
+            if (isHeavyJd(jd)) continue;
+            const uid = working[(dayIdx + jd) % nStaff];
+            if (locked.has(uid)) { pending.push(jd); continue; }
+            give(uid, jd);
+          }
+
+          for (let jd = 0; jd < nJd; jd++) if (!covered.has(jd)) pending.push(jd);
+          const free = working.filter((uid) => !locked.has(uid));
+          pending.forEach((jd, k) => {
+            if (covered.has(jd) || !free.length) return;
+            const holder = free[(dayIdx + k) % free.length];
+            if (!assign.get(holder).includes(jobdeskList[jd])) give(holder, jd);
+          });
+          for (let jd = 0; jd < nJd; jd++) {
+            if (covered.has(jd) || !free.length) continue;
+            const holder = free.find((uid) => !assign.get(uid).includes(jobdeskList[jd])) || free[0];
+            give(holder, jd);
+          }
+
+          for (const uid of working) {
+            const jobs = assign.get(uid) || [];
+            const stationStr = jobs.length ? jobs.join(' + ') : null;
+            await prisma.userSchedule.updateMany({
+              where: { date: dateObj, userId: uid },
+              data: { kitchenStation: stationStr },
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.error('[rotationService] Gagal redistribusi jobdesk kitchen:', err?.message);
+    }
+  }
+
   async getSchedule(positionId, weekStart) {
     const position = await this.getPosition(positionId);
     const monday = getMonday(weekStart || new Date());
@@ -632,7 +745,12 @@ class RotationService {
     const allShifts = await prisma.shift.findMany({ select: { id: true, name: true } });
     allShifts.sort((a, b) => a.id - b.id);
     const shiftIdToNumber = new Map();
-    allShifts.forEach((sh, idx) => shiftIdToNumber.set(sh.id, idx + 1));
+    allShifts.forEach((sh, idx) => {
+      const match = sh.name?.match(/\d+/);
+      const num = match ? parseInt(match[0], 10) : (idx + 1);
+      shiftIdToNumber.set(sh.id, num);
+      shiftIdToNumber.set(num, num);
+    });
 
     // Ambil penugasan jobdesk harian (UserSchedule.kitchenStation) untuk
     // minggu ini agar frontend bisa menampilkan jobdesk tiap staff per hari.
@@ -1016,7 +1134,12 @@ class RotationService {
     // Sort by id ascending: shift id 1 = Pagi (shift 1), id 2 = Siang (shift 2)
     allShifts.sort((a, b) => a.id - b.id);
     const shiftIdToNumber = new Map();
-    allShifts.forEach((sh, idx) => shiftIdToNumber.set(sh.id, idx + 1));
+    allShifts.forEach((sh, idx) => {
+      const match = sh.name?.match(/\d+/);
+      const num = match ? parseInt(match[0], 10) : (idx + 1);
+      shiftIdToNumber.set(sh.id, num);
+      shiftIdToNumber.set(num, num);
+    });
 
     // 7. ShiftSwap APPROVED yang melibatkan user ini dalam rentang tanggal
     const swapRows = await prisma.shiftSwap.findMany({

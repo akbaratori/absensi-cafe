@@ -431,6 +431,13 @@ class OffDayService {
       console.warn('[offday] Gagal revert WeeklySchedule:', revertErr?.message);
     }
 
+    // Auto-distribusi jobdesk Kitchen untuk memastikan seluruh staff yang masuk kerja dapat jobdesk rata
+    try {
+      await rotationService.distributeKitchenJobdesksForDates([req.offDate, req.workDate]);
+    } catch (distErr) {
+      console.warn('[offday] Gagal distribute kitchen jobdesk:', distErr?.message);
+    }
+
     await notificationService.create(
       req.userId,
       'Tukar Libur Disetujui',

@@ -1,6 +1,7 @@
 const prisma = require('../utils/database');
 const { AppError, ErrorCodes } = require('../utils/AppError');
 const notificationService = require('./notificationService');
+const rotationService = require('./rotationService');
 const { canTransition } = require('../utils/swapStateMachine');
 const { validateSwapEligibility } = require('../utils/conflictValidator');
 
@@ -421,6 +422,13 @@ class SwapService {
         },
       });
     });
+
+    // Auto-distribusi jobdesk Kitchen jika swap melibatkan staff Kitchen
+    try {
+      await rotationService.distributeKitchenJobdesksForDates([swap.date]);
+    } catch (distErr) {
+      console.warn('[swap] Gagal distribute kitchen jobdesk:', distErr?.message);
+    }
 
     // Notify both parties
     await notificationService.create(

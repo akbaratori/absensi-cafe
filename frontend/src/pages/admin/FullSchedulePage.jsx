@@ -262,6 +262,12 @@ export default function FullSchedulePage() {
     ? data.map(d => d.position).filter(Boolean)
     : (monthData?.weeks?.[0]?.positions || []).map(p => p.position).filter(Boolean);
 
+  const openBackupPanel = (date) => {
+    setBackupDate(date);
+    setShowBackupPanel(true);
+  };
+
+
   const handleCellClick = (userObj, dateISO, position, defaultShiftNum) => {
     const userSched = userObj.userSchedulesByDate?.[dateISO];
     const isCurrentlyOff = offDaySet.has(`${userObj.userId}_${dateISO}`) || userSched?.isOffDay;
