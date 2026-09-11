@@ -40,7 +40,7 @@ class AttendanceService {
         where: { userId, date: { gte: todayUTCStart, lte: todayUTCEnd } },
       });
 
-      // Check Leave APPROVED covering today
+      // Check Leave APPROVED covering today — fallback only
       const leaveTodayClockIn = await prisma.leave.findFirst({
         where: {
           userId,
@@ -50,7 +50,7 @@ class AttendanceService {
         },
       });
 
-      // Check OffDayRequest APPROVED covering today — swap-aware
+      // Check OffDayRequest APPROVED covering today — swap-aware, fallback only
       const offReqTodayClockIn = await prisma.offDayRequest.findFirst({
         where: {
           status: 'APPROVED',
@@ -66,11 +66,8 @@ class AttendanceService {
 
       let isClockInOffDay = false;
       if (todaySchedule) {
-        if (todaySchedule.isManualOverride) {
-          isClockInOffDay = todaySchedule.isOffDay;
-        } else {
-          isClockInOffDay = todaySchedule.isOffDay || hasOffSourceClockIn;
-        }
+        // UserSchedule is source of truth — do not union with stale ManualOffDay/OffDayRequest
+        isClockInOffDay = todaySchedule.isOffDay;
       } else if (hasOffSourceClockIn) {
         isClockInOffDay = true;
       } else {
@@ -273,12 +270,12 @@ class AttendanceService {
     const scheduleService = require('./scheduleService');
     const todaySchedule = await scheduleService.getTodaySchedule(userId);
 
-    // Check ManualOffDay — created after schedule generation so not reflected in UserSchedule.isOffDay
+    // Check ManualOffDay — fallback only when no UserSchedule row exists
     const manualOffToday = await prisma.manualOffDay.findFirst({
       where: { userId, date: { gte: todayUTCStart, lte: todayUTCEnd } },
     });
 
-    // Check Leave APPROVED covering today
+    // Check Leave APPROVED covering today — fallback only
     const leaveToday = await prisma.leave.findFirst({
       where: {
         userId,
@@ -288,42 +285,36 @@ class AttendanceService {
       },
     });
 
-    // Check OffDayRequest APPROVED covering today — swap-aware (same logic as getMySchedule)
+    // Check OffDayRequest APPROVED covering today — swap-aware, fallback only
+    // For swap: pemohon libur di workDate, target libur di offDate.
+    // Legacy (targetUserId null): pemohon libur di offDate.
     const offReqToday = await prisma.offDayRequest.findFirst({
       where: {
         status: 'APPROVED',
         OR: [
-          // Pemohon libur di workDate (swap: dia ambil libur target)
           { userId, workDate: { gte: todayUTCStart, lte: todayUTCEnd } },
-          // Pemohon libur di offDate (legacy / non-swap)
           { userId, offDate: { gte: todayUTCStart, lte: todayUTCEnd }, targetUserId: null },
-          // Target libur di offDate (swap: target ambil libur pemohon)
           { targetUserId: userId, offDate: { gte: todayUTCStart, lte: todayUTCEnd } },
         ],
       },
     });
 
-    // Apakah ada sumber libur non-UserSchedule hari ini
     const hasOffSource = !!(manualOffToday || leaveToday || offReqToday);
 
     // Determine off-day status — backup duty always overrides any off-day source
     let isOffDay = false;
     if (!backupToday) {
       if (todaySchedule) {
-        // UserSchedule.isManualOverride=true → keputusan admin final, abaikan sumber lain
-        if (todaySchedule.isManualOverride) {
-          isOffDay = todaySchedule.isOffDay;
-        } else {
-          // Bukan manual override: gabungkan UserSchedule.isOffDay dengan sumber libur lain
-          // (konsisten dengan getMySchedule yang pakai offSet union)
-          isOffDay = todaySchedule.isOffDay || hasOffSource;
-        }
+        // UserSchedule is source of truth — already reflects swap/override/regen.
+        // Do NOT union with ManualOffDay/Leave/OffDayRequest: those may be stale
+        // (e.g. ManualOffDay created before swap approval, OffDayRequest whose
+        // offDate is the day the requester actually WORKS after swap).
+        isOffDay = todaySchedule.isOffDay;
       } else if (hasOffSource) {
-        // Fallback: tidak ada UserSchedule row, tapi ada sumber libur lain
+        // No UserSchedule row — fall back to other off-day sources
         isOffDay = true;
       }
-      // If no schedule and no record → noSchedule flag handles this below (not an off day)
-      // If record exists but no schedule, user already clocked in → not an off day
+      // If no schedule and no record → noSchedule flag handles this below
     }
 
     // Resolve shift for display: use schedule shift when available and not off-day.
