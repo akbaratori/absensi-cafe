@@ -1236,7 +1236,12 @@ class RotationService {
         // Backup user dari KITCHEN ditandai isOffDay oleh _removeFromKitchenSchedule,
         // padahal hari itu dia BEKERJA sebagai backup (tampil di baris 🔁 Backup
         // Jadwal Lengkap). Paksa tidak-libur saat ada assignment backup.
-        isOffDay: (userSched ? userSched.isOffDay : offSet.has(iso)) && !backup,
+        // Konsistensi dengan dashboard (getToday): jika UserSchedule bukan manual
+        // override, gabungkan dengan offSet (ManualOffDay, Leave, OffDayRequest,
+        // PublicHoliday, User.offDay) agar kedua halaman selalu sinkron.
+        isOffDay: (userSched
+          ? (userSched.isManualOverride ? userSched.isOffDay : (userSched.isOffDay || offSet.has(iso)))
+          : offSet.has(iso)) && !backup,
         isBackup: !!backup,
         originalPositionName: backup ? originalPositionName : null,
         // Original roster shift, kept for display so staff sees the change
