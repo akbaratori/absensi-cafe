@@ -43,10 +43,11 @@ dipakai oleh `generateWeek()` (generate mingguan) dan
    satu libur, satu orang merangkap `Main Cook + Support Cook` — bukan kosong.
 2. **Checker / Stock selalu dipegang tepat 1 orang per hari operasional**, dan
    jobdesk itu tidak pernah dipecah ke dua orang.
-3. **Plating menempel pada Checker.** Bila jobdesk `Plating` ditambahkan di
-   *Rotasi & Libur → Kelola Jobdesk*, sistem otomatis menggabungkannya menjadi
-   `Checker / Stock + Plating` pada orang yang sama. Tanpa jobdesk `Plating`,
-   tugas plating tetap bagian dari Checker (lihat daftar tugas di halaman Jadwal).
+3. **Plating menempel pada Checker.** Jobdesk `Plating` disimpan di
+   *Rotasi & Libur → Kelola Jobdesk* dan **selalu digabung** menjadi
+   `Checker / Stock + Plating` pada orang yang sama — tidak pernah dipecah.
+   Kalau `Plating` dihapus dari daftar jobdesk, tugas plating tetap bagian
+   dari Checker (lihat panduan role C di halaman Jadwal staf).
 4. **Pemegang paket berputar tiap hari** (`dayIdx`), jadi tidak ada orang yang
    pegang jobdesk berat terus-menerus.
 5. **Baris dengan `isManualOverride = true` tidak pernah ditimpa** — jobdesk yang

@@ -53,6 +53,14 @@ const ROLE_GUIDE = [
             {
                 title: 'Tanggung Jawab',
                 content: ['Order salah lolos = tanggung jawab Checker di shift itu']
+            },
+            {
+                title: 'Plating (menempel di role ini)',
+                content: [
+                    'Plating BUKAN role terpisah — selalu dipegang orang yang sama dengan Checker.',
+                    'Atur tampilan akhir: porsi, kebersihan pinggir piring, garnish.',
+                    'Saat dapur ramai, utamakan cek order dulu, baru rapikan plating.'
+                ]
             }
         ],
         dos: ['Koreksi plating', 'Menahan pesanan kalau salah', 'Lapor stok menipis'],
