@@ -12,6 +12,7 @@ const {
   updateAttendanceSchema,
   createAttendanceSchema,
   sickEarlyLeaveSchema,
+  fillMissingClockOutSchema,
   updateConfigSchema,
   usersQuerySchema,
   reportQuerySchema,
@@ -99,6 +100,17 @@ router.post(
   '/attendance/sick-early-leave',
   validate(sickEarlyLeaveSchema),
   adminController.processSickEarlyLeave
+);
+
+/**
+ * @route   POST /api/v1/admin/attendance/fill-missing-clockout
+ * @desc    Isi jam pulang otomatis untuk record yang lupa clock-out
+ * @access  Private (Admin)
+ */
+router.post(
+  '/attendance/fill-missing-clockout',
+  validate(fillMissingClockOutSchema),
+  adminController.fillMissingClockOut
 );
 
 

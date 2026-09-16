@@ -147,6 +147,17 @@ class AdminController {
     return successResponse(res, 200, result, result.message);
   });
 
+  /**
+   * Admin: isi jam pulang otomatis untuk record yang lupa clock-out
+   * POST /api/v1/admin/attendance/fill-missing-clockout
+   * Body: { from?, to?, userId?, dryRun? } — dryRun default true (pratinjau)
+   */
+  fillMissingClockOut = asyncHandler(async (req, res) => {
+    const result = await attendanceService.fillMissingClockOut(req.body, req.user.id);
+
+    return successResponse(res, 200, result, result.message);
+  });
+
 
   /**
    * Delete attendance record

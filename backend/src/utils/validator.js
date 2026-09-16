@@ -104,6 +104,17 @@ const sickEarlyLeaveSchema = Joi.object({
   convertOffDayDate: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).optional().allow('', null),
 });
 
+/**
+ * Admin: isi jam pulang otomatis untuk record yang lupa clock-out.
+ * dryRun default true supaya admin selalu melihat pratinjau lebih dulu.
+ */
+const fillMissingClockOutSchema = Joi.object({
+  from: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).optional().allow(null, ''),
+  to: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).optional().allow(null, ''),
+  userId: Joi.number().integer().positive().optional().allow(null, ''),
+  dryRun: Joi.boolean().optional().default(true),
+});
+
 
 const updateConfigSchema = Joi.object({
   workStartTime: Joi.string().pattern(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/).optional(),
@@ -202,6 +213,7 @@ module.exports = {
   updateAttendanceSchema,
   createAttendanceSchema,
   sickEarlyLeaveSchema,
+  fillMissingClockOutSchema,
   updateConfigSchema,
   usersQuerySchema,
   reportQuerySchema,

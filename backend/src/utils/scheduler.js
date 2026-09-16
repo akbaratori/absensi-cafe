@@ -11,41 +11,16 @@ const WITA_OFFSET_MS = 8 * 60 * 60 * 1000;
  * Initialize all cron jobs for scheduled push notifications and auto clock-out
  */
 function initScheduler() {
-    // AUTO CLOCK-OUT: Every 15 minutes, find records without clockOut that exceed max hours
-    cron.schedule('*/15 * * * *', async () => {
-        try {
-            let autoClockoutHours = 10;
-            try {
-                const cfg = await prisma.systemConfig.findUnique({ where: { key: 'autoClockoutHours' } });
-                if (cfg?.value) autoClockoutHours = parseInt(cfg.value, 10);
-            } catch (_) { /* fallback to default */ }
-
-            const cutoff = new Date(Date.now() - autoClockoutHours * 60 * 60 * 1000);
-
-            const dangling = await prisma.attendance.findMany({
-                where: {
-                    clockIn: { lte: cutoff },
-                    clockOut: null,
-                    status: { not: 'absent' }
-                },
-                include: {
-                    user: { select: { id: true, fullName: true } }
-                }
-            });
-
-            for (const record of dangling) {
-                await prisma.attendance.update({
-                    where: { id: record.id },
-                    data: { clockOut: new Date(), notes: record.notes ? record.notes + ' | Auto clock-out' : 'Auto clock-out' }
-                });
-                console.log(`[AutoClockout] Auto clocked-out user ${record.user.fullName} (record #${record.id})`);
-            }
-        } catch (err) {
-            console.error('[AutoClockout] Cron error:', err.message);
-        }
-    });
-
-    console.log('[Scheduler] Auto clock-out cron initialized');
+    // AUTO CLOCK-OUT: DISABLED — dipindah ke tombol manual di halaman admin
+    // (Data Absensi → "Isi Jam Pulang"). Alasan:
+    //   1. Cron ini tidak pernah jalan di produksi (Vercel memakai api/index.js,
+    //      sedangkan initScheduler() hanya dipanggil dari src/server.js).
+    //   2. Versi lama menulis clockOut = new Date() (jam cron kebetulan jalan),
+    //      bukan jam shift berakhir → durasi jadi ~10 jam dan justru memotong
+    //      jatah libur orang yang hanya lupa clock-out.
+    // Logika yang benar sekarang ada di attendanceService.fillMissingClockOut.
+    // cron.schedule('*/15 * * * *', async () => { ... });
+    console.log('[Scheduler] Auto clock-out cron DISABLED (dijalankan manual oleh admin)');
 
     // ABSENT DETECTION: DISABLED — staff will do manual attendance
     // cron.schedule('50 15 * * *', async () => { ... });

@@ -77,7 +77,7 @@ class LeaveService {
 
         // If we're on the first day of the month there are no past days yet
         if (monthEndUTC < monthStartWITA) {
-            return { used: 0, quota: 4, remaining: 4, breakdown: { leaveDays: 0, offDays: 0, absentDays: 0, noShowDays: 0 } };
+            return { used: 0, quota: 4, remaining: 4, breakdown: { leaveDays: 0, offDays: 0, absentDays: 0, noShowDays: 0, halfDays: 0 } };
         }
 
         // --- 1. Collect formal Leave days this month (not REJECTED) ---
@@ -163,6 +163,8 @@ class LeaveService {
         // --- 4. Walk scheduled days and classify ---
         let noShowDays = 0;
         let absentDays = 0;
+        // Setengah hari tetap memotong 1 hari penuh (tidak ada potongan 0.5)
+        let halfDays = 0;
 
         // Track which dates were already processed via UserSchedule
         const countedDates = new Set();
@@ -181,29 +183,32 @@ class LeaveService {
             } else if (status === 'ABSENT') {
                 // Admin explicitly marked as absent
                 absentDays++;
+            } else if (status === 'HALF_DAY') {
+                // Datang tapi durasinya kurang dari durasi shift — tetap potong 1 hari
+                halfDays++;
             }
-            // PRESENT, LATE, HALF_DAY etc. — employee came in, don't count
+            // PRESENT, LATE etc. — employee came in, don't count
         }
 
-        // --- 4b. Also count ABSENT attendance records that have no UserSchedule row ---
-        // This handles manually-set ABSENT records when absent detection cron is disabled.
+        // --- 4b. Also count ABSENT/HALF_DAY records that have no UserSchedule row ---
+        // This handles manually-set records when absent detection cron is disabled.
         for (const [witaStr, status] of attendanceMap) {
-            if (status !== 'ABSENT') continue;
+            if (status !== 'ABSENT' && status !== 'HALF_DAY') continue;
             if (countedDates.has(witaStr)) continue;     // already counted above
             if (leaveDateSet.has(witaStr)) continue;     // covered by formal leave
-            absentDays++;
+            if (status === 'ABSENT') absentDays++; else halfDays++;
         }
 
         const leaveDays = leaveDateSet.size;
         const offDays = manualOffDateSet.size;
-        const used = leaveDays + offDays + noShowDays + absentDays;
+        const used = leaveDays + offDays + noShowDays + absentDays + halfDays;
         const quota = 4; // Max 4 days per month
 
         return {
             used,
             quota,
             remaining: Math.max(0, quota - used),
-            breakdown: { leaveDays, offDays, absentDays, noShowDays },
+            breakdown: { leaveDays, offDays, absentDays, noShowDays, halfDays },
         };
     }
 

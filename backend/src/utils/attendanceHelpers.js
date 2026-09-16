@@ -164,6 +164,55 @@ const parseStatus = (status) => {
 };
 
 /**
+ * Durasi shift dalam menit dari string "HH:MM".
+ * Mendukung shift yang lewat tengah malam (mis. 21:40 -> 00:19 = 159 menit).
+ * @param {String} startTime - "HH:MM"
+ * @param {String} endTime - "HH:MM"
+ * @returns {Number} durasi menit
+ */
+const shiftDurationMinutes = (startTime, endTime) => {
+  const [sh, sm] = String(startTime).split(':').map(Number);
+  const [eh, em] = String(endTime).split(':').map(Number);
+  let minutes = (eh * 60 + em) - (sh * 60 + sm);
+  if (minutes <= 0) minutes += 24 * 60;
+  return minutes;
+};
+
+/**
+ * Ambang batas setengah hari = setengah durasi shift.
+ * Shift 1 08:15-20:00 (705 mnt) -> 352 mnt. Shift 2 11:00-22:30 (690 mnt) -> 345 mnt.
+ */
+const getHalfDayThresholdMinutes = (startTime, endTime) =>
+  Math.floor(shiftDurationMinutes(startTime, endTime) / 2);
+
+/**
+ * Tambah menit ke "HH:MM", dibungkus dalam 24 jam.
+ * "22:30" + 60 -> "23:30"
+ */
+const addMinutesToTime = (time, minutes) => {
+  const [h, m] = String(time).split(':').map(Number);
+  const total = (((h * 60 + m + minutes) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+};
+
+/**
+ * Instant UTC untuk jam berakhirnya shift pada tanggal WITA tertentu.
+ * dateStr = "YYYY-MM-DD" (tanggal WITA). Shift lewat tengah malam otomatis +1 hari.
+ */
+const getShiftEndInstant = (dateStr, startTime, endTime) => {
+  const start = new Date(`${dateStr}T${startTime}:00+08:00`);
+  const end = new Date(`${dateStr}T${endTime}:00+08:00`);
+  if (end <= start) end.setTime(end.getTime() + 24 * 60 * 60 * 1000);
+  return end;
+};
+
+/** Format menit menjadi "11j30m" untuk catatan absensi. */
+const formatDurationMinutes = (minutes) => {
+  const total = Math.max(0, Math.round(minutes));
+  return `${Math.floor(total / 60)}j${String(total % 60).padStart(2, '0')}m`;
+};
+
+/**
  * Calculate distance between two points in meters (Haversine formula)
  * @param {Object} point1 - { latitude, longitude }
  * @param {Object} point2 - { latitude, longitude }
@@ -200,4 +249,9 @@ module.exports = {
   formatStatus,
   parseStatus,
   calculateDistance,
+  shiftDurationMinutes,
+  getHalfDayThresholdMinutes,
+  addMinutesToTime,
+  getShiftEndInstant,
+  formatDurationMinutes,
 };

@@ -494,63 +494,7 @@ class RotationService {
             .sort((x, y) => (rank.get(x) ?? 0) - (rank.get(y) ?? 0));
           if (!working.length) return;
 
-          const nStaff = working.length;
-          const nJd = jobdeskList.length;
-          const heavyIdx = jobdeskObjs
-            .map((j, idx) => (j.isHeavy ? idx : -1))
-            .filter((idx) => idx >= 0);
-          const isHeavyJd = (jd) => heavyIdx.includes(jd);
-
-          // Pemegang utama tiap jobdesk (rotasi titik awal per hari):
-          // jobdesk ke-jd dipegang staff working[(dayIdx + jd) % nStaff].
-          // Jika staff >= jobdesk, tiap staff dapat maks 1 jobdesk utama (peta 1-1).
-          // Jika staff < jobdesk, beberapa jobdesk utama jatuh ke staff yang sama;
-          // kelebihan itu kita perlakukan sebagai "tugas tambahan" agar bisa
-          // dialihkan ke staff lain (menjaga jobdesk BERAT tetap eksklusif).
-          const assign = new Map(); // uid -> array nama jobdesk
-          working.forEach((uid) => assign.set(uid, []));
-          const locked = new Set(); // uid pemegang jobdesk BERAT (tidak boleh rangkap)
-          const covered = new Set();
-          const pending = []; // jobdesk utama yang menumpuk di satu staff (perlu dialihkan)
-
-          const give = (uid, jd) => {
-            assign.get(uid).push(jobdeskList[jd]);
-            covered.add(jd);
-            if (isHeavyJd(jd)) locked.add(uid);
-          };
-
-          // 1) Isi jobdesk BERAT dulu ke pemegang utamanya dan kunci orangnya.
-          heavyIdx.forEach((jd) => {
-            const uid = working[(dayIdx + jd) % nStaff];
-            give(uid, jd);
-          });
-
-          // 2) Jobdesk non-berat: berikan ke pemegang utamanya bila ia belum
-          //    terkunci (bukan pemegang berat). Kalau terkunci, masuk antrian.
-          for (let jd = 0; jd < nJd; jd++) {
-            if (isHeavyJd(jd)) continue;
-            const uid = working[(dayIdx + jd) % nStaff];
-            if (locked.has(uid)) { pending.push(jd); continue; }
-            give(uid, jd);
-          }
-
-          // 3) Alihkan jobdesk yang masih kosong (pending + yang tumpang-tindih)
-          //    ke staff yang boleh rangkap (bukan pemegang berat), berputar adil.
-          for (let jd = 0; jd < nJd; jd++) if (!covered.has(jd)) pending.push(jd);
-          const free = working.filter((uid) => !locked.has(uid));
-          pending.forEach((jd, k) => {
-            if (covered.has(jd) || !free.length) return;
-            // Mulai dari offset bergeser tiap hari agar yang rangkap bergantian.
-            const holder = free[(dayIdx + k) % free.length];
-            if (!assign.get(holder).includes(jobdeskList[jd])) give(holder, jd);
-          });
-          // Putaran pengaman: jika masih ada yang kosong, paksa isi ke staff bebas
-          // mana pun yang belum memegangnya.
-          for (let jd = 0; jd < nJd; jd++) {
-            if (covered.has(jd) || !free.length) continue;
-            const holder = free.find((uid) => !assign.get(uid).includes(jobdeskList[jd])) || free[0];
-            give(holder, jd);
-          }
+          const assign = this.assignKitchenStations(jobdeskList, working, dayIdx);
 
           working.forEach((uid) => {
             const jobs = assign.get(uid) || [];
@@ -598,6 +542,116 @@ class RotationService {
   }
 
   /**
+   * Deteksi peran jobdesk Kitchen dari namanya.
+   * Nama di DB bisa "Main Cook", "Support Cook", "Checker / Stock",
+   * "Runner / Area", "Helper / Floating", "Plating", dst.
+   * @returns {String|null} MAIN | SUPPORT | CHECKER | RUNNER | HELPER | PLATING | null
+   */
+  _kitchenRoleOf(name) {
+    const n = String(name || '').toLowerCase();
+    if (/plating/.test(n)) return 'PLATING';
+    if (/main\s*cook|head\s*cook|kepala/.test(n)) return 'MAIN';
+    if (/support|snack/.test(n)) return 'SUPPORT';
+    if (/checker|stock|stok/.test(n)) return 'CHECKER';
+    if (/runner|area/.test(n)) return 'RUNNER';
+    if (/helper|floating/.test(n)) return 'HELPER';
+    return null;
+  }
+
+  /**
+   * Susun paket jobdesk Kitchen sesuai jumlah staff yang MASUK KERJA.
+   *
+   * Aturan (disepakati September 2026):
+   *   5 staff : Main Cook | Support Cook | Checker(+Plating) | Runner | Helper
+   *   4 staff : Main Cook | Support Cook | Checker(+Plating) | Runner+Helper
+   *   3 staff : Main Cook+Support Cook | Checker(+Plating) | Runner+Helper
+   *   2 staff : Main Cook+Support Cook | Checker(+Plating)+Runner+Helper
+   *
+   * Jobdesk "Plating" (bila ada di DB) selalu menempel ke Checker — Checker tidak
+   * pernah dipecah ke dua orang. Jobdesk yang tidak dikenali tetap dapat paket
+   * sendiri di akhir supaya jobdesk kustom tidak hilang.
+   *
+   * @param {String[]} jobdeskList - nama jobdesk posisi (urut orderIndex)
+   * @param {Number} nStaff - jumlah staff yang masuk kerja hari itu
+   * @returns {String[][]} daftar paket; tiap paket berisi nama jobdesk
+   */
+  buildKitchenPackages(jobdeskList, nStaff) {
+    const plans = {
+      1: [['MAIN', 'SUPPORT', 'CHECKER', 'RUNNER', 'HELPER']],
+      2: [['MAIN', 'SUPPORT'], ['CHECKER', 'RUNNER', 'HELPER']],
+      3: [['MAIN', 'SUPPORT'], ['CHECKER'], ['RUNNER', 'HELPER']],
+      4: [['MAIN'], ['SUPPORT'], ['CHECKER'], ['RUNNER', 'HELPER']],
+      5: [['MAIN'], ['SUPPORT'], ['CHECKER'], ['RUNNER'], ['HELPER']],
+    };
+
+    const byRole = { MAIN: [], SUPPORT: [], CHECKER: [], RUNNER: [], HELPER: [] };
+    const extras = [];
+    for (const name of jobdeskList) {
+      const role = this._kitchenRoleOf(name);
+      if (role === 'PLATING') byRole.CHECKER.push(name);
+      else if (role) byRole[role].push(name);
+      else extras.push(name);
+    }
+
+    // Lebih dari 5 staff → pakai formasi 5 orang, sisanya ikut paket paling ringan.
+    const plan = plans[Math.max(1, Math.min(5, nStaff))];
+
+    const packs = plan
+      .map((roles) => roles.flatMap((r) => byRole[r]))
+      .filter((pack) => pack.length > 0);
+
+    // Jobdesk tak dikenal → paket sendiri (dianggap tugas ringan, ditaruh di akhir)
+    extras.forEach((name) => packs.push([name]));
+
+    // Bila jobdesk kustom membuat paket lebih banyak dari staff, gabung dari belakang.
+    while (packs.length > nStaff && packs.length > 1) {
+      const last = packs.pop();
+      packs[packs.length - 1] = packs[packs.length - 1].concat(last);
+    }
+
+    return packs;
+  }
+
+  /**
+   * Tugaskan paket jobdesk ke staff yang bekerja hari itu, berputar tiap hari
+   * (offset dayIdx) supaya tidak ada yang pegang jobdesk sama terus.
+   *
+   * @param {String[]} jobdeskList
+   * @param {Number[]} working - userId staff yang masuk, sudah urut roster
+   * @param {Number} dayIdx - offset rotasi harian
+   * @returns {Map<Number, String[]>} userId -> daftar nama jobdesk
+   */
+  assignKitchenStations(jobdeskList, working, dayIdx) {
+    const assign = new Map();
+    const nStaff = working.length;
+    working.forEach((uid) => assign.set(uid, []));
+    if (!nStaff || !jobdeskList.length) return assign;
+
+    const packs = this.buildKitchenPackages(jobdeskList, nStaff);
+    if (!packs.length) return assign;
+
+    const addTo = (uid, names) => {
+      names.forEach((name) => {
+        if (!assign.get(uid).includes(name)) assign.get(uid).push(name);
+      });
+    };
+
+    packs.forEach((pack, k) => {
+      addTo(working[(dayIdx + k) % nStaff], pack);
+    });
+
+    // Staff lebih banyak dari paket → ikut paket paling ringan (Helper/Floating)
+    if (nStaff > packs.length) {
+      const lightest = packs[packs.length - 1];
+      for (let k = packs.length; k < nStaff; k++) {
+        addTo(working[(dayIdx + k) % nStaff], lightest);
+      }
+    }
+
+    return assign;
+  }
+
+  /**
    * Distribusi ulang Jobdesk Kitchen untuk tanggal-tanggal yang ditentukan
    * Memastikan SEMUA staff yang MASUK KERJA (isOffDay === false) mendapat jobdesk adil.
    */
@@ -623,8 +677,6 @@ class RotationService {
         const jobdeskObjs = position.jobdesks || [];
         if (!jobdeskObjs.length) continue;
         const jobdeskList = jobdeskObjs.map((j) => j.name);
-        const heavyIdx = jobdeskObjs.map((j, idx) => (j.isHeavy ? idx : -1)).filter((idx) => idx >= 0);
-        const isHeavyJd = (jd) => heavyIdx.includes(jd);
 
         // Map userId -> order_index roster (untuk sort konsisten)
         const rosterOrder = new Map(position.rosters.map((r) => [r.userId, r.orderIndex]));
@@ -680,61 +732,9 @@ class RotationService {
 
           if (!working.length) continue;
 
-          const nStaff = working.length;
-          const nJd = jobdeskList.length;
           // dayIdx sebagai offset rotasi harian — sama persis dengan generateWeek
           const dayIdx = Math.floor(dateObj.getTime() / 86400000);
-
-          const assign = new Map();
-          working.forEach((uid) => assign.set(uid, []));
-          const locked = new Set(); // pemegang jobdesk BERAT tidak boleh rangkap
-          const covered = new Set();
-          const pending = []; // jobdesk yang belum ter-assign
-
-          const give = (uid, jd) => {
-            assign.get(uid).push(jobdeskList[jd]);
-            covered.add(jd);
-            if (isHeavyJd(jd)) locked.add(uid);
-          };
-
-          // 1) Bagi jobdesk BERAT ke pemegang utamanya, kunci orangnya
-          heavyIdx.forEach((jd) => {
-            const uid = working[(dayIdx + jd) % nStaff];
-            give(uid, jd);
-          });
-
-          // 2) Jobdesk non-berat: ke pemegang utamanya bila belum terkunci
-          //    Jika nStaff > nJd, offset (dayIdx+jd)%nStaff bisa sama untuk
-          //    dua jobdesk berbeda → simpan di pending, bukan dobel ke uid yang sama
-          for (let jd = 0; jd < nJd; jd++) {
-            if (isHeavyJd(jd)) continue;
-            const uid = working[(dayIdx + jd) % nStaff];
-            if (locked.has(uid) || assign.get(uid).length > 0) {
-              // uid sudah dapat jobdesk → antri, cari penerima lain
-              pending.push(jd);
-              continue;
-            }
-            give(uid, jd);
-          }
-
-          // 3) Alihkan pending ke staff yang belum dapat jobdesk (bergilir adil)
-          const free = working.filter((uid) => !locked.has(uid) && assign.get(uid).length === 0);
-          pending.forEach((jd, k) => {
-            if (covered.has(jd)) return;
-            if (free.length) {
-              const holder = free[(dayIdx + k) % free.length];
-              give(holder, jd);
-            }
-          });
-
-          // 4) Putaran pengaman: jobdesk belum ter-cover sama sekali → paksa rangkap
-          for (let jd = 0; jd < nJd; jd++) {
-            if (covered.has(jd)) continue;
-            // Cari staff bebas (tidak locked) yang belum pegang jobdesk ini
-            const eligible = working.filter((uid) => !locked.has(uid) && !assign.get(uid).includes(jobdeskList[jd]));
-            const holder = eligible.length ? eligible[(dayIdx + jd) % eligible.length] : working[0];
-            give(holder, jd);
-          }
+          const assign = this.assignKitchenStations(jobdeskList, working, dayIdx);
 
           // Tulis ke DB
           for (const uid of working) {
@@ -1717,7 +1717,11 @@ class RotationService {
     const isOff = !shiftNumber || shiftNumber === 0;
     const shiftId = isOff ? null : shiftNumber;
 
-    const department = position.name === 'Kitchen' ? 'KITCHEN' : 'BAR';
+    // Nama posisi di DB adalah "Dapur" (bukan "Kitchen") — pakai daftar yang sama
+    // dengan generateWeek, kalau tidak staff Dapur akan ditandai temporaryDepartment
+    // 'BAR' dan dilewati oleh distribusi jobdesk kitchen.
+    const KITCHEN_NAMES = new Set(['Kitchen', 'Dapur', 'kitchen', 'dapur']);
+    const department = KITCHEN_NAMES.has(position.name) ? 'KITCHEN' : 'BAR';
 
     await prisma.userSchedule.upsert({
       where: { userId_date: { userId, date: dateObj } },

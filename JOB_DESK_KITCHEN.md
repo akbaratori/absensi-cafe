@@ -22,7 +22,44 @@ Selaras dengan sistem rotasi otomatis di aplikasi absensi
 
 ---
 
-## 2. Prinsip Keadilan (Cara Sistem Membagi)
+## 2. Aturan Paket Jobdesk (WAJIB — berlaku sejak September 2026)
+
+Jobdesk dibagi sebagai **paket tetap** sesuai jumlah staf yang masuk kerja hari itu.
+Implementasi: `rotationService.buildKitchenPackages()` + `assignKitchenStations()`,
+dipakai oleh `generateWeek()` (generate mingguan) dan
+`distributeKitchenJobdesksForDates()` (setelah off-day/swap berubah).
+
+| Staf masuk | Paket |
+|------------|-------|
+| **5** | `Main Cook` \| `Support Cook` \| `Checker / Stock` \| `Runner / Area` \| `Helper / Floating` |
+| **4** | `Main Cook` \| `Support Cook` \| `Checker / Stock` \| `Runner / Area + Helper / Floating` |
+| **3** | `Main Cook + Support Cook` \| `Checker / Stock` \| `Runner / Area + Helper / Floating` |
+| **2** | `Main Cook + Support Cook` \| `Checker / Stock + Runner / Area + Helper / Floating` |
+| **1** | Semua jobdesk di satu orang |
+
+**Aturan yang tidak boleh dilanggar:**
+
+1. **Main Cook dan Support Cook selalu ada setiap hari operasional.** Kalau salah
+   satu libur, satu orang merangkap `Main Cook + Support Cook` — bukan kosong.
+2. **Checker / Stock selalu dipegang tepat 1 orang per hari operasional**, dan
+   jobdesk itu tidak pernah dipecah ke dua orang.
+3. **Plating menempel pada Checker.** Bila jobdesk `Plating` ditambahkan di
+   *Rotasi & Libur → Kelola Jobdesk*, sistem otomatis menggabungkannya menjadi
+   `Checker / Stock + Plating` pada orang yang sama. Tanpa jobdesk `Plating`,
+   tugas plating tetap bagian dari Checker (lihat daftar tugas di halaman Jadwal).
+4. **Pemegang paket berputar tiap hari** (`dayIdx`), jadi tidak ada orang yang
+   pegang jobdesk berat terus-menerus.
+5. **Baris dengan `isManualOverride = true` tidak pernah ditimpa** — jobdesk yang
+   diatur manual oleh admin dipertahankan.
+
+> Prasyarat: baris jadwal staf Dapur harus punya `temporary_department = 'KITCHEN'`.
+> Kalau nilainya `'BAR'`, sistem menganggap staf itu sedang dipinjam ke departemen
+> lain dan **melewatinya** dari pembagian jobdesk. Perbaiki dengan:
+> `node backend/scripts/fix-kitchen-temporary-department.js --apply`
+
+---
+
+## 2b. Prinsip Keadilan (algoritma lama — arsip)
 
 Sistem **otomatis menghitung kumulatif** berapa kali tiap staf memegang
 stasiun dalam bulan berjalan, lalu tiap hari memilih yang **paling sedikit**

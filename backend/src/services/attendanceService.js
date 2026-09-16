@@ -1,7 +1,7 @@
 const { ErrorCodes } = require('../utils/AppError');
 const attendanceRepository = require('../repositories/attendanceRepository');
 const prisma = require('../utils/database');
-const { getAttendanceConfig, calculateAttendanceStatus, calculateTotalHours, formatLocation, getTodayStart, getTodayEnd, formatStatus, parseStatus, calculateDistance, toWITA } = require('../utils/attendanceHelpers');
+const { getAttendanceConfig, calculateAttendanceStatus, calculateTotalHours, formatLocation, getTodayStart, getTodayEnd, formatStatus, parseStatus, calculateDistance, toWITA, shiftDurationMinutes, getHalfDayThresholdMinutes, addMinutesToTime, getShiftEndInstant, formatDurationMinutes } = require('../utils/attendanceHelpers');
 const swapService = require('./swapService'); // Import SwapService
 const offDayService = require('./offDayService'); // Import OffDayService
 const auditService = require('./auditService');
@@ -13,7 +13,110 @@ const shifts = require('../config/shifts');
 // (disimpan 31 Agu 16:00Z) akan tampil sebagai "31 Agustus" di riwayat.
 const toWITADateString = (date) => toWITA(date).toISOString().split('T')[0];
 
+/**
+ * Toleransi jam pulang (menit). Staff yang clock-out beberapa menit sebelum
+ * shift berakhir TIDAK dihitung setengah hari — mis. pulang 22:27 untuk shift
+ * yang berakhir 22:30 tetap hadir penuh. Tanpa toleransi ini, hampir semua
+ * orang yang pulang tepat waktu akan terkena potong jatah libur.
+ */
+const ATTENDANCE_END_GRACE_MINUTES = 60;
+
+/** Tambahkan keterangan ke notes tanpa menghapus isi sebelumnya. */
+const appendNote = (existing, extra) => {
+  const base = (existing || '').trim();
+  return base ? `${base} | ${extra}` : extra;
+};
+
 class AttendanceService {
+  /**
+   * Resolve shift efektif seorang user pada satu tanggal WITA.
+   *
+   * Prioritas (sama dengan rotationService.getMySchedule):
+   *   1. BackupAssignment.shiftNumber — user merangkap posisi lain hari itu
+   *   2. ShiftSwap APPROVED           — tukar shift
+   *   3. UserSchedule.shift           — jadwal hasil rotasi
+   *   4. User.shift                   — shift default
+   *
+   * PENTING: tanpa langkah 1, user yang merangkap dengan shift 2 akan dinilai
+   * memakai jam shift 1 (mis. masuk 11:00 dihitung telat 2j45m).
+   *
+   * @param {Number} userId
+   * @param {String} dateStr - tanggal WITA "YYYY-MM-DD"
+   * @returns {Object} { shift, source } — shift bernilai null bila tidak ada acuan
+   */
+  async resolveEffectiveShift(userId, dateStr) {
+    // Pakai boundary WITA — aman untuk kedua konvensi penyimpanan tanggal
+    // (UTC-midnight maupun WITA-midnight), karena rentangnya mencakup keduanya.
+    const dayStart = new Date(`${dateStr}T00:00:00+08:00`);
+    const dayEnd = new Date(`${dateStr}T23:59:59+08:00`);
+
+    // 1. Backup assignment — shiftNumber mengikuti urutan id tabel shifts
+    const backup = await prisma.backupAssignment.findFirst({
+      where: { backupUserId: userId, date: { gte: dayStart, lte: dayEnd } },
+      select: { shiftNumber: true },
+    });
+
+    if (backup?.shiftNumber != null) {
+      const allShifts = await prisma.shift.findMany({ orderBy: { id: 'asc' } });
+      const shift = allShifts[backup.shiftNumber - 1] || null;
+      if (shift) return { shift, source: `backup shift ${backup.shiftNumber}` };
+    }
+
+    // 2. Swap shift yang sudah disetujui
+    const swapShift = await swapService.getActiveSwap(userId, dayStart);
+    if (swapShift) return { shift: swapShift, source: 'swap' };
+
+    // 3. Jadwal hasil rotasi
+    const userSchedule = await prisma.userSchedule.findFirst({
+      where: { userId, date: { gte: dayStart, lte: dayEnd } },
+      include: { shift: true },
+    });
+    if (userSchedule?.shift) return { shift: userSchedule.shift, source: 'jadwal' };
+
+    // 4. Shift default user
+    const user = await attendanceRepository.findUserById(userId);
+    if (user?.shift) return { shift: user.shift, source: 'default user' };
+
+    return { shift: null, source: null };
+  }
+
+  /**
+   * Tentukan status absensi dari durasi kerja terhadap shift efektif.
+   *
+   * Aturan (kebijakan September 2026 — TIDAK ada potongan 0.5):
+   *   - durasi < setengah shift          -> ABSENT   (potong jatah libur 1 hari)
+   *   - setengah <= durasi < penuh       -> HALF_DAY (potong jatah libur 1 hari)
+   *   - durasi >= penuh - toleransi      -> hadir penuh, status LATE/PRESENT tetap
+   *
+   * Toleransi jam pulang mencegah orang yang pulang beberapa menit lebih awal
+   * (mis. 22:27 untuk shift berakhir 22:30) ikut terhitung setengah hari.
+   *
+   * @param {Number} workedMinutes - durasi kerja aktual (menit)
+   * @param {Object} shift - { startTime, endTime }
+   * @returns {Object|null} { status, reason } atau null bila hadir penuh
+   */
+  classifyByDuration(workedMinutes, shift) {
+    const fullMinutes = shiftDurationMinutes(shift.startTime, shift.endTime);
+    const halfMinutes = getHalfDayThresholdMinutes(shift.startTime, shift.endTime);
+    const fullWithGrace = fullMinutes - ATTENDANCE_END_GRACE_MINUTES;
+
+    if (workedMinutes < halfMinutes) {
+      return {
+        status: 'ABSENT',
+        reason: `durasi ${formatDurationMinutes(workedMinutes)} kurang dari setengah shift (${formatDurationMinutes(halfMinutes)} dari ${formatDurationMinutes(fullMinutes)})`,
+      };
+    }
+
+    if (workedMinutes < fullWithGrace) {
+      return {
+        status: 'HALF_DAY',
+        reason: `durasi ${formatDurationMinutes(workedMinutes)} dari ${formatDurationMinutes(fullMinutes)} — belum penuh`,
+      };
+    }
+
+    return null;
+  }
+
   /**
    * Clock in user
    */
@@ -116,26 +219,14 @@ class AttendanceService {
 
     // config is already defined above
 
-    // Get User Shift (Priority: Active Swap > User Schedule > User Default Shift)
-    // 1. Check for Active Swap
-    const activeSwapShift = await swapService.getActiveSwap(userId, now);
+    // Shift efektif: backup shift > swap disetujui > jadwal > shift default user.
+    // Backup WAJIB didahulukan — kalau tidak, staff yang merangkap posisi shift 2
+    // (mis. masuk 11:00) akan dihitung terlambat 2j45m terhadap jam Shift 1.
+    const { shift: effectiveShift, source: shiftSource } = await this.resolveEffectiveShift(userId, todayWITAStr);
 
-    if (activeSwapShift) {
-      config.workStartTime = activeSwapShift.startTime;
-      config.workEndTime = activeSwapShift.endTime;
-    } else if (todaySchedule && todaySchedule.shift) {
-      // 2. Use schedule shift (already fetched above)
-      config.workStartTime = todaySchedule.shift.startTime;
-      config.workEndTime = todaySchedule.shift.endTime;
-    } else {
-      // 3. Fallback to User Default Shift
-      const user = await attendanceRepository.findUserById(userId);
-      const userShift = user?.shift;
-
-      if (userShift) {
-        config.workStartTime = userShift.startTime;
-        config.workEndTime = userShift.endTime;
-      }
+    if (effectiveShift) {
+      config.workStartTime = effectiveShift.startTime;
+      config.workEndTime = effectiveShift.endTime;
     }
 
     // Create attendance record
@@ -146,8 +237,12 @@ class AttendanceService {
     const todayMidnightWITA = getTodayStart(); // Returns UTC equivalent of 00:00:00+08:00
 
     // Lock shift info: append shift used for this clock-in to notes for audit
-    const shiftInfo = `[Shift: ${config.workStartTime}-${config.workEndTime}]`;
-    const finalNotes = notes ? `${notes} ${shiftInfo}` : shiftInfo;
+    const shiftInfo = `[Shift: ${config.workStartTime}-${config.workEndTime}${shiftSource ? `, ${shiftSource}` : ''}]`;
+    // Terlambat tetap dihitung hadir penuh, tapi keterangannya wajib jelas.
+    const lateInfo = status === 'LATE'
+      ? `[Terlambat ${lateMinutes} menit — tetap dihitung hadir penuh]`
+      : null;
+    const finalNotes = [notes, shiftInfo, lateInfo].filter(Boolean).join(' ');
 
     const record = await attendanceRepository.create({
       userId,
@@ -227,16 +322,41 @@ class AttendanceService {
       throw error;
     }
 
-    const updatedRecord = await attendanceRepository.update(existingRecord.id, {
+    // Klasifikasi durasi terhadap shift efektif hari itu.
+    //   durasi < setengah shift      -> ABSENT   (potong jatah libur 1 hari)
+    //   setengah..penuh-toleransi    -> HALF_DAY (potong jatah libur 1 hari)
+    //   hadir penuh                  -> status dari clock-in tidak diubah
+    const recordDateStr = toWITADateString(existingRecord.date);
+    const { shift: effectiveShift, source: shiftSource } = await this.resolveEffectiveShift(userId, recordDateStr);
+
+    const workedMinutes = Math.round((clockOutTime.getTime() - existingRecord.clockIn.getTime()) / 60000);
+    const classification = effectiveShift ? this.classifyByDuration(workedMinutes, effectiveShift) : null;
+
+    const updateData = {
       clockOut: clockOutTime,
       clockOutLocation: formatLocation(location),
       clockOutPhoto: photo, // Store photo path
       clockOutIp: ipAddress, // Store IP
-    });
+    };
+
+    if (classification) {
+      const label = classification.status === 'ABSENT' ? 'Tidak Hadir' : 'Setengah Hari';
+      const shiftWindow = `${effectiveShift.startTime}-${effectiveShift.endTime}${shiftSource ? `, ${shiftSource}` : ''}`;
+      updateData.status = classification.status;
+      updateData.notes = appendNote(
+        existingRecord.notes,
+        `[${label}: ${classification.reason} | shift ${shiftWindow} | potong jatah libur 1 hari]`
+      );
+    }
+
+    const updatedRecord = await attendanceRepository.update(existingRecord.id, updateData);
 
     return {
       ...updatedRecord,
       totalHours,
+      durationMinutes: workedMinutes,
+      shift: effectiveShift || null,
+      attendanceNote: classification ? classification.reason : null,
     };
   }
 
@@ -320,9 +440,14 @@ class AttendanceService {
     // Resolve shift for display: use schedule shift when available and not off-day.
     // When noSchedule === true, shift is null and canClockIn is false.
     const noSchedule = !backupToday && !todaySchedule && !record;
-    const shift = isOffDay || noSchedule
-      ? null
-      : (todaySchedule?.shift ?? record?.user?.shift ?? null);
+    let shift = null;
+    if (!isOffDay && !noSchedule) {
+      // Shift efektif WAJIB menghormati BackupAssignment.shiftNumber. Tanpa ini,
+      // staff yang merangkap posisi dengan shift 2 tetap tampil Shift 1 di
+      // dashboard padahal jadwal (rotationService.getMySchedule) menampilkan Shift 2.
+      const resolved = await this.resolveEffectiveShift(userId, todayWITAStr);
+      shift = resolved.shift ?? record?.user?.shift ?? null;
+    }
 
     const response = {
       id: record?.id || null,
@@ -468,6 +593,144 @@ class AttendanceService {
   }
 
   /**
+   * Admin: Isi jam pulang untuk record yang lupa clock-out.
+   *
+   * Jam pulang = akhir shift efektif hari itu + 1 jam
+   * (Shift 1 08:15-20:00 -> 21:00, Shift 2 11:00-22:30 -> 23:30).
+   * Setelah jam pulang terisi, durasi tetap dinilai dengan aturan setengah hari:
+   *   - masuk tepat waktu  -> hadir penuh, jatah libur aman
+   *   - masuk telat > toleransi -> HALF_DAY / ABSENT, potong jatah 1 hari
+   *
+   * Selalu jalankan dengan dryRun: true dulu untuk melihat dampaknya.
+   *
+   * @param {Object} params - { from, to, userId, dryRun }
+   *   from/to = tanggal WITA "YYYY-MM-DD" inklusif. Default: awal bulan s/d kemarin.
+   * @param {Number} adminId
+   */
+  async fillMissingClockOut({ from, to, userId, dryRun = true } = {}, adminId) {
+    const nowWITA = toWITA(new Date());
+    const todayStr = nowWITA.toISOString().slice(0, 10);
+
+    // Default rentang: awal bulan ini s/d kemarin (hari ini shiftnya bisa masih jalan)
+    const monthStartStr = `${todayStr.slice(0, 7)}-01`;
+    const yesterdayWITA = new Date(nowWITA);
+    yesterdayWITA.setUTCDate(yesterdayWITA.getUTCDate() - 1);
+    const defaultTo = yesterdayWITA.toISOString().slice(0, 10);
+
+    const fromStr = from || monthStartStr;
+    const toStr = to || defaultTo;
+
+    const rangeStart = new Date(`${fromStr}T00:00:00+08:00`);
+    const rangeEnd = new Date(`${toStr}T23:59:59+08:00`);
+
+    if (rangeEnd < rangeStart) {
+      const error = new Error('Tanggal akhir harus setelah tanggal awal.');
+      error.statusCode = 400;
+      error.isOperational = true;
+      throw error;
+    }
+
+    const dangling = await prisma.attendance.findMany({
+      where: {
+        clockOut: null,
+        date: { gte: rangeStart, lte: rangeEnd },
+        ...(userId ? { userId: parseInt(userId) } : {}),
+      },
+      include: { user: { select: { id: true, fullName: true } } },
+      orderBy: [{ date: 'asc' }, { userId: 'asc' }],
+    });
+
+    const results = [];
+
+    for (const record of dangling) {
+      const dateStr = toWITADateString(record.date);
+      const { shift, source } = await this.resolveEffectiveShift(record.userId, dateStr);
+
+      if (!shift) {
+        results.push({
+          id: record.id,
+          userId: record.userId,
+          name: record.user?.fullName || null,
+          date: dateStr,
+          action: 'SKIPPED',
+          reason: 'tidak ada acuan shift (backup/swap/jadwal/default)',
+        });
+        continue;
+      }
+
+      // Jam pulang otomatis = akhir shift + 1 jam
+      const shiftEnd = getShiftEndInstant(dateStr, shift.startTime, shift.endTime);
+      const autoClockOut = new Date(shiftEnd.getTime() + 60 * 60 * 1000);
+
+      if (autoClockOut <= record.clockIn) {
+        results.push({
+          id: record.id,
+          userId: record.userId,
+          name: record.user?.fullName || null,
+          date: dateStr,
+          action: 'SKIPPED',
+          reason: 'jam pulang otomatis jatuh sebelum jam masuk — periksa manual',
+        });
+        continue;
+      }
+
+      const workedMinutes = Math.round((autoClockOut.getTime() - record.clockIn.getTime()) / 60000);
+      const classification = this.classifyByDuration(workedMinutes, shift);
+      const autoTimeLabel = toWITA(autoClockOut).toISOString().slice(11, 16);
+
+      let note = `[Auto clock-out oleh admin: shift ${shift.startTime}-${shift.endTime}${source ? `, ${source}` : ''} berakhir + 1 jam (${autoTimeLabel})]`;
+      if (classification) {
+        const label = classification.status === 'ABSENT' ? 'Tidak Hadir' : 'Setengah Hari';
+        note += ` [${label}: ${classification.reason} | potong jatah libur 1 hari]`;
+      }
+
+      if (!dryRun) {
+        await attendanceRepository.update(record.id, {
+          clockOut: autoClockOut,
+          status: classification ? classification.status : record.status,
+          notes: appendNote(record.notes, note),
+        });
+        await auditService.logAutoClockout(record.id, record.userId, autoClockOut);
+      }
+
+      results.push({
+        id: record.id,
+        userId: record.userId,
+        name: record.user?.fullName || null,
+        date: dateStr,
+        action: classification ? 'POTONG JATAH 1 HARI' : 'HADIR PENUH',
+        clockIn: toWITA(record.clockIn).toISOString().slice(11, 16),
+        clockOut: autoTimeLabel,
+        shift: `${shift.startTime}-${shift.endTime}`,
+        shiftSource: source,
+        workedMinutes,
+        workedLabel: formatDurationMinutes(workedMinutes),
+        previousStatus: record.status,
+        newStatus: classification ? classification.status : record.status,
+        reason: classification ? classification.reason : 'durasi memenuhi shift penuh',
+      });
+    }
+
+    const applied = results.filter((r) => r.action !== 'SKIPPED');
+    const cut = applied.filter((r) => r.action === 'POTONG JATAH 1 HARI');
+
+    return {
+      dryRun,
+      from: fromStr,
+      to: toStr,
+      found: dangling.length,
+      updated: dryRun ? 0 : applied.length,
+      fullDay: applied.length - cut.length,
+      cutDays: cut.length,
+      skipped: results.length - applied.length,
+      records: results,
+      message: dryRun
+        ? `Pratinjau: ${dangling.length} record tanpa jam pulang, ${cut.length} akan potong jatah libur 1 hari.`
+        : `Selesai: ${applied.length} record diisi jam pulangnya, ${cut.length} potong jatah libur 1 hari.`,
+    };
+  }
+
+  /**
    * Admin: Catat pegawai pulang cepat karena sakit & opsi kompensasi libur
    */
   async processSickEarlyLeave(data, adminId) {
@@ -503,12 +766,19 @@ class AttendanceService {
 
     const clockOutDate = clockOut ? new Date(clockOut) : new Date();
 
-    // Hitung apakah pegawai sudah bekerja minimal setengah hari (misal >= 4 jam = 240 menit)
+    // Ambang setengah hari = setengah durasi shift efektif hari itu
+    // (bukan lagi angka tetap 240 menit). Shift 1 08:15-20:00 -> 352 menit,
+    // Shift 2 11:00-22:30 -> 345 menit.
+    const { shift: sickShift, source: sickShiftSource } = await this.resolveEffectiveShift(parseInt(userId), date);
+    const halfThresholdMinutes = sickShift
+      ? getHalfDayThresholdMinutes(sickShift.startTime, sickShift.endTime)
+      : 240; // fallback bila tidak ada acuan shift sama sekali
+
+    // Hitung apakah pegawai sudah bekerja minimal setengah durasi shift
     let finalStatus = 'PRESENT';
     if (record && record.clockIn) {
       const workDurationMinutes = (clockOutDate.getTime() - new Date(record.clockIn).getTime()) / (1000 * 60);
-      // Jika durasi kerja kurang dari 4 jam (240 menit), dihitung Setengah Hari / tidak dihitung full kerja
-      if (workDurationMinutes < 240) {
+      if (workDurationMinutes < halfThresholdMinutes) {
         finalStatus = 'HALF_DAY';
       }
     } else {
@@ -516,7 +786,10 @@ class AttendanceService {
       finalStatus = 'HALF_DAY';
     }
 
-    const statusLabel = finalStatus === 'HALF_DAY' ? 'SETENGAH HARI' : 'HADIR FULL';
+    const shiftLabel = sickShift ? `${sickShift.startTime}-${sickShift.endTime}${sickShiftSource ? `, ${sickShiftSource}` : ''}` : 'tanpa acuan shift';
+    const statusLabel = finalStatus === 'HALF_DAY'
+      ? `SETENGAH HARI - kurang dari ${formatDurationMinutes(halfThresholdMinutes)} dari shift ${shiftLabel} - potong jatah libur 1 hari`
+      : 'HADIR FULL';
     const noteText = `[PULANG SAKIT - ${statusLabel}] ${reason || 'Izin pulang awal karena sakit'}`;
 
     if (record) {

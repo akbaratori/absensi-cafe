@@ -4,10 +4,10 @@ import { getAllAttendance, getAttendancePhotoData } from '../../services/attenda
 import { formatDate, formatTime, formatStatus } from '../../utils/formatters';
 import { SkeletonTable } from '../../components/shared/Loading';
 import Badge from '../../components/shared/Badge';
-import { Trash2, Trash, Pencil, Plus, Stethoscope } from 'lucide-react';
+import { Trash2, Trash, Pencil, Plus, Stethoscope, Clock } from 'lucide-react';
 import Modal from '../../components/shared/Modal';
 import Button from '../../components/shared/Button';
-import { deleteAttendance, deleteAllAttendance, updateAttendance, createAttendance, getUsers, processSickEarlyLeave } from '../../services/adminService';
+import { deleteAttendance, deleteAllAttendance, updateAttendance, createAttendance, getUsers, processSickEarlyLeave, fillMissingClockOut } from '../../services/adminService';
 import { getUserSchedule } from '../../services/scheduleService';
 import { showSuccess, showError } from '../../hooks/useToast';
 
@@ -61,6 +61,59 @@ const AttendanceAdminPage = () => {
   });
   const [userOffDays, setUserOffDays] = useState([]);
   const [loadingSchedule, setLoadingSchedule] = useState(false);
+  // Modal Isi Jam Pulang (record yang lupa clock-out)
+  const [fillModal, setFillModal] = useState(false);
+  const [fillForm, setFillForm] = useState({ from: '', to: '' });
+  const [fillPreview, setFillPreview] = useState(null);
+  const [fillLoading, setFillLoading] = useState(false);
+
+  const handleOpenFillModal = () => {
+    const today = new Date();
+    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+    setFillForm({
+      from: monthStart.toISOString().slice(0, 10),
+      to: today.toISOString().slice(0, 10),
+    });
+    setFillPreview(null);
+    setFillModal(true);
+  };
+
+  // Pratinjau (dryRun) — tidak mengubah data
+  const handlePreviewFill = async () => {
+    setFillLoading(true);
+    try {
+      const res = await fillMissingClockOut({
+        from: fillForm.from || null,
+        to: fillForm.to || null,
+        dryRun: true,
+      });
+      setFillPreview(res.data);
+    } catch (err) {
+      showError(err?.response?.data?.error?.message || err?.response?.data?.message || 'Gagal memuat pratinjau');
+    } finally {
+      setFillLoading(false);
+    }
+  };
+
+  // Terapkan — mengisi jam pulang & menilai ulang status
+  const handleApplyFill = async () => {
+    setFillLoading(true);
+    try {
+      const res = await fillMissingClockOut({
+        from: fillForm.from || null,
+        to: fillForm.to || null,
+        dryRun: false,
+      });
+      showSuccess(res.message || 'Jam pulang berhasil diisi');
+      setFillModal(false);
+      setFillPreview(null);
+      fetchAttendance(currentPage);
+    } catch (err) {
+      showError(err?.response?.data?.error?.message || err?.response?.data?.message || 'Gagal mengisi jam pulang');
+    } finally {
+      setFillLoading(false);
+    }
+  };
 
   const handleOpenSickModal = () => {
     setSickForm({
@@ -317,6 +370,13 @@ const AttendanceAdminPage = () => {
           <p className="text-gray-600 dark:text-gray-400 mt-1">Kelola dan koreksi rekap absensi karyawan</p>
         </div>
         <div className="flex gap-2">
+          <button
+            onClick={handleOpenFillModal}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
+          >
+            <Clock size={16} />
+            Isi Jam Pulang
+          </button>
           <button
             onClick={handleOpenSickModal}
             className="flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
@@ -662,6 +722,109 @@ const AttendanceAdminPage = () => {
         </form>
       </Modal>
 
+
+      {/* Modal Isi Jam Pulang (record lupa clock-out) */}
+      <Modal isOpen={fillModal} onClose={() => { setFillModal(false); setFillPreview(null); }} title="Isi Jam Pulang Otomatis" size="lg">
+        <div className="space-y-4">
+          <p className="text-sm text-gray-600 dark:text-gray-300">
+            Untuk record yang lupa clock-out. Jam pulang diisi otomatis =
+            <span className="font-medium"> akhir shift + 1 jam</span>, lalu durasi kerja dinilai ulang:
+            kurang dari setengah shift &rarr; <span className="font-medium">Tidak Hadir</span>,
+            setengah sampai hampir penuh &rarr; <span className="font-medium">Setengah Hari</span>.
+            Keduanya memotong jatah libur 1 hari.
+          </p>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Dari Tanggal</label>
+              <input
+                type="date"
+                value={fillForm.from}
+                onChange={(e) => { setFillForm({ ...fillForm, from: e.target.value }); setFillPreview(null); }}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Sampai Tanggal</label>
+              <input
+                type="date"
+                value={fillForm.to}
+                onChange={(e) => { setFillForm({ ...fillForm, to: e.target.value }); setFillPreview(null); }}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end">
+            <Button variant="secondary" onClick={handlePreviewFill} loading={fillLoading}>
+              Lihat Pratinjau
+            </Button>
+          </div>
+
+          {fillPreview && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-2">
+                  <p className="text-lg font-bold text-gray-900 dark:text-white">{fillPreview.found}</p>
+                  <p className="text-xs text-gray-500">Tanpa jam pulang</p>
+                </div>
+                <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-2">
+                  <p className="text-lg font-bold text-green-700 dark:text-green-400">{fillPreview.fullDay}</p>
+                  <p className="text-xs text-gray-500">Hadir penuh</p>
+                </div>
+                <div className="bg-red-50 dark:bg-red-900/20 rounded-lg p-2">
+                  <p className="text-lg font-bold text-red-700 dark:text-red-400">{fillPreview.cutDays}</p>
+                  <p className="text-xs text-gray-500">Potong jatah 1 hari</p>
+                </div>
+              </div>
+
+              <div className="max-h-64 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg">
+                <table className="w-full text-xs">
+                  <thead className="bg-gray-50 dark:bg-gray-800 sticky top-0">
+                    <tr>
+                      <th className="px-2 py-1.5 text-left">Tanggal</th>
+                      <th className="px-2 py-1.5 text-left">Nama</th>
+                      <th className="px-2 py-1.5 text-left">Masuk</th>
+                      <th className="px-2 py-1.5 text-left">Pulang (otomatis)</th>
+                      <th className="px-2 py-1.5 text-left">Durasi</th>
+                      <th className="px-2 py-1.5 text-left">Hasil</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(fillPreview.records || []).map((r) => (
+                      <tr key={r.id} className="border-t border-gray-100 dark:border-gray-700">
+                        <td className="px-2 py-1.5 whitespace-nowrap">{r.date}</td>
+                        <td className="px-2 py-1.5">{r.name}</td>
+                        <td className="px-2 py-1.5">{r.clockIn || '-'}</td>
+                        <td className="px-2 py-1.5">{r.clockOut || '-'}</td>
+                        <td className="px-2 py-1.5">{r.workedLabel || '-'}</td>
+                        <td className={`px-2 py-1.5 font-medium ${r.action === 'POTONG JATAH 1 HARI' ? 'text-red-600 dark:text-red-400' : r.action === 'HADIR PENUH' ? 'text-green-600 dark:text-green-400' : 'text-gray-500'}`}>
+                          {r.action === 'SKIPPED' ? `Dilewati: ${r.reason}` : `${r.newStatus} — ${r.action}`}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {fillPreview.cutDays > 0 && (
+                <p className="text-xs text-red-600 dark:text-red-400">
+                  {fillPreview.cutDays} record akan memotong jatah libur 1 hari. Periksa daftar di atas sebelum menekan Terapkan.
+                </p>
+              )}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-3 pt-2">
+            <Button variant="ghost" onClick={() => { setFillModal(false); setFillPreview(null); }} disabled={fillLoading}>
+              Batal
+            </Button>
+            <Button variant="danger" onClick={handleApplyFill} loading={fillLoading} disabled={!fillPreview || fillPreview.found === 0}>
+              Terapkan
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Modal Hapus */}
       <Modal isOpen={deleteModal.isOpen} onClose={() => setDeleteModal({ isOpen: false, recordId: null, employeeName: '' })}

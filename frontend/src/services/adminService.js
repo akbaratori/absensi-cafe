@@ -99,6 +99,16 @@ export const processSickEarlyLeave = async (data) => {
 };
 
 /**
+ * Isi jam pulang otomatis untuk record yang lupa clock-out.
+ * Jam pulang = akhir shift efektif + 1 jam, lalu durasi dinilai aturan setengah hari.
+ * @param {Object} data { from?, to?, userId?, dryRun? } — dryRun true = pratinjau saja
+ */
+export const fillMissingClockOut = async (data) => {
+  const response = await api.post('/admin/attendance/fill-missing-clockout', data);
+  return response.data;
+};
+
+/**
  * Hapus SEMUA data absensi (untuk testing/reset)
  */
 export const deleteAllAttendance = async () => {
