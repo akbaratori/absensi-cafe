@@ -33,6 +33,57 @@ async function main() {
 
   console.log('Shifts created:', { shift1, shift2 });
 
+  // Create Positions
+  //
+  // Kitchen WAJIB ber-id 2. Laporan bulanan jobdesk Kitchen
+  // (rotationService.getKitchenJobdeskMonthlyReport) memfilter posisi dengan
+  // `name in ['Kitchen','Dapur']` DAN `id`, dan tests/kitchenJobdeskReport.test.js
+  // memanggilnya dengan positionId=2. Di produksi posisi ini dibuat oleh
+  // scripts/setup-kitchen-position.js tanpa id eksplisit, jadi id=2 di sana
+  // adalah hasil auto-increment — bukan kontrak. Fixture ini menetapkan id
+  // secara eksplisit supaya database yang dibangun dari migrasi punya id yang
+  // sama, sehingga test tidak bergantung pada urutan insert.
+  const existingId2 = await prisma.position.findUnique({ where: { id: 2 } });
+  if (existingId2 && existingId2.name !== 'Kitchen') {
+    throw new Error(
+      `Position id=2 sudah dipakai oleh "${existingId2.name}", bukan "Kitchen". `
+      + 'tests/kitchenJobdeskReport.test.js mengharapkan positionId=2 = Kitchen. '
+      + 'Periksa data posisi di database ini sebelum menjalankan seed.',
+    );
+  }
+
+  const kitchenPosition = await prisma.position.upsert({
+    where: { id: 2 },
+    update: {},
+    create: {
+      id: 2,
+      name: 'Kitchen',
+      shift1Capacity: 2, // tidak dipakai selama scheduleAllWorking aktif
+      shift2Capacity: 2,
+      scheduleAllWorking: true,
+    },
+  });
+
+  console.log('Position created:', { id: kitchenPosition.id, name: kitchenPosition.name });
+
+  // Jobdesk default Kitchen — daftar sama dengan scripts/setup-kitchen-position.js.
+  // Unique key gabungan (positionId, name) membuat upsert idempoten.
+  const kitchenJobdesks = ['Main Cook', 'Support/Snack', 'Checker/Stock', 'Runner/Area', 'Helper/Floating'];
+  for (const [orderIndex, name] of kitchenJobdesks.entries()) {
+    await prisma.positionJobdesk.upsert({
+      where: { positionId_name: { positionId: kitchenPosition.id, name } },
+      update: {},
+      create: {
+        positionId: kitchenPosition.id,
+        name,
+        orderIndex,
+        isHeavy: name === 'Main Cook', // pemegangnya tidak boleh rangkap jobdesk lain
+      },
+    });
+  }
+
+  console.log('Kitchen jobdesks seeded:', kitchenJobdesks.length);
+
   // Create Admin
   const adminPassword = await bcrypt.hash('admin123', 10);
   const admin = await prisma.user.upsert({
