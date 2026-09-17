@@ -19,6 +19,7 @@ model User {
   shiftId      Int?      @map("shift_id")
   shift        Shift?    @relation(fields: [shiftId], references: [id])
   department   String    @default("BAR")
+  telegramUserId String? @map("telegram_user_id")
   offDay       Int?      @map("off_day")
   isActive     Boolean   @default(true) @map("is_active")
   hourlyRate   Int       @default(0) @map("hourly_rate")
@@ -41,6 +42,8 @@ model User {
   overtimes         Overtime[]
   approvedOvertimes Overtime[]       @relation("OvertimeApprover")
   positionRosters   PositionRoster[]
+  kitchenJobdeskStates KitchenJobdeskState[]
+  kitchenJobdeskLogs   KitchenJobdeskLog[]
 
   @@index([username])
   @@index([isActive])
@@ -70,8 +73,8 @@ model Attendance {
   clockOut         DateTime? @map("clock_out")
   clockInLocation  String?   @map("clock_in_location")
   clockOutLocation String?   @map("clock_out_location")
-  clockInPhoto     String?   @db.Text @map("clock_in_photo")
-  clockOutPhoto    String?   @db.Text @map("clock_out_photo")
+  clockInPhoto     String?   @db.LongText @map("clock_in_photo")
+  clockOutPhoto    String?   @db.LongText @map("clock_out_photo")
   clockInIp        String?   @map("clock_in_ip")
   clockOutIp       String?   @map("clock_out_ip")
   status           String    @default("PRESENT")
@@ -302,6 +305,7 @@ model Position {
   rotationStates RotationState[]
   weeklySchedules WeeklySchedule[]
   jobdesks       PositionJobdesk[]
+  kitchenJobdeskStates KitchenJobdeskState[]
 
   @@map("positions")
 }
@@ -400,4 +404,58 @@ model BackupAssignment {
   @@index([absentUserId])
   @@index([backupUserId])
   @@map("backup_assignments")
+}
+
+// Antrian tetap pemegang jobdesk Kitchen.
+//
+// Menggantikan offset epoch (dayIdx = tanggal/86400000) yang terbukti tidak
+// merata. queueIndex adalah posisi PERMANEN staf dalam antrian; staf yang libur
+// TIDAK menggeser posisinya (hanya di-skip pada hari itu).
+//
+// effectiveFrom dipakai untuk membatasi penerapan antrian: baris yang tanggalnya
+// < effectiveFrom tidak boleh dianggap hasil rotasi baru (mis. 176 baris histori
+// lama tidak ditimpa dan tetap ditandai sebagai data pra-antrian).
+model KitchenJobdeskState {
+  id            Int      @id @default(autoincrement())
+  positionId    Int      @map("position_id")
+  userId        Int      @map("user_id")
+  queueIndex    Int      @map("queue_index")
+  effectiveFrom DateTime @map("effective_from") @db.Date
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  position Position @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([positionId, userId])
+  @@index([positionId, queueIndex])
+  @@map("kitchen_jobdesk_states")
+}
+
+// Log keputusan jobdesk Kitchen per hari per staf.
+//
+// Ditulis setiap kali rotasi dijalankan dan TIDAK dihitung ulang saat dibaca —
+// sehingga laporan bulanan tetap sah walau formula rotasi berubah di kemudian hari.
+//
+// roleCode menyimpan peran utama secara terstruktur (MAIN|SUPPORT|CHECKER|RUNNER|
+// HELPER|BUNDLE) supaya laporan tidak perlu menebak dari parsing string.
+// rotationVersion menandai generasi rotasi: 1 = pra-antrian (histori lama),
+// 2 = antrian tetap. Dipakai laporan untuk memisahkan data sebelum vs sesudah.
+model KitchenJobdeskLog {
+  id               Int      @id @default(autoincrement())
+  date             DateTime @map("date") @db.Date
+  userId           Int      @map("user_id")
+  roleCode         String   @map("role_code")
+  packagesAssigned String   @map("packages_assigned") @db.Text
+  workingCount     Int      @map("working_count")
+  rotationVersion  Int      @default(2) @map("rotation_version")
+  generatedAt      DateTime @default(now()) @map("generated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([date, userId])
+  @@index([date])
+  @@index([userId, date])
+  @@map("kitchen_jobdesk_logs")
 }
