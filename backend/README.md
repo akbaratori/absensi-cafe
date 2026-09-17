@@ -80,6 +80,14 @@ Edit `.env` with your configuration:
 - Set `JWT_SECRET` to a strong random string (min 32 characters)
 - Adjust other values as needed
 
+> **Penting — jangan uji ke database produksi.**
+> `backend/.env` di repo ini menunjuk DB produksi. Semua script sekali-pakai
+> (`generateWeek`, backfill, dsb.) akan menulis ke DB tersebut.
+> Gunakan `.env.test` (sudah disediakan, isi `DATABASE_URL` ke DB
+> staging/dev) dan jalankan script dengan:
+> `DOTENV_CONFIG_PATH=.env.test node script.cjs`
+> Lihat komentar di `backend/.env.test` untuk guard anti-salah-tembak.
+
 ### 4. Database Setup
 
 Generate Prisma client:
@@ -117,6 +125,44 @@ POST http://localhost:3001/api/v1/auth/register
 Or use Prisma Studio:
 ```bash
 npx prisma studio
+```
+
+### 7. Konfigurasi Database Test (WAJIB sebelum `npm test`)
+
+Repositori ini punya satu `.env` yang menunjuk **database produksi**, sehingga
+menjalankan test/script langsung bisa menulis ke data produksi. Karena itu
+test dijalankan dengan `backend/.env.test` yang menunjuk DB staging/dev.
+
+Siapkan sekali saja:
+
+```bash
+cp .env.test.example .env.test   # PowerShell: Copy-Item .env.test.example .env.test
+```
+
+Lalu isi `DATABASE_URL` di `.env.test` ke database **staging/dev**, bukan
+produksi — mis. `mysql://USER:PASSWORD@HOST:PORT/absensi_cafe_staging`.
+
+Menjalankan test:
+
+```bash
+npm run test:staging
+```
+
+`npm run test:staging` memuat `.env.test`, lalu menolak jalan (exit 1, tanpa
+perintah apa pun dijalankan) bila:
+
+- `backend/.env.test` belum ada
+- `DATABASE_URL`-nya masih placeholder (`CHANGE_ME`)
+- `DATABASE_URL`-nya menunjuk host + nama database yang sama dengan `backend/.env`
+
+Guard yang sama juga ada di `tests/setup.js`, jadi `npm test` biasa pun akan
+gagal-cepat daripada menyentuh database produksi.
+
+Script sekali-pakai (generateWeek, backfill, dsb.) harus dijalankan lewat
+wrapper yang sama:
+
+```bash
+node scripts/with-test-db.js node tmp_script.cjs
 ```
 
 ## API Documentation
@@ -233,6 +279,7 @@ http://localhost:3001/api/v1
 | `npm run migrate:deploy` | Deploy migrations (production) |
 | `npm run prisma:generate` | Generate Prisma client |
 | `npm test` | Run tests |
+| `npm run test:staging` | Run tests against the staging/dev DB (`.env.test`), with production guard |
 | `npm run lint` | Run ESLint |
 
 ## Database Schema

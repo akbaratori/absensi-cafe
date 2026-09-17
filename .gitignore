@@ -9,6 +9,10 @@ build/
 .env
 .env.local
 .env.production
+# Kredensial DB staging/test — jangan pernah di-commit
+# (.env.test.example tetap boleh di-commit sebagai template)
+backend/.env.test
+!backend/.env.test.example
 
 # Logs
 *.log
