@@ -215,14 +215,10 @@ app.use(notFoundHandler);
 // Global error handler
 app.use(errorHandler);
 
-// Initialize Telegram bot
-// NOTE: Polling disabled — Hermes profile absensi-bot handles all Telegram messages
-// initBot() removed to avoid token conflict with Hermes gateway
-// try {
-//   const { initBot } = require('./services/telegramService');
-//   initBot();
-// } catch (err) {
-//   console.error('Telegram bot init failed:', err.message);
-// }
+// Bot Telegram lokal sudah DIHAPUS (2026-09) — kodenya mati: paket
+// node-telegram-bot-api tidak pernah terpasang dan TELEGRAM_BOT_TOKEN tidak
+// pernah diset, sehingga service-nya selalu gagal dimuat.
+// Penanganan pesan Telegram kini dilakukan gateway Hermes eksternal
+// (di luar repo ini), bukan oleh aplikasi Absensi.
 
 module.exports = app;
