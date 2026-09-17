@@ -90,22 +90,25 @@ const ddlReady = (async () => {
     `);
 
     // Kolom is_heavy (jobdesk berat / eksklusif, mis. Main Cook).
-    await prisma.$executeRawUnsafe(`
-      ALTER TABLE \`position_jobdesks\`
-      ADD COLUMN IF NOT EXISTS \`is_heavy\` BOOLEAN NOT NULL DEFAULT FALSE
-    `).catch(async () => {
-      // MySQL/MariaDB lama tanpa IF NOT EXISTS: cek dulu lalu ALTER.
-      const col = await prisma.$queryRawUnsafe(
-        `SELECT COUNT(*) AS c FROM information_schema.COLUMNS
-         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'position_jobdesks' AND COLUMN_NAME = 'is_heavy'`
+    //
+    // CATATAN: `ADD COLUMN IF NOT EXISTS` adalah sintaks MariaDB dan SELALU
+    // gagal di MySQL asli (error 1064). Sebelumnya statement itu dijalankan
+    // lebih dulu lalu bergantung pada .catch() sebagai fallback, sehingga
+    // setiap cold start mencetak error 1064 dan membuang satu round-trip.
+    // Sekarang memakai pola yang sama seperti kolom
+    // positions.schedule_all_working di atas: cek information_schema dulu,
+    // baru ALTER tanpa IF NOT EXISTS (didukung MySQL 5.7/8+ dan MariaDB).
+    const jdCol = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*) AS c FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'position_jobdesks' AND COLUMN_NAME = 'is_heavy'`
+    );
+    const jdColExists = Number(jdCol?.[0]?.c ?? jdCol?.[0]?.C ?? 0) > 0;
+    if (!jdColExists) {
+      await prisma.$executeRawUnsafe(
+        `ALTER TABLE \`position_jobdesks\` ADD COLUMN \`is_heavy\` BOOLEAN NOT NULL DEFAULT FALSE`
       );
-      const exists = Number(col?.[0]?.c ?? col?.[0]?.C ?? 0) > 0;
-      if (!exists) {
-        await prisma.$executeRawUnsafe(
-          `ALTER TABLE \`position_jobdesks\` ADD COLUMN \`is_heavy\` BOOLEAN NOT NULL DEFAULT FALSE`
-        );
-      }
-    });
+      console.log('[DDL] Column added: position_jobdesks.is_heavy');
+    }
 
     console.log('[DDL] Tables ensured: manual_off_days, backup_assignments, position_jobdesks');
   } catch (err) {
