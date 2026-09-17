@@ -431,6 +431,31 @@ class RotationController {
         }
     }
 
+    /**
+     * GET /rotation/kitchen-jobdesk-report?month=YYYY-MM[&positionId=2]
+     * Laporan bulanan jobdesk Kitchen dari KitchenJobdeskLog, dengan pemisahan
+     * rotationVersion 1 (pra-antrian) vs 2 (antrian tetap).
+     */
+    async getKitchenJobdeskReport(req, res, next) {
+        try {
+            const { month, positionId } = req.query;
+            if (!month) throw missingFields();
+
+            let pid;
+            if (positionId !== undefined && positionId !== '') {
+                pid = Number(positionId);
+                if (!Number.isInteger(pid)) {
+                    throw new AppError('Parameter positionId tidak valid', 400, 'VALIDATION_ERROR');
+                }
+            }
+
+            const report = await rotationService.getKitchenJobdeskMonthlyReport(month, { positionId: pid });
+            return successResponse(res, 200, report, 'Laporan bulanan jobdesk Kitchen berhasil dimuat');
+        } catch (err) {
+            next(err);
+        }
+    }
+
     async getMonthSchedule(req, res, next) {
         try {
             const { month } = req.query;

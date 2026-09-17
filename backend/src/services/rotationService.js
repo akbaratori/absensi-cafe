@@ -823,6 +823,185 @@ class RotationService {
     }
   }
 
+  /**
+   * Laporan bulanan jobdesk Kitchen dari KitchenJobdeskLog.
+   *
+   * Log ditulis SAAT rotasi dijalankan dan TIDAK dihitung ulang saat dibaca,
+   * sehingga laporan tetap sah walau formula rotasi berubah di kemudian hari.
+   *
+   * `rotationVersion` dipisah di laporan:
+   *   1 = pra-antrian  (histori lama / hasil rekonstruksi algoritma lama)
+   *   2 = antrian tetap (queueIndex)
+   *
+   * @param {String} month - format YYYY-MM
+   * @param {Object} [options]
+   * @param {Number} [options.positionId] - batasi ke satu posisi Kitchen
+   * @returns {Object} laporan siap kirim
+   */
+  async getKitchenJobdeskMonthlyReport(month, options = {}) {
+    const match = /^(\d{4})-(\d{2})$/.exec(String(month ?? '').trim());
+    if (!match) {
+      throw new AppError('Format bulan tidak valid. Gunakan YYYY-MM.', 400, 'VALIDATION_ERROR');
+    }
+    const year = Number(match[1]);
+    const mon = Number(match[2]);
+    if (mon < 1 || mon > 12) {
+      throw new AppError('Bulan harus antara 01 dan 12.', 400, 'VALIDATION_ERROR');
+    }
+
+    const KITCHEN_NAMES = ['Kitchen', 'Dapur', 'kitchen', 'dapur'];
+    const positions = await prisma.position.findMany({
+      where: {
+        name: { in: KITCHEN_NAMES },
+        ...(options.positionId ? { id: options.positionId } : {}),
+      },
+      select: { id: true, name: true },
+      orderBy: { id: 'asc' },
+    });
+    const positionIds = positions.map((p) => p.id);
+
+    const from = new Date(Date.UTC(year, mon - 1, 1));
+    const to = new Date(Date.UTC(year, mon, 0));
+    const daysInMonth = to.getUTCDate();
+    const monthDates = Array.from({ length: daysInMonth }, (_, i) => addDays(from, i));
+
+    // positionId diminta tetapi tidak ada posisi Kitchen yang cocok → laporan kosong.
+    // Catatan: KitchenJobdeskLog TIDAK menyimpan position_id (kuncinya date+userId),
+    // jadi bila ada beberapa posisi Kitchen, log-nya tidak bisa dipecah per posisi —
+    // `positionId` hanya memvalidasi bahwa posisi yang diminta memang Kitchen.
+    if (options.positionId && !positions.length) {
+      return {
+        month: `${year}-${String(mon).padStart(2, '0')}`,
+        range: { from: toISO(from), to: toISO(to), daysInMonth },
+        positions: [],
+        summary: {
+          totalEntries: 0,
+          daysInMonth,
+          daysWithData: 0,
+          daysWithoutData: daysInMonth,
+          distinctStaff: 0,
+          byVersion: { 1: { entries: 0, staff: 0, daysWithData: 0 }, 2: { entries: 0, staff: 0, daysWithData: 0 } },
+        },
+        staff: [],
+        daily: monthDates.map((d) => ({ date: toISO(d), hasData: false, workingCount: 0, entryCount: 0, entries: [] })),
+      };
+    }
+
+    const logs = await prisma.kitchenJobdeskLog.findMany({
+      where: { date: { gte: from, lte: to } },
+      orderBy: [{ date: 'asc' }, { userId: 'asc' }],
+      include: { user: { select: { id: true, fullName: true, username: true, department: true } } },
+    });
+
+    const logsByDate = new Map();
+    for (const l of logs) {
+      const key = toISO(l.date);
+      if (!logsByDate.has(key)) logsByDate.set(key, []);
+      logsByDate.get(key).push(l);
+    }
+
+    // Roster Kitchen → staff yang tetap muncul di laporan walau 0 hari kerja.
+    const rosters = positionIds.length
+      ? await prisma.positionRoster.findMany({
+          where: { positionId: { in: positionIds } },
+          orderBy: { orderIndex: 'asc' },
+          include: { user: { select: { id: true, fullName: true, username: true, department: true } } },
+        })
+      : [];
+
+    const ROLE_KEYS = ['MAIN', 'SUPPORT', 'CHECKER', 'RUNNER', 'HELPER', 'PLATING', 'DISHWASHER'];
+    const perUser = new Map();
+    const ensureUser = (id, info) => {
+      if (!perUser.has(id)) {
+        perUser.set(id, {
+          userId: id,
+          fullName: info?.fullName || `User #${id}`,
+          username: info?.username || null,
+          department: info?.department || null,
+          daysWorked: 0,
+          byVersion: { 1: 0, 2: 0 },
+          roleCounts: ROLE_KEYS.reduce((acc, r) => ({ ...acc, [r]: 0 }), {}),
+          jobdeskCounts: {},
+          firstDate: null,
+          lastDate: null,
+        });
+      }
+      return perUser.get(id);
+    };
+    for (const r of rosters) ensureUser(r.userId, r.user);
+
+    const daily = [];
+    for (const d of monthDates) {
+      const dateISO = toISO(d);
+      const dayLogs = logsByDate.get(dateISO) || [];
+      const entries = [];
+      let workingCount = 0;
+
+      for (const l of dayLogs) {
+        const u = ensureUser(l.userId, l.user);
+        u.daysWorked += 1;
+        u.byVersion[l.rotationVersion] = (u.byVersion[l.rotationVersion] || 0) + 1;
+        for (const code of String(l.roleCode || '').split('+').filter(Boolean)) {
+          u.roleCounts[code] = (u.roleCounts[code] || 0) + 1;
+        }
+        for (const name of String(l.packagesAssigned || '').split(' + ').filter(Boolean)) {
+          u.jobdeskCounts[name] = (u.jobdeskCounts[name] || 0) + 1;
+        }
+        if (!u.firstDate || dateISO < u.firstDate) u.firstDate = dateISO;
+        if (!u.lastDate || dateISO > u.lastDate) u.lastDate = dateISO;
+        workingCount = Math.max(workingCount, l.workingCount || 0);
+
+        entries.push({
+          userId: l.userId,
+          fullName: u.fullName,
+          roleCode: l.roleCode,
+          packagesAssigned: l.packagesAssigned,
+          rotationVersion: l.rotationVersion,
+          workingCount: l.workingCount,
+        });
+      }
+
+      daily.push({
+        date: dateISO,
+        hasData: dayLogs.length > 0,
+        workingCount,
+        entryCount: entries.length,
+        entries,
+      });
+    }
+
+    const staff = [...perUser.values()].sort(
+      (a, b) => b.daysWorked - a.daysWorked || String(a.fullName).localeCompare(String(b.fullName)),
+    );
+
+    const versionSummary = (version) => {
+      const rows = logs.filter((l) => l.rotationVersion === version);
+      return {
+        entries: rows.length,
+        staff: new Set(rows.map((l) => l.userId)).size,
+        daysWithData: new Set(rows.map((l) => toISO(l.date))).size,
+      };
+    };
+
+    const daysWithData = daily.filter((x) => x.hasData).length;
+
+    return {
+      month: `${year}-${String(mon).padStart(2, '0')}`,
+      range: { from: toISO(from), to: toISO(to), daysInMonth },
+      positions,
+      summary: {
+        totalEntries: logs.length,
+        daysInMonth,
+        daysWithData,
+        daysWithoutData: daysInMonth - daysWithData,
+        distinctStaff: perUser.size,
+        byVersion: { 1: versionSummary(1), 2: versionSummary(2) },
+      },
+      staff,
+      daily,
+    };
+  }
+
   async getSchedule(positionId, weekStart) {
     const position = await this.getPosition(positionId);
     const monday = getMonday(weekStart || new Date());

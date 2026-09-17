@@ -16,6 +16,10 @@ router.get('/positions', authorize('ADMIN'), rotationController.listPositions);
 // All positions schedule for a given week
 router.get('/all-schedules', authorize('ADMIN'), rotationController.getAllSchedules);
 
+// Laporan bulanan jobdesk Kitchen (dari KitchenJobdeskLog, pisah rotationVersion 1 vs 2).
+// WAJIB di atas route '/:id' agar tidak tertangkap sebagai parameter id.
+router.get('/kitchen-jobdesk-report', authorize('ADMIN'), rotationController.getKitchenJobdeskReport);
+
 // Manual Off-days
 router.get('/manual-off-days', rotationController.getManualOffDays);
 
