@@ -49,6 +49,16 @@ function circularSlice(arr, start, count) {
   return out;
 }
 
+/**
+ * Indeks hari sejak epoch (1970-01-01 UTC). Dipakai sebagai `dayOffset` rotasi
+ * Kitchen agar hasilnya KONSISTEN di semua jalur pemanggil: menghasilkan
+ * jobdesk yang sama untuk tanggal yang sama, tak peduli minggu mana yang
+ * sedang digenerate maupun urutan tanggal yang diproses.
+ */
+function dayOffsetEpoch(date) {
+  return Math.floor(toDateOnly(date).getTime() / 86400000);
+}
+
 class RotationService {
   // ---------- Positions ----------
 
@@ -475,32 +485,83 @@ class RotationService {
         },
       });
 
-      // ---- Rotasi jobdesk harian (adil & bergilir) ----
-      // Untuk tiap hari, tugaskan jobdesk ke staff yang BEKERJA hari itu secara
-      // berputar berdasarkan urutan roster, sehingga: (1) tidak ada staff yang
-      // jobdesknya sama terus, (2) semua jobdesk kebagian bergilir, (3) jobdesk
-      // yang kosong (saat staff < jumlah jobdesk) juga bergantian adil.
+      // ---- Rotasi jobdesk harian (ANTRIAN TETAP) ----
+      // Staff diurutkan menurut `queueIndex` yang TETAP (lihat KitchenJobdeskState).
+      // Kehadiran orang lain tidak mengubah urutan ini; paket jobdesk dirotasi
+      // per hari, jadi: (1) tidak ada staff yang jobdesknya sama terus,
+      // (2) semua jobdesk kebagian bergilir, (3) staff yang off tidak menggeser
+      // posisi antrian orang lain secara permanen.
       const jobdeskObjs = position.jobdesks || [];
       const jobdeskList = jobdeskObjs.map((j) => j.name);
       const jobdeskByKey = new Map(); // `${userId}_${dateISO}` -> jobdeskName (bisa "A + B" jika rangkap)
       if (jobdeskList.length) {
+        const isKitchenPos = KITCHEN_NAMES.has(position.name);
+        const stateMap = isKitchenPos
+          ? await this._getOrSeedKitchenStates(positionId, allRosterIds)
+          : new Map();
         const rank = new Map(allRosterIds.map((uid, i) => [uid, i]));
+
         weekDates.forEach((dateObj, dayIdx) => {
           const dateISO = toISO(dateObj);
-          // Staff yang bekerja hari ini (tidak libur), urut roster.
+          // Staff yang bekerja hari ini (tidak libur).
           const working = assignments
             .filter((a) => !isOffOn(a.userId, dateObj))
-            .map((a) => a.userId)
-            .sort((x, y) => (rank.get(x) ?? 0) - (rank.get(y) ?? 0));
+            .map((a) => a.userId);
           if (!working.length) return;
 
-          const assign = this.assignKitchenStations(jobdeskList, working, dayIdx);
+          const assign = isKitchenPos
+            ? this._assignKitchenByQueue(jobdeskList, working, stateMap, rank, dayOffsetEpoch(dateObj))
+            : this.assignKitchenStations(jobdeskList, this._sortKitchenByQueue(working, new Map(), rank), dayIdx);
 
           working.forEach((uid) => {
-            const jobs = assign.get(uid) || [];
+            const entry = assign.get(uid);
+            const jobs = Array.isArray(entry) ? entry : entry?.jobs || [];
             if (jobs.length) jobdeskByKey.set(`${uid}_${dateISO}`, jobs.join(' + '));
           });
         });
+      }
+
+      // ---- Catat log keputusan jobdesk Kitchen (untuk laporan bulanan) ----
+      // rotationVersion = 2 menandai data hasil antrian tetap. Data lama
+      // (sebelum migrasi, dari kolom kitchenStation) ber-versi 1, sehingga
+      // laporan bisa memisahkan keduanya.
+      if (KITCHEN_NAMES.has(position.name) && jobdeskList.length) {
+        const logDateFrom = pairs.length
+          ? pairs.reduce((min, p) => (p.date < min ? p.date : min), pairs[0].date)
+          : null;
+        const logDateTo = pairs.length
+          ? pairs.reduce((max, p) => (p.date > max ? p.date : max), pairs[0].date)
+          : null;
+
+        const logs = [];
+        for (const p of pairs) {
+          const dateISO = toISO(p.date);
+          const station = jobdeskByKey.get(`${p.userId}_${dateISO}`);
+          if (!station) continue; // hari libur / tidak dapat jobdesk → tidak dicatat
+          logs.push({
+            date: p.date,
+            userId: p.userId,
+            roleCode: station
+              .split(' + ')
+              .map((name) => this._kitchenRoleOf(name))
+              .filter(Boolean)
+              .join('+'),
+            packagesAssigned: station,
+            workingCount: assignments.filter((a) => !isOffOn(a.userId, p.date)).length,
+            rotationVersion: 2,
+          });
+        }
+
+        if (logs.length && logDateFrom && logDateTo) {
+          // Hapus dulu log periode ini supaya generateWeek bersifat IDEMPOTEN:
+          // menjalankan ulang minggu yang sama menimpa, bukan menggandakan.
+          // Log lama (rotationVersion=1, pra-antrian) tidak tersentuh karena
+          // tanggalnya di luar rentang yang digenerate.
+          await prisma.kitchenJobdeskLog.deleteMany({
+            where: { date: { gte: logDateFrom, lte: logDateTo } },
+          });
+          await prisma.kitchenJobdeskLog.createMany({ data: logs });
+        }
       }
 
       // Recreate all rows for the week, skipping manual overrides (single bulk create).
@@ -545,11 +606,12 @@ class RotationService {
    * Deteksi peran jobdesk Kitchen dari namanya.
    * Nama di DB bisa "Main Cook", "Support Cook", "Checker / Stock",
    * "Runner / Area", "Helper / Floating", "Plating", dst.
-   * @returns {String|null} MAIN | SUPPORT | CHECKER | RUNNER | HELPER | PLATING | null
+   * @returns {String|null} MAIN | SUPPORT | CHECKER | RUNNER | HELPER | PLATING | DISHWASHER | null
    */
   _kitchenRoleOf(name) {
     const n = String(name || '').toLowerCase();
     if (/plating/.test(n)) return 'PLATING';
+    if (/dishwash|cuci|sanitation/.test(n)) return 'DISHWASHER';
     if (/main\s*cook|head\s*cook|kepala/.test(n)) return 'MAIN';
     if (/support|snack/.test(n)) return 'SUPPORT';
     if (/checker|stock|stok/.test(n)) return 'CHECKER';
@@ -559,17 +621,20 @@ class RotationService {
   }
 
   /**
-   * Susun paket jobdesk Kitchen sesuai jumlah staff yang MASUK KERJA.
-   *
    * Aturan (disepakati September 2026):
-   *   5 staff : Main Cook | Support Cook | Checker(+Plating) | Runner | Helper
-   *   4 staff : Main Cook | Support Cook | Checker(+Plating) | Runner+Helper
-   *   3 staff : Main Cook+Support Cook | Checker(+Plating) | Runner+Helper
-   *   2 staff : Main Cook+Support Cook | Checker(+Plating)+Runner+Helper
+   *   5 staff : Main Cook | Support Cook | Checker(+Plating+Dishwasher) | Runner | Helper
+   *   4 staff : Main Cook | Support Cook | Checker(+Plating+Dishwasher) | Runner+Helper
+   *   3 staff : Main Cook | Support(+Checker+Plating+Dishwasher) | Runner+Helper
+   *   2 staff : Main Cook+Support Cook | Checker(+Plating+Dishwasher)+Runner+Helper
    *
-   * Jobdesk "Plating" (bila ada di DB) selalu menempel ke Checker — Checker tidak
-   * pernah dipecah ke dua orang. Jobdesk yang tidak dikenali tetap dapat paket
-   * sendiri di akhir supaya jobdesk kustom tidak hilang.
+   * Dishwasher (cuci alat) BUKAN jobdesk tersendiri di DB — ia tugas tambahan
+   * yang selalu menempel ke Checker, sama seperti Plating. Alasan: Checker
+   * bebannya paling ringan dan posisinya paling dekat ke Main Cook.
+   * Runner+Helper TIDAK menampung cuci alat (harus tampil bersih untuk server).
+   *
+   * Jobdesk "Plating"/"Dishwasher" (bila ada di DB) selalu menempel ke Checker —
+   * Checker tidak pernah dipecah ke dua orang. Jobdesk yang tidak dikenali tetap
+   * dapat paket sendiri di akhir supaya jobdesk kustom tidak hilang.
    *
    * @param {String[]} jobdeskList - nama jobdesk posisi (urut orderIndex)
    * @param {Number} nStaff - jumlah staff yang masuk kerja hari itu
@@ -579,7 +644,7 @@ class RotationService {
     const plans = {
       1: [['MAIN', 'SUPPORT', 'CHECKER', 'RUNNER', 'HELPER']],
       2: [['MAIN', 'SUPPORT'], ['CHECKER', 'RUNNER', 'HELPER']],
-      3: [['MAIN', 'SUPPORT'], ['CHECKER'], ['RUNNER', 'HELPER']],
+      3: [['MAIN'], ['SUPPORT', 'CHECKER'], ['RUNNER', 'HELPER']],
       4: [['MAIN'], ['SUPPORT'], ['CHECKER'], ['RUNNER', 'HELPER']],
       5: [['MAIN'], ['SUPPORT'], ['CHECKER'], ['RUNNER'], ['HELPER']],
     };
@@ -588,7 +653,7 @@ class RotationService {
     const extras = [];
     for (const name of jobdeskList) {
       const role = this._kitchenRoleOf(name);
-      if (role === 'PLATING') byRole.CHECKER.push(name);
+      if (role === 'PLATING' || role === 'DISHWASHER') byRole.CHECKER.push(name);
       else if (role) byRole[role].push(name);
       else extras.push(name);
     }
@@ -682,6 +747,9 @@ class RotationService {
         const rosterOrder = new Map(position.rosters.map((r) => [r.userId, r.orderIndex]));
         const rosterUserIds = position.rosters.map((r) => r.userId);
 
+        // Antrian tetap Kitchen (queueIndex) — sama seperti yang dipakai generateWeek.
+        const stateMap = await this._getOrSeedKitchenStates(position.id, rosterUserIds);
+
         for (const rawDate of dateObjs) {
           const dateObj = new Date(rawDate);
           if (isNaN(dateObj.getTime())) continue;
@@ -723,22 +791,25 @@ class RotationService {
               !manualOverrideIds.has(s.userId) &&
               KITCHEN_DEPTS.has(s.temporaryDepartment)
             )
-            .map((s) => s.userId)
-            .sort((a, b) => {
-              const oa = rosterOrder.has(a) ? rosterOrder.get(a) : 9999;
-              const ob = rosterOrder.has(b) ? rosterOrder.get(b) : 9999;
-              return oa !== ob ? oa - ob : a - b;
-            });
+            .map((s) => s.userId);
 
           if (!working.length) continue;
 
-          // dayIdx sebagai offset rotasi harian — sama persis dengan generateWeek
-          const dayIdx = Math.floor(dateObj.getTime() / 86400000);
-          const assign = this.assignKitchenStations(jobdeskList, working, dayIdx);
+          // Rotasi harian memakai indeks hari sejak epoch — SAMA dengan
+          // generateWeek, supaya kedua jalur menghasilkan jobdesk identik
+          // untuk tanggal yang sama.
+          const assign = this._assignKitchenByQueue(
+            jobdeskList,
+            working,
+            stateMap,
+            rosterOrder,
+            dayOffsetEpoch(dateObj)
+          );
 
           // Tulis ke DB
           for (const uid of working) {
-            const jobs = assign.get(uid) || [];
+            const entry = assign.get(uid);
+            const jobs = Array.isArray(entry) ? entry : entry?.jobs || [];
             const stationStr = jobs.length ? jobs.join(' + ') : null;
             await prisma.userSchedule.updateMany({
               where: { date: dateObj, userId: uid, isManualOverride: false },
@@ -1961,6 +2032,295 @@ class RotationService {
       return null;
     }
   }
+  /**
+   * ---- ANTRIAN TETAP (fixed queue) untuk jobdesk Kitchen ----
+   *
+   * Menggantikan rotasi berbasis "offset hari ke-epoch": pada mode lama, siapa
+   * dapat jobdesk apa ditentukan oleh (hariKeEpoch + indeksStaff) % jumlahPaket,
+   * sehingga bila komposisi staff berubah (ada yang off/masuk), SEMUA orang
+   * bergeser — jobdesk seseorang berubah hanya karena orang lain tidak masuk.
+   *
+   * Mode baru: setiap staff punya `queueIndex` TETAP yang tidak berubah oleh
+   * kehadiran orang lain. Tiap hari, staff yang bekerja diurutkan berdasarkan
+   * queueIndex, lalu paket jobdesk dibagikan mengikuti urutan itu. Supaya
+   * adil, posisi paket untuk "orang ke-i dalam hari itu" digeser menurut
+   * penghitung hari yang HANYA maju saat jumlah staff yang bekerja = jumlah
+   * paket penuh (mis. 4). Dengan begitu:
+   *   - urutan antar-staff selalu sama (antrian tetap),
+   *   - yang jadi "orang pertama" (Main Cook) tetap bergilir dari hari ke hari,
+   *   - saat ada yang off, posisi antrian orang lain TIDAK bergeser permanen.
+   */
+
+  /** Jumlah paket penuh (mode staff lengkap) untuk Kitchen. */
+  _kitchenFullTeamSize() {
+    return 4;
+  }
+
+  /** Urutan prioritas paket jobdesk (indeks 0 paling diutamakan). */
+  _kitchenPriorityOrder() {
+    return module.exports.KITCHEN_PRIORITY_ORDER || [
+      'MAIN',
+      'SUPPORT',
+      'CHECKER',
+      'RUNNER',
+      'HELPER',
+    ];
+  }
+
+  /**
+   * Urutkan staff Kitchen menurut antrian tetap (`queueIndex`), lalu `orderIndex`
+   * roster sebagai cadangan, lalu userId agar hasilnya pasti deterministik.
+   */
+  _sortKitchenByQueue(userIds, stateMap, rosterOrderMap = new Map()) {
+    return [...userIds].sort((a, b) => {
+      const qa = stateMap.get(a)?.queueIndex;
+      const qb = stateMap.get(b)?.queueIndex;
+      const va = Number.isFinite(qa) ? qa : Number.MAX_SAFE_INTEGER;
+      const vb = Number.isFinite(qb) ? qb : Number.MAX_SAFE_INTEGER;
+      if (va !== vb) return va - vb;
+      const ra = rosterOrderMap.get(a) ?? Number.MAX_SAFE_INTEGER;
+      const rb = rosterOrderMap.get(b) ?? Number.MAX_SAFE_INTEGER;
+      if (ra !== rb) return ra - rb;
+      return a - b;
+    });
+  }
+
+  /** Ringkas paket jobdesk (array nama jobdesk) jadi kode peran, mis. "RUNNER+HELPER". */
+  _kitchenPackagesAssigned(pack) {
+    return (pack || [])
+      .map((name) => this._kitchenRoleOf(name))
+      .filter(Boolean)
+      .join('+');
+  }
+
+  /**
+   * Ambil state antrian untuk sekumpulan staff Kitchen.
+   * Staff yang belum punya baris state dibuatkan otomatis (queueIndex mengikuti
+   * urutan roster) supaya sistem tetap jalan walau seed belum dijalankan.
+   */
+  async _getOrSeedKitchenStates(positionId, rosterUserIds) {
+    const rows = await prisma.kitchenJobdeskState.findMany({
+      where: { positionId },
+      select: { id: true, userId: true, queueIndex: true, effectiveFrom: true },
+    });
+
+    const stateMap = new Map(rows.map((r) => [r.userId, r]));
+    const missing = rosterUserIds.filter((uid) => !stateMap.has(uid));
+
+    if (!missing.length) return stateMap;
+
+    // queueIndex untuk staff baru: lanjutkan dari yang tertinggi yang sudah ada.
+    let nextIndex = rows.reduce((max, r) => Math.max(max, Number(r.queueIndex) || 0), -1) + 1;
+    const today = toDateOnly(new Date());
+
+    for (const uid of missing) {
+      try {
+        const created = await prisma.kitchenJobdeskState.create({
+          data: { positionId, userId: uid, queueIndex: nextIndex, effectiveFrom: today },
+          select: { id: true, userId: true, queueIndex: true, effectiveFrom: true },
+        });
+        stateMap.set(uid, created);
+        nextIndex += 1;
+      } catch (err) {
+        // Balapan antar-request: baris sudah dibuat pihak lain, baca ulang.
+        const existing = await prisma.kitchenJobdeskState.findFirst({
+          where: { positionId, userId: uid },
+          select: { id: true, userId: true, queueIndex: true, effectiveFrom: true },
+        });
+        if (existing) stateMap.set(uid, existing);
+        else console.warn('[rotation] Gagal seed state jobdesk Kitchen:', err?.message);
+      }
+    }
+    return stateMap;
+  }
+
+  /**
+   * Bobot "seberapa berat" sebuah paket, untuk perataan jangka panjang.
+   * Diambil dari jumlah jobdesk inti di dalamnya; paket gabungan (mis.
+   * "Runner+Helper") pasti lebih berat daripada paket tunggal (mis. "Main Cook").
+   */
+  _kitchenPackageWeight(pack) {
+    return (pack || []).filter((name) => this._kitchenRoleOf(name)).length || 1;
+  }
+
+  /**
+   * Hitung, untuk tiap staff, total bobot jobdesk yang SUDAH pernah dipegang,
+   * dari log historis. Berguna untuk audit keseimbangan beban jangka panjang.
+   *
+   * Catatan: KitchenJobdeskLog tidak menyimpan positionId (log dikunci per
+   * user+tanggal), jadi beban dihitung untuk semua posisi Kitchen.
+   *
+   * @param {Number[]} userIds
+   * @param {Date|null} since - hanya hitung log sejak tanggal ini
+   * @returns {Map} userId -> bobot kumulatif
+   */
+  async _kitchenLoadFromLogs(userIds, since = null) {
+    const load = new Map(userIds.map((u) => [u, 0]));
+    if (!userIds.length) return load;
+
+    try {
+      const where = { userId: { in: userIds } };
+      if (since) where.date = { gte: toDateOnly(since) };
+
+      const logs = await prisma.kitchenJobdeskLog.findMany({
+        where,
+        select: { userId: true, packagesAssigned: true },
+      });
+      for (const log of logs) {
+        const weight = String(log.packagesAssigned || '')
+          .split('+')
+          .filter(Boolean).length;
+        load.set(log.userId, (load.get(log.userId) || 0) + weight);
+      }
+    } catch (err) {
+      console.warn('[rotation] Gagal baca beban jobdesk dari log:', err?.message);
+    }
+    return load;
+  }
+
+  /**
+   * Tentukan siapa dapat jobdesk apa untuk satu hari, memakai antrian tetap.
+   *
+   * Aturan:
+   *   1. Staff diurutkan menurut `queueIndex` (permanent) — kehadiran orang lain
+   *      TIDAK mengubah urutan ini.
+   *   2. Paket yang tersedia hari itu diurutkan menurut KITCHEN_PRIORITY_ORDER.
+   *   3. Paket dibagikan ke staff, tetapi urutan penerimaannya dirotasi tiap hari
+   *      (`dayOffset`) sehingga yang paling diutamakan bergilir — bukan selalu
+   *      orang yang sama.
+   *   4. Antar-staff, urutan penerimaan dirotasi menurut beban historis
+   *      (`loadMap`) supaya akumulasi jobdesk berat merata dalam jangka panjang.
+   *
+   * @param {String[]} jobdeskList - nama jobdesk posisi (urut orderIndex)
+   * @param {Number[]} workingUserIds - staff yang MASUK KERJA hari itu
+   * @param {Map} stateMap - userId -> { queueIndex }
+   * @param {Map} rosterOrderMap - userId -> orderIndex roster (cadangan urutan)
+   * @param {Number} dayOffset - penghitung rotasi harian (mis. indeks hari)
+   * @param {Map} loadMap - userId -> bobot historis (opsional)
+   * @returns {Map} userId -> { jobs: String[], roleCode: String }
+   */
+  _assignKitchenByQueue(
+    jobdeskList,
+    workingUserIds,
+    stateMap,
+    rosterOrderMap = new Map(),
+    dayOffset = 0,
+    loadMap = new Map()
+  ) {
+    const result = new Map();
+    if (!workingUserIds.length) return result;
+
+    const ordered = this._sortKitchenByQueue(workingUserIds, stateMap, rosterOrderMap);
+    const packages = this.buildKitchenPackages(jobdeskList, ordered.length);
+
+    if (!packages.length) return result;
+    if (packages.length === 1) {
+      ordered.forEach((uid) =>
+        result.set(uid, {
+          jobs: packages[0],
+          roleCode: this._kitchenPackagesAssigned(packages[0]),
+        })
+      );
+      return result;
+    }
+    return this._spreadKitchenPackages(ordered, packages, dayOffset, result);
+  }
+
+  /**
+   * Bagikan paket jobdesk ke staff (dipisah agar mudah diuji & dibaca).
+   *
+   * Prinsip (penting, jangan diubah tanpa uji):
+   *   - ROTASI ditentukan MURNI oleh antrian tetap + hari. Staff ke-i dalam
+   *     antrian selalu menerima paket ke-(i + hari) dari daftar paket yang
+   *     dirotasi. Jadi rotasi TIDAK PERNAH bisa dibekukan oleh faktor lain.
+   *   - Paket diurutkan menurut KITCHEN_PRIORITY_ORDER supaya slot 0 selalu
+   *     berarti "jobdesk paling utama" — dipakai untuk pelaporan, bukan untuk
+   *     menentukan siapa dapat apa.
+   */
+  _spreadKitchenPackages(ordered, packages, dayOffset, result) {
+    const n = ordered.length;
+    const m = packages.length;
+    const wOf = (pack) => this._kitchenPackageWeight(pack);
+
+    // 1. Rotasi paket per hari: paket digeser agar slot 0 bukan selalu paket
+    //    yang sama → yang memegang jobdesk utama bergilir tiap hari.
+    const shift = ((dayOffset % m) + m) % m;
+    const rotated = [...packages.slice(shift), ...packages.slice(0, shift)];
+
+    // 2. Urutkan paket yang sudah dirotasi menurut KITCHEN_PRIORITY_ORDER
+    //    supaya penamaan slot konsisten (slot 0 = jobdesk paling utama).
+    const priority = this._kitchenPriorityOrder();
+    const rankOf = (pack) => {
+      const first = (pack || []).map((x) => this._kitchenRoleOf(x)).find(Boolean);
+      const idx = priority.indexOf(first);
+      return idx === -1 ? priority.length : idx;
+    };
+    const slotPacks = [...rotated].sort((x, y) => rankOf(x) - rankOf(y));
+
+    // 3. Susun urutan staff penerima. Basis: antrian tetap (rotasi pasti jalan).
+    //    Perataan beban HANYA menggeser urutan di antara staff yang bebannya
+    //    berbeda, dan hanya untuk paket yang bobotnya sama — tidak pernah
+    //    mengubah giliran paket utama.
+    const rot = ((dayOffset % n) + n) % n;
+    const queueOrder = [...ordered.slice(rot), ...ordered.slice(0, rot)];
+
+    // Rotasi paket per-slot untuk staff: staff ke-k menerima slotPacks ke-k,
+    // lalu slot dirotasi per hari agar tidak macet.
+    const nPack = slotPacks.length;
+
+    // Staff tambahan (bila staff > paket) ditempelkan ke paket terbesar.
+    const extras = queueOrder.slice(nPack);
+
+    queueOrder.slice(0, nPack).forEach((uid, k) => {
+      const pack = slotPacks[k] || [];
+      result.set(uid, { jobs: pack, roleCode: this._kitchenPackagesAssigned(pack) });
+    });
+
+    if (!extras.length) return result;
+
+    // Cari paket terberat untuk dibagi dengan staff berlebih.
+    let hostIdx = 0;
+    for (let k = 1; k < nPack; k++) {
+      if (wOf(slotPacks[k]) > wOf(slotPacks[hostIdx])) hostIdx = k;
+    }
+    const hostUid = queueOrder[hostIdx];
+    const hostEntry = result.get(hostUid);
+    if (!hostEntry) return result;
+
+    const jobs = hostEntry.jobs;
+    const groups = Math.min(extras.length + 1, Math.max(jobs.length, 2));
+    const per = Math.max(1, Math.ceil(jobs.length / groups));
+
+    hostEntry.jobs = jobs.slice(0, per);
+    hostEntry.roleCode = this._kitchenPackagesAssigned(hostEntry.jobs);
+
+    extras.forEach((uid, i) => {
+      const slice = jobs.slice(per * (i + 1), per * (i + 2));
+      result.set(uid, {
+        jobs: slice,
+        roleCode: this._kitchenPackagesAssigned(slice),
+      });
+    });
+
+    return result;
+  }
 }
 
 module.exports = new RotationService();
+
+/**
+ * Urutan prioritas jobdesk Kitchen — dipakai untuk menentukan staff mana
+ * yang mendapat paket jobdesk tertentu saat jumlah staff terbatas.
+ *
+ * Diurutkan dari yang paling menentukan (paling awal). Semakin kecil indeksnya,
+ * semakin diutamakan saat paket jobdesk dialokasikan ke staf menurut antrian.
+ * Ini konstanta kode, BUKAN data DB: mengubahnya harus lewat perubahan kode
+ * yang ter-review, bukan edit baris tabel.
+ */
+module.exports.KITCHEN_PRIORITY_ORDER = [
+  'MAIN',
+  'SUPPORT',
+  'CHECKER',
+  'RUNNER',
+  'HELPER',
+];
