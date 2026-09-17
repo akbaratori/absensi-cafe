@@ -37,6 +37,10 @@ coverage/
 # Misc
 server_started.txt
 
+# Temp test scripts & local backups (never commit)
+backend/tmp_*.cjs
+backend/tmp_*.json
+
 # VAPID keys file (contains private key - DO NOT COMMIT)
 backend/vapid.txt
 vapid.txt
