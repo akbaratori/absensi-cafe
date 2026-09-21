@@ -12,7 +12,7 @@
     "migrate:deploy": "npx prisma migrate deploy --schema=./prisma/schema.prisma",
     "prisma:generate": "./node_modules/.bin/prisma generate --schema=./prisma/schema.prisma",
     "test": "jest --coverage",
-    "test:staging": "node scripts/with-test-db.js node node_modules/jest/bin/jest.js --coverage",
+    "test:staging": "node scripts/with-test-db.js node node_modules/jest/bin/jest.js --coverage --maxWorkers=1",
     "lint": "eslint src/"
   },
   "keywords": [

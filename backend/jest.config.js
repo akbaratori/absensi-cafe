@@ -15,5 +15,11 @@ module.exports = {
   // dan tiap query ~70 ms, sehingga test yang sebelumnya hijau bisa timeout
   // hanya karena jarak jaringan — bukan karena logika aplikasi rusak.
   testTimeout: 30000,
+  // CATATAN: `npm run test:staging` sengaja dipanggil dengan --maxWorkers=1
+  // (lihat package.json). Bila Jest memakai beberapa worker paralel, tiap
+  // worker membuka pool Prisma sendiri (connection_limit=5) + handshake TLS
+  // ke Aiven staging sekaligus; burst koneksi itu ditolak server dan Prisma
+  // melaporkannya sebagai "Can't reach database server" — SEMUA suite gagal
+  // walau kredensial benar. Satu worker = satu pool = stabil.
   setupFilesAfterEnv: ['./tests/setup.js']
 };
