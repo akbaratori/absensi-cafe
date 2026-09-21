@@ -1,5 +1,6 @@
 const { AppError } = require('../utils/AppError');
 const prisma = require('../utils/database');
+const { loadShiftMapByNumber } = require('../utils/shiftResolver');
 
 /**
  * Rotation Service
@@ -640,8 +641,11 @@ class RotationService {
     const anchor = this._resolveAnchor(position, monday, totalRoster, step);
     const startIndex = this._indexFromAnchor(anchor, monday, totalRoster, step);
 
-    const shift1 = await prisma.shift.findFirst({ where: { name: 'Shift 1' } });
-    const shift2 = await prisma.shift.findFirst({ where: { name: 'Shift 2' } });
+    // Cari shift lewat NAMA-nya (toleran: "Shift 1", "Shift 1 (Pagi)"), bukan
+    // dengan mencocokkan nama persis — nama shift berbeda antar environment.
+    const shiftMap = await loadShiftMapByNumber();
+    const shift1 = shiftMap.get(1);
+    const shift2 = shiftMap.get(2);
 
     if (!shift1 || !shift2) {
       throw new AppError('Data Shift 1 dan Shift 2 belum ada di database', 500, 'INTERNAL_ERROR');
@@ -2188,6 +2192,14 @@ class RotationService {
       overrides.map((o) => [`${o.userId}|${toISO(o.date)}`, o]),
     );
 
+    // Peta shiftId -> nomor shift (1, 2, 3, ...) diambil dari NAMA shift,
+    // BUKAN dari nilai id-nya. Di produksi id `shifts` tidak berurutan
+    // (id=1 "Shift 1", id=3 "Shift 2", id=5 "Shift 3"), sehingga asumsi
+    // `shiftId === 1 ? 1 : 2` salah membaca: Shift 2 (id 3) benar hanya
+    // kebetulan, dan Shift 3 (id 5) ikut terbaca sebagai "Shift 2".
+    const shiftMap = await loadShiftMapByNumber();
+    const shiftNumberById = new Map([...shiftMap].map(([num, s]) => [s.id, num]));
+
     const result = [];
     for (const monday of mondays) {
       for (let i = 0; i < 7; i++) {
@@ -2214,7 +2226,7 @@ class RotationService {
               isOffDay = true;
               shiftNumber = null;
             } else if (override.shiftId) {
-              shiftNumber = override.shiftId === 1 ? 1 : 2;
+              shiftNumber = shiftNumberById.get(override.shiftId) ?? null;
               isOffDay = false;
             }
           } else if (weekMap.has(userId)) {
@@ -2260,7 +2272,21 @@ class RotationService {
     const dateISO = toISO(dateObj);
 
     const isOff = !shiftNumber || shiftNumber === 0;
-    const shiftId = isOff ? null : shiftNumber;
+
+    // PENTING: `shiftNumber` (1 atau 2) BUKAN primary key tabel `shifts`.
+    // Di produksi id-nya TIDAK berurutan: id=1 "Shift 1", id=3 "Shift 2",
+    // id=5 "Shift 3". Menulis `shiftId: shiftNumber` membuat pilihan "S2"
+    // tersimpan sebagai shiftId=2 yang TIDAK ADA di tabel shifts — baris itu
+    // lalu kehilangan info jam shift dan tidak cocok dengan hasil generate.
+    // Karena itu cari id-nya lewat NAMA, sama seperti generateWeek.
+    let shiftId = null;
+    if (!isOff) {
+      const target = (await loadShiftMapByNumber()).get(shiftNumber);
+      if (!target) {
+        throw new AppError(`Shift ${shiftNumber} tidak ada di database`, 400, 'VALIDATION_ERROR');
+      }
+      shiftId = target.id;
+    }
 
     // Nama posisi di DB adalah "Dapur" (bukan "Kitchen") — pakai daftar yang sama
     // dengan generateWeek, kalau tidak staff Dapur akan ditandai temporaryDepartment
@@ -2316,9 +2342,12 @@ class RotationService {
   async syncSchedulesForUserDates(pairs) {
     if (!Array.isArray(pairs) || pairs.length === 0) return 0;
 
-    const shifts = await prisma.shift.findMany({ select: { id: true, name: true } });
-    shifts.sort((a, b) => a.id - b.id);
-    const shiftIdByNumber = new Map(shifts.map((sh, idx) => [idx + 1, sh.id]));
+    // Peta nomorShift -> baris shift diambil dari NAMA ("Shift 1" -> 1), bukan
+    // dari urutan posisi di array. Urutan array hanya benar selama id shift
+    // kebetulan menaik; begitu ada id yang bolong/berbeda, nomor shift ikut
+    // salah petakan. Nama adalah sumber kebenaran yang sama dipakai generateWeek.
+    const shiftMap = await loadShiftMapByNumber();
+    const shiftIdByNumber = new Map([...shiftMap].map(([num, s]) => [num, s.id]));
 
     let synced = 0;
     for (const p of pairs) {

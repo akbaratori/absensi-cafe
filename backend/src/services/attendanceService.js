@@ -5,6 +5,7 @@ const { getAttendanceConfig, calculateAttendanceStatus, calculateTotalHours, for
 const swapService = require('./swapService'); // Import SwapService
 const offDayService = require('./offDayService'); // Import OffDayService
 const auditService = require('./auditService');
+const { loadShiftMapByNumber } = require('../utils/shiftResolver');
 
 const shifts = require('../config/shifts');
 
@@ -57,8 +58,12 @@ class AttendanceService {
     });
 
     if (backup?.shiftNumber != null) {
-      const allShifts = await prisma.shift.findMany({ orderBy: { id: 'asc' } });
-      const shift = allShifts[backup.shiftNumber - 1] || null;
+      // Nomor shift harus dipetakan lewat NAMA ("Shift 2" -> nomor 2 -> id 3),
+      // BUKAN lewat posisi di array (allShifts[n-1]). Posisi array hanya benar
+      // selama id shift berurutan tanpa bolong; di produksi id-nya 1, 3, 5
+      // sehingga asumsi itu rapuh dan bisa menunjuk jam shift yang salah.
+      const shiftMap = await loadShiftMapByNumber();
+      const shift = shiftMap.get(backup.shiftNumber) || null;
       if (shift) return { shift, source: `backup shift ${backup.shiftNumber}` };
     }
 
@@ -881,9 +886,11 @@ class AttendanceService {
             select: { shiftNumber: true },
           });
           if (ws?.shiftNumber) {
-            const shifts = await prisma.shift.findMany({ select: { id: true }, orderBy: { id: 'asc' } });
-            const shiftEntry = shifts[ws.shiftNumber - 1];
-            if (shiftEntry) compShiftId = shiftEntry.id;
+            // Petakan lewat nama, bukan posisi array (lihat catatan di
+            // resolveEffectiveShift: id shift di produksi 1, 3, 5 — tidak rapat).
+            const shiftMap = await loadShiftMapByNumber();
+            const entry = shiftMap.get(ws.shiftNumber);
+            if (entry) compShiftId = entry.id;
           }
         } catch (_) { /* tidak kritis, lanjut tanpa shiftId */ }
 

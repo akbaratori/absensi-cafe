@@ -112,6 +112,8 @@ function MonthCalendar({ month, understaffed, roster, users, positionId, onAssig
           <div key={h} className="text-center text-xs font-medium text-gray-500 dark:text-gray-400 py-1">{h}</div>
         ))}
       </div>
+      {/* Keterangan cara pakai: tanpa ini kalender terlihat seperti tampilan
+          baca-saja, padahal setiap tanggal bisa diklik untuk mengubah shift. */}
       <div className="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
         {weeks.map((week, wi) => (
           <div key={wi} className="grid grid-cols-7 border-b border-gray-100 dark:border-gray-800 last:border-0">
@@ -144,7 +146,11 @@ function MonthCalendar({ month, understaffed, roster, users, positionId, onAssig
                   ))}
                   {assignments.map((a, ai) => {
                     const name = a.user ? getUserName(a.user) : resolveName(a.userId);
-                    const label = a.isOffDay ? 'OFF' : `S${a.shiftNumber}`;
+                    // shiftNumber bisa null bila baris override lama menunjuk
+                    // shiftId yang tidak ada di tabel shifts (bug lama menulis
+                    // `shiftId = shiftNumber`). Tampilkan "?" supaya jelas perlu
+                    // dibetulkan, bukan mencetak "Snull".
+                    const label = a.isOffDay ? 'OFF' : (a.shiftNumber ? `S${a.shiftNumber}` : '?');
                     const isManual = a.isManualOverride;
                     return (
                       <div
@@ -179,10 +185,17 @@ function MonthCalendar({ month, understaffed, roster, users, positionId, onAssig
           </div>
         ))}
       </div>
-      <div className="flex items-center gap-4 mt-2 text-xs text-gray-500 dark:text-gray-400">
+      <div className="flex items-center gap-4 mt-2 text-xs text-gray-500 dark:text-gray-400 flex-wrap">
         <span className="flex items-center gap-1"><span className="w-3 h-3 bg-red-100 dark:bg-red-900/40 rounded border border-red-200 dark:border-red-800 inline-block" /> Kekurangan staff</span>
         <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400">S1 = Shift 1, S2 = Shift 2, angka = kurang berapa orang</span>
+        <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400">✎ = diubah manual oleh admin</span>
       </div>
+      {/* Petunjuk ini penting: tanpa keterangan, kalender terlihat seperti
+          tampilan baca-saja padahal tiap tanggal bisa diklik untuk ganti shift. */}
+      <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+        💡 <b>Klik tanggal mana pun</b> untuk memindahkan shift pegawai hari itu (S1 / S2 / OFF).
+        Perubahan disimpan langsung, ditandai ✎, dan <b>tidak tertimpa</b> saat generate ulang.
+      </p>
     </div>
   );
 }
@@ -396,7 +409,9 @@ function EditScheduleModal({ date, assignments, roster, onClose, onSave, onReset
         </div>
 
         <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-          Ubah shift atau tandai OFF untuk tiap pegawai. Perubahan ditandai ✎ (manual) dan tidak tertimpa saat generate ulang.
+          Klik <b>S1</b> / <b>S2</b> untuk memindah shift pegawai pada tanggal ini, atau <b>OFF</b> untuk
+          meliburkan. Perubahan disimpan langsung, ditandai ✎ (manual), dan <b>tidak tertimpa</b> saat
+          generate ulang. Tekan <b>Auto</b> untuk membatalkan dan kembali ke jadwal rotasi otomatis.
         </p>
 
         {rosterUsers.length === 0 ? (
@@ -458,9 +473,9 @@ function EditScheduleModal({ date, assignments, roster, onClose, onSave, onReset
                       onClick={() => handleReset(ru.userId)}
                       disabled={savingId === ru.userId}
                       className="px-2 py-1 text-xs rounded font-medium border border-amber-300 text-amber-600 hover:bg-amber-50 dark:border-amber-700 disabled:opacity-50"
-                      title="Hapus override, pulihkan jadwal generate"
+                      title="Batalkan perubahan manual, kembalikan ke jadwal rotasi otomatis"
                     >
-                      ↩
+                      Auto
                     </button>
                   )}
                 </div>
@@ -571,6 +586,34 @@ export default function RotationManagementPage() {
       toast.error('Gagal memuat detail posisi');
     }
   }, [previewWeek]);
+
+  // Muat jadwal bulanan yang SUDAH ADA begitu posisi/bulan berubah.
+  //
+  // KENAPA ini penting: sebelumnya `monthSchedule` hanya diisi setelah admin
+  // menekan "Generate Jadwal" (atau setelah menekan S1/S2 di modal). Akibatnya
+  // membuka halaman lalu klik tanggal -> kalender kosong, dan modal edit cuma
+  // menampilkan shift roster bawaan. Admin menyimpulkan "tidak bisa ganti shift",
+  // padahal penyebabnya data bulan itu belum pernah dimuat ke state.
+  //
+  // Sekarang override manual yang tersimpan langsung terlihat tanpa perlu
+  // generate ulang — dan mengklik tanggal selalu bisa dipakai untuk mengubah
+  // shift pegawai mana pun di posisi ini.
+  useEffect(() => {
+    if (!selectedPosition?.id || !month) {
+      setMonthSchedule([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await rotationService.getMonthSchedule(selectedPosition.id, month);
+        if (!cancelled) setMonthSchedule(res.data?.data || []);
+      } catch {
+        if (!cancelled) setMonthSchedule([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [selectedPosition?.id, month]);
 
   // Simpan daftar jobdesk posisi terpilih ke server (array {name, isHeavy}).
   const saveJobdesks = async (list) => {

@@ -1,6 +1,12 @@
 const prisma = require('../src/utils/database');
 const rotationService = require('../src/services/rotationService');
 const { AppError } = require('../src/utils/AppError');
+const { parseShiftNumber, loadShiftMapByNumber } = require('../src/utils/shiftResolver');
+
+// DB test ini remote (Aiven), jadi satu test bisa butuh puluhan detik:
+// `generateMonth` menulis ratusan baris satu per satu. Batas bawaan Jest 5 detik
+// membuat test idempotensi gagal karena WAKTU, bukan karena logika rotasi.
+jest.setTimeout(180000);
 
 /**
  * Rotasi shift per posisi.
@@ -275,6 +281,198 @@ describe('Rotation: generate jadwal per posisi', () => {
     await expect(
       rotationService.updatePosition(positionNormal.id, { shift2Capacity: -1 }),
     ).rejects.toThrow(AppError);
+  });
+});
+
+/**
+ * Pemetaan nomor shift -> id tabel `shifts`.
+ *
+ * Bug yang dijaga di sini: kolom `shiftId` menyimpan PRIMARY KEY tabel `shifts`,
+ * sedangkan `shiftNumber` adalah nomor logis (1, 2, 3) yang dipakai UI dan
+ * generate. Di produksi id-nya TIDAK berurutan — id=1 "Shift 1", id=3 "Shift 2",
+ * id=5 "Shift 3". Kode yang menyamakan keduanya (`shiftId: shiftNumber`) atau
+ * memakai posisi array (`shifts[n-1]`) akan menulis / membaca shift yang salah:
+ *
+ *   - setScheduleAssignment menulis "S2" sebagai shiftId=2 -> id 2 tidak ada,
+ *     baris kehilangan jam shift. Di produksi ini menghasilkan 2 baris rusak
+ *     (Gio 2026-09-06, Nhelam 2026-09-08).
+ *   - resolveEffectiveShift memakai `allShifts[n-1]`, benar hanya selama id rapat.
+ *
+ * Perbaikan: selalu petakan lewat NAMA ("Shift N" -> id), sumber kebenaran yang
+ * sama dipakai generateWeek.
+ */
+describe('Pemetaan shiftNumber <-> shiftId', () => {
+  const TAG = 'shiftmap_test_';
+  const POS = '__SHIFTMAP_TEST__';
+  const WEEK = new Date('2026-11-02T00:00:00.000Z'); // Senin
+
+  let user;
+  let position;
+  let shift1;
+  let shift2;
+  let shift3;
+  const createdShiftIds = [];
+
+  /** Benar bila ini menjalankan test-nya langsung: -t "Pemetaan shiftNumber". */
+  const onlyThisSuite = (process.argv.find((a) => a.startsWith('-t=')) || '').includes('Pemetaan');
+
+  beforeAll(async () => {
+    // Suite ini butuh baris `shifts` untuk nomor 1/2/3. Cari lewat NOMOR shift —
+    // nama berbeda antar environment (staging "Shift 2 (Siang)", produksi
+    // "Shift 2"), jadi pencocokan nama persis membuat baris duplikat.
+    // WAJIB pilih NOMOR terkecil per nomor dan urut id: memang ada baris jelek
+    // legacy di staging, mis. id=3 bernama "Shift 1" (00:00-00:01) yang menang
+    // bila id besar dipilih lebih dulu — persis pilihan yang menghasilkan jam
+    // salah, satu hal yang mau dicegah oleh pemetaan berbasis nama ini.
+    async function ensureShift(name) {
+      const wanted = parseShiftNumber(name);
+      const map = await loadShiftMapByNumber();
+      const found = map.get(wanted);
+      if (found) return found;
+      const s = await prisma.shift.create({
+        data: { name, startTime: '00:00', endTime: '00:01' },
+      });
+      createdShiftIds.push(s.id);
+      return s;
+    }
+
+    shift1 = await ensureShift('Shift 1');
+    shift2 = await ensureShift('Shift 2');
+    shift3 = await ensureShift('Shift 3');
+
+    if (onlyThisSuite) return; // dipilih lewat -t: tidak perlu posisi/user
+
+    await prisma.position.deleteMany({ where: { name: POS } });
+    await prisma.user.deleteMany({ where: { username: { startsWith: TAG } } });
+
+    user = await prisma.user.create({
+      data: {
+        username: `${TAG}1`,
+        passwordHash: 'x',
+        fullName: `${TAG} 1`,
+        role: 'STAFF',
+        shiftId: shift1.id,
+      },
+    });
+
+    position = await rotationService.createPosition({
+      name: POS, shift1Capacity: 1, shift2Capacity: 1,
+    });
+    await rotationService.setRoster(position.id, [{ userId: user.id }]);
+  });
+
+  afterAll(async () => {
+    if (user?.id) {
+      await prisma.userSchedule.deleteMany({ where: { userId: user.id } });
+    }
+    if (position?.id) {
+      await prisma.weeklySchedule.deleteMany({ where: { positionId: position.id } });
+      await prisma.rotationState.deleteMany({ where: { positionId: position.id } });
+      await prisma.positionRoster.deleteMany({ where: { positionId: position.id } });
+    }
+    await prisma.position.deleteMany({ where: { name: POS } });
+    await prisma.user.deleteMany({ where: { username: { startsWith: TAG } } });
+    // Hanya hapus shift yang DIBUAT suite ini — jangan sentuh shift asli DB.
+    if (createdShiftIds.length) {
+      await prisma.shift.deleteMany({ where: { id: { in: createdShiftIds } } });
+    }
+  });
+
+  it('menyimpan S1 & S2 sebagai id shift yang BENAR (bukan nomornya)', async () => {
+    if (onlyThisSuite) return;
+    const dateISO = '2026-11-03';
+    const dateObj = new Date(`${dateISO}T00:00:00.000Z`);
+
+    await rotationService.setScheduleAssignment(position.id, {
+      date: dateISO, userId: user.id, shiftNumber: 1,
+    });
+    let row = await prisma.userSchedule.findUnique({
+      where: { userId_date: { userId: user.id, date: dateObj } },
+      include: { shift: true },
+    });
+    expect(row.shiftId).toBe(shift1.id);
+    // Bandingkan lewat NOMOR, bukan nama persis: nama berbeda antar environment.
+    expect(parseShiftNumber(row.shift.name)).toBe(1);
+    expect(row.isManualOverride).toBe(true);
+
+    await rotationService.setScheduleAssignment(position.id, {
+      date: dateISO, userId: user.id, shiftNumber: 2,
+    });
+    row = await prisma.userSchedule.findUnique({
+      where: { userId_date: { userId: user.id, date: dateObj } },
+      include: { shift: true },
+    });
+    // Inti perbaikan: harus menunjuk shift NOMOR 2, bukan id 2.
+    expect(row.shift).not.toBeNull();
+    expect(parseShiftNumber(row.shift.name)).toBe(2);
+    expect(row.shiftId).toBe(shift2.id);
+
+    await rotationService.setScheduleAssignment(position.id, {
+      date: dateISO, userId: user.id, shiftNumber: 0,
+    });
+    row = await prisma.userSchedule.findUnique({
+      where: { userId_date: { userId: user.id, date: dateObj } },
+    });
+    expect(row.isOffDay).toBe(true);
+    expect(row.shiftId).toBeNull();
+  });
+
+  it('menolak shiftNumber yang tidak punya baris di tabel shifts', async () => {
+    if (onlyThisSuite) return;
+    await expect(
+      rotationService.setScheduleAssignment(position.id, {
+        date: '2026-11-04', userId: user.id, shiftNumber: 99,
+      }),
+    ).rejects.toThrow(AppError);
+  });
+
+  it('membaca ulang shiftNumber dari shiftId lewat nama, bukan asumsi id', async () => {
+    if (onlyThisSuite) return;
+    const date = new Date('2026-11-05T00:00:00.000Z');
+    await prisma.userSchedule.upsert({
+      where: { userId_date: { userId: user.id, date } },
+      update: { shiftId: shift2.id, isOffDay: false, isManualOverride: true },
+      create: { userId: user.id, date, shiftId: shift2.id, isOffDay: false, isManualOverride: true },
+    });
+
+    let month = await rotationService.getMonthSchedule(position.id, '2026-11');
+    let row = month.find((r) => r.date === '2026-11-05' && r.userId === user.id);
+    expect(row).toBeTruthy();
+    expect(row.shiftNumber).toBe(2);
+    expect(row.isManualOverride).toBe(true);
+
+    // Shift 3 harus terbaca 3 — dulu dipaksa jadi 2 oleh `shiftId === 1 ? 1 : 2`.
+    await prisma.userSchedule.update({
+      where: { userId_date: { userId: user.id, date } },
+      data: { shiftId: shift3.id },
+    });
+    month = await rotationService.getMonthSchedule(position.id, '2026-11');
+    row = month.find((r) => r.date === '2026-11-05' && r.userId === user.id);
+    expect(row.shiftNumber).toBe(3);
+  });
+
+  it('hasil generate menulis shiftId yang VALID di tabel shifts', async () => {
+    if (onlyThisSuite) return;
+    await rotationService.generateWeek(position.id, WEEK);
+
+    // WeeklySchedule memang hanya menyimpan `shiftNumber` (tidak punya kolom
+    // shiftId), jadi validitas id shift harus diperiksa di `user_schedules` —
+    // di situlah id nyata dipakai untuk membaca jam shift, dan di situlah bug
+    // lama menulis shiftId=2 yang tidak ada di tabel shifts.
+    const gen = await prisma.userSchedule.findMany({
+      where: { userId: user.id, date: { gte: WEEK, lte: new Date(WEEK.getTime() + 7 * 86400000) } },
+      select: { date: true, shiftId: true, isOffDay: true },
+    });
+    expect(gen.length).toBeGreaterThan(0);
+
+    const validIds = new Set([shift1.id, shift2.id, shift3.id]);
+    for (const g of gen) {
+      if (g.isOffDay) {
+        expect(g.shiftId).toBeNull();
+      } else {
+        expect(validIds.has(g.shiftId)).toBe(true);
+      }
+    }
   });
 });
 
