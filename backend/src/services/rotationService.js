@@ -5,10 +5,26 @@ const prisma = require('../utils/database');
  * Rotation Service
  * Handles position-based circular shift rotation.
  *
- * Rotation rule: each week, the roster shifts by `shift1Capacity` positions.
- *   startIndex = (currentStartIndex + shift1Capacity) % totalRoster
- *   Shift 1 = roster[startIndex .. startIndex + shift1Capacity - 1]
- *   Shift 2 = the rest, wrapping around.
+ * Aturan rotasi: urutan roster (orderIndex) digeser `step` posisi SETIAP MINGGU.
+ *   idx(week) = (anchorIndex + jumlahMingguSejakAnchor(week) * step) % totalRoster
+ *   Shift 1   = roster[idx .. idx + s1Count - 1]
+ *   Shift 2   = sisanya (melingkar)
+ *
+ * `step` dan `s1Count` dihitung di _shiftSplit(position, totalRoster):
+ *   - Posisi mode "jadwalkan semua yang tidak libur" (Dapur/Kitchen):
+ *     FLEKSIBEL mengikuti JUMLAH STAFF.
+ *       s1Count = ceil(n / 2)   dan   step = s1Count
+ *         2 staff -> 1/1      3 staff -> 2/1      4 staff -> 2/2      5 staff -> 3/2
+ *     Akibatnya n GENAP tukar penuh tiap Senin, n GANJIL tepat 1 orang bertahan.
+ *   - Posisi biasa (mis. Bar): s1Count = step = shift1Capacity yang diatur admin.
+ *
+ * `idx` dihitung dari TANGGAL minggu tersebut (anchor + jarak minggu), BUKAN
+ * disimpan lalu dimajukan tiap generate. Jadi generate ulang untuk minggu/bulan
+ * yang sama menghasilkan jadwal identik (idempoten) dan tidak saling menggeser
+ * antar bulan.
+ *
+ * `roster.shiftNumber` TIDAK dipakai untuk menentukan shift hasil generate —
+ * hanya sebagai catatan pengaturan admin. Lihat dokumentasi di generateWeek().
  */
 
 function toDateOnly(date) {
@@ -47,6 +63,21 @@ function circularSlice(arr, start, count) {
     out.push(arr[(start + i) % arr.length]);
   }
   return out;
+}
+
+/**
+ * Selisih jumlah minggu antara dua tanggal (dihitung dari Senin-nya).
+ * Bisa negatif bila `to` lebih awal dari `from`.
+ */
+function weeksBetween(fromDate, toDate) {
+  return Math.round(
+    (getMonday(toDate).getTime() - getMonday(fromDate).getTime()) / (7 * 86400000),
+  );
+}
+
+/** Modulo yang selalu mengembalikan nilai non-negatif. */
+function mod(n, m) {
+  return ((n % m) + m) % m;
 }
 
 /**
@@ -94,7 +125,7 @@ class RotationService {
     return result;
   }
 
-  async getPosition(positionId) {
+  async getPosition(positionId, weekStart) {
     const position = await prisma.position.findUnique({
       where: { id: positionId },
     });
@@ -123,7 +154,15 @@ class RotationService {
       where: { positionId },
       orderBy: [{ orderIndex: 'asc' }, { id: 'asc' }],
     });
-    return { ...position, rosters, rotationState, jobdesks };
+    // Pratinjau rotasi: supaya UI bisa menunjukkan siapa di Shift 1/2 minggu itu
+    // (roster = URUTAN rotasi, bukan penugasan shift tetap).
+    const previewWeekStart = weekStart || new Date();
+    const rotationPreview = this.buildRotationPreview(
+      { ...position, rotationState },
+      rosters,
+      previewWeekStart,
+    );
+    return { ...position, rosters, rotationState, jobdesks, rotationPreview };
   }
 
   // ---------- Jobdesk (rotasi harian) ----------
@@ -164,22 +203,72 @@ class RotationService {
     });
   }
 
+  /**
+   * Validasi kapasitas shift: harus angka bulat minimal 1, karena kapasitas
+   * 0/negatif berarti tidak ada seorang pun yang bisa ditempatkan di shift itu.
+   *
+   * DILEWATI untuk posisi mode "jadwalkan semua yang tidak libur": pada mode itu
+   * jumlah orang per shift dihitung dari jumlah roster, bukan dari kolom ini.
+   */
+  _assertCapacities(shift1Capacity, shift2Capacity, scheduleAllWorking = false) {
+    if (scheduleAllWorking) return;
+    const fields = [];
+    if (shift1Capacity !== undefined && shift1Capacity !== null) fields.push(['Kapasitas Shift 1', shift1Capacity]);
+    if (shift2Capacity !== undefined && shift2Capacity !== null) fields.push(['Kapasitas Shift 2', shift2Capacity]);
+    for (const [label, value] of fields) {
+      const n = Number(value);
+      if (!Number.isInteger(n) || n < 1) {
+        throw new AppError(`${label} harus angka bulat minimal 1`, 400, 'VALIDATION_ERROR');
+      }
+    }
+  }
+
+  /**
+   * Menerjemahkan opsi perubahan posisi menjadi data Prisma, sekaligus
+   * mengosongkan `shift1Capacity`/`shift2Capacity` saat posisi masuk mode
+   * "jadwalkan semua yang tidak libur". Pada mode itu jumlah orang per shift
+   * ditentukan JUMLAH ROSTER (lihat _shiftSplit), jadi angka kapasitas hanya
+   * menyesatkan admin. Diubah ke 0 = "diikuti jumlah staff"; kolomnya tetap
+   * NOT NULL sehingga tidak bisa diisi null.
+   */
+  _positionWriteData({ name, shift1Capacity, shift2Capacity, isActive, scheduleAllWorking }, current = {}) {
+    const data = {};
+    if (name !== undefined) data.name = name;
+    if (shift1Capacity !== undefined) data.shift1Capacity = shift1Capacity;
+    if (shift2Capacity !== undefined) data.shift2Capacity = shift2Capacity;
+    if (isActive !== undefined) data.isActive = isActive;
+    if (scheduleAllWorking !== undefined) data.scheduleAllWorking = scheduleAllWorking;
+
+    const flexible = data.scheduleAllWorking !== undefined
+      ? data.scheduleAllWorking
+      : current.scheduleAllWorking;
+    if (flexible) {
+      data.shift1Capacity = 0;
+      data.shift2Capacity = 0;
+    }
+    return data;
+  }
+
   async createPosition({ name, shift1Capacity, shift2Capacity, scheduleAllWorking }) {
     if (!name) {
       throw new AppError('Nama posisi wajib diisi', 400, 'VALIDATION_ERROR');
     }
+    this._assertCapacities(shift1Capacity, shift2Capacity, scheduleAllWorking ?? false);
     const existing = await prisma.position.findUnique({ where: { name } });
     if (existing) {
       throw new AppError(`Posisi "${name}" sudah ada`, 409, 'VALIDATION_ERROR');
     }
 
     const position = await prisma.position.create({
-      data: {
-        name,
-        shift1Capacity: shift1Capacity ?? 2,
-        shift2Capacity: shift2Capacity ?? 3,
-        scheduleAllWorking: scheduleAllWorking ?? false,
-      },
+      data: this._positionWriteData(
+        {
+          name,
+          shift1Capacity: shift1Capacity ?? 2,
+          shift2Capacity: shift2Capacity ?? 3,
+          scheduleAllWorking: scheduleAllWorking ?? false,
+        },
+        { scheduleAllWorking: false },
+      ),
     });
 
     await prisma.rotationState.create({
@@ -204,15 +293,22 @@ class RotationService {
     if (!position) {
       throw new AppError(`Posisi dengan ID ${positionId} tidak ditemukan`, 404, 'NOT_FOUND');
     }
+    const flexible = scheduleAllWorking !== undefined
+      ? scheduleAllWorking
+      : position.scheduleAllWorking;
+    this._assertCapacities(
+      shift1Capacity !== undefined ? shift1Capacity : position.shift1Capacity,
+      shift2Capacity !== undefined ? shift2Capacity : position.shift2Capacity,
+      flexible,
+    );
 
-    const data = {};
-    if (name !== undefined) data.name = name;
-    if (shift1Capacity !== undefined) data.shift1Capacity = shift1Capacity;
-    if (shift2Capacity !== undefined) data.shift2Capacity = shift2Capacity;
-    if (isActive !== undefined) data.isActive = isActive;
-    if (scheduleAllWorking !== undefined) data.scheduleAllWorking = scheduleAllWorking;
-
-    await prisma.position.update({ where: { id: positionId }, data });
+    await prisma.position.update({
+      where: { id: positionId },
+      data: this._positionWriteData(
+        { name, shift1Capacity, shift2Capacity, isActive, scheduleAllWorking },
+        position,
+      ),
+    });
     return this.getPosition(positionId);
   }
 
@@ -254,14 +350,23 @@ class RotationService {
     const existingState = await prisma.rotationState.findFirst({
       where: { positionId },
     });
+    // Roster berubah = urutan rotasi berubah, jadi anchor di-reset. Generate
+    // berikutnya akan memakai anchor baru (index 0 di minggu yang digenerate).
+    // Jadwal yang sudah tertulis TIDAK dihapus di sini; generate ulang minggu
+    // tersebut yang akan menyesuaikannya.
     if (existingState) {
       await prisma.rotationState.update({
         where: { id: existingState.id },
-        data: { currentStartIndex: 0, lastGeneratedWeekStart: null },
+        data: {
+          currentStartIndex: 0,
+          lastGeneratedWeekStart: null,
+          anchorWeekStart: null,
+          anchorIndex: 0,
+        },
       });
     } else {
       await prisma.rotationState.create({
-        data: { positionId, currentStartIndex: 0 },
+        data: { positionId, currentStartIndex: 0, anchorIndex: 0 },
       });
     }
 
@@ -302,8 +407,13 @@ class RotationService {
       });
       await tx.rotationState.upsert({
         where: { positionId },
-        update: { currentStartIndex: 0, lastGeneratedWeekStart: null },
-        create: { positionId, currentStartIndex: 0 },
+        update: {
+          currentStartIndex: 0,
+          lastGeneratedWeekStart: null,
+          anchorWeekStart: null,
+          anchorIndex: 0,
+        },
+        create: { positionId, currentStartIndex: 0, anchorIndex: 0 },
       });
     });
 
@@ -338,8 +448,13 @@ class RotationService {
 
       await tx.rotationState.upsert({
         where: { positionId },
-        update: { currentStartIndex: 0, lastGeneratedWeekStart: null },
-        create: { positionId, currentStartIndex: 0 },
+        update: {
+          currentStartIndex: 0,
+          lastGeneratedWeekStart: null,
+          anchorWeekStart: null,
+          anchorIndex: 0,
+        },
+        create: { positionId, currentStartIndex: 0, anchorIndex: 0 },
       });
     });
 
@@ -347,6 +462,153 @@ class RotationService {
   }
 
   // ---------- Schedule Generation ----------
+
+  /**
+   * Pembagian Shift 1 / Shift 2 untuk satu minggu — SATU sumber kebenaran,
+   * dipakai generateWeek, buildRotationPreview, dan laporan kekurangan staff.
+   *
+   * Posisi mode "jadwalkan semua yang tidak libur" (Dapur/Kitchen) memakai
+   * formasi FLEKSIBEL: jumlah orang per shift mengikuti JUMLAH ANGGOTA ROSTER,
+   * bukan angka kapasitas yang diisi admin.
+   *
+   *   Shift 1 = ceil(n / 2)      Shift 2 = sisanya
+   *     2 staff -> 1/1
+   *     3 staff -> 2/1
+   *     4 staff -> 2/2
+   *     5 staff -> 3/2
+   *     6 staff -> 3/3
+   *
+   * Langkah rotasi = jumlah orang di Shift 1, sehingga pergantiannya:
+   *   n GENAP -> tukar penuh tiap Senin, tidak ada yang bertahan
+   *              n=4 (2/2): {A,B} -> {C,D} -> {A,B} -> ...
+   *   n GANJIL -> tepat 1 orang bertahan, sisanya bertukar
+   *              n=5 (3/2): {A,B,C} -> {D,E,A} -> {B,C,D} -> {E,A,B} -> ...
+   *
+   * Posisi biasa (mis. Bar) memakai kapasitas yang diatur admin.
+   */
+  _shiftSplit(position, total) {
+    if (!total) return { s1Count: 0, s2Count: 0, step: 1 };
+
+    if (position.scheduleAllWorking) {
+      const s1Count = Math.ceil(total / 2);
+      return { s1Count, s2Count: total - s1Count, step: s1Count };
+    }
+
+    const capacity = Math.max(1, Number(position.shift1Capacity) || 1);
+    const s1Count = Math.max(1, Math.min(capacity, total));
+    return { s1Count, s2Count: total - s1Count, step: capacity };
+  }
+
+  /** Langkah geser rotasi per minggu (lihat _shiftSplit). */
+  _rotationStep(position, total) {
+    return this._shiftSplit(position, total).step;
+  }
+
+  /**
+   * Titik acuan rotasi: (anchorWeekStart, anchorIndex) = minggu anchor memakai
+   * startIndex sebesar anchorIndex. Minggu lain dihitung dari JARAK MINGGU-nya,
+   * bukan dari berapa kali tombol Generate ditekan:
+   *
+   *   idx(monday) = (anchorIndex + jarakMinggu(anchor, monday) * step) % totalRoster
+   *
+   * Konsekuensi yang diinginkan: generate ulang minggu/bulan yang sama
+   * menghasilkan jadwal IDENTIK (idempoten), dan generate satu bulan tidak
+   * menggeser minggu yang sudah benar di bulan sebelahnya.
+   *
+   * Bila anchor belum tersimpan (posisi baru, atau roster baru diubah yang
+   * me-reset anchor), anchor diambil dari state lama agar jadwal yang SUDAH
+   * tergenerate tidak berubah: state lama menyimpan
+   * `currentStartIndex` = index untuk minggu BERIKUTNYA, sehingga index minggu
+   * `lastGeneratedWeekStart` = currentStartIndex - step.
+   */
+  _resolveAnchor(position, monday, rosterLength, step) {
+    const state = position.rotationState || {};
+    if (state.anchorWeekStart) {
+      return {
+        anchorWeekStart: getMonday(state.anchorWeekStart),
+        anchorIndex: mod(Number(state.anchorIndex) || 0, rosterLength || 1),
+      };
+    }
+    if (state.lastGeneratedWeekStart) {
+      return {
+        anchorWeekStart: getMonday(state.lastGeneratedWeekStart),
+        anchorIndex: mod((Number(state.currentStartIndex) || 0) - step, rosterLength || 1),
+      };
+    }
+    return {
+      anchorWeekStart: getMonday(monday),
+      anchorIndex: mod(Number(state.currentStartIndex) || 0, rosterLength || 1),
+    };
+  }
+
+  /** Index rotasi untuk sebuah minggu, dihitung dari anchor (deterministik). */
+  _indexFromAnchor(anchor, monday, rosterLength, step) {
+    return mod(
+      anchor.anchorIndex + weeksBetween(anchor.anchorWeekStart, monday) * step,
+      rosterLength || 1,
+    );
+  }
+
+  /** Index rotasi untuk sebuah minggu (anchor di-resolve otomatis). */
+  _indexForWeek(position, monday, rosterLength, step) {
+    return this._indexFromAnchor(
+      this._resolveAnchor(position, monday, rosterLength, step),
+      monday,
+      rosterLength,
+      step,
+    );
+  }
+
+  /**
+   * Bagi urutan rotasi menjadi Shift 1 / Shift 2 (lihat _shiftSplit untuk
+   * aturan jumlah orangnya).
+   */
+  _splitShifts(rotated, position) {
+    const total = rotated.length;
+    if (!total) return { shift1Members: [], shift2Members: [] };
+
+    const { s1Count } = this._shiftSplit(position, total);
+
+    return {
+      shift1Members: rotated.slice(0, s1Count),
+      shift2Members: rotated.slice(s1Count),
+    };
+  }
+
+  /**
+   * Pratinjau rotasi untuk minggu tertentu — dipakai UI supaya admin melihat
+   * siapa di Shift 1/2 MINGGU INI, bukan mengira roster = penugasan tetap.
+   * Memakai perhitungan yang sama dengan generateWeek.
+   */
+  buildRotationPreview(position, rosters, weekStart) {
+    const total = rosters.length;
+    const { s1Count, s2Count, step } = this._shiftSplit(position, total);
+    if (!total) {
+      return {
+        weekStart: toISO(getMonday(weekStart)),
+        step,
+        startIndex: 0,
+        shift1Count: 0,
+        shift2Count: 0,
+        rosterCount: 0,
+        shift1UserIds: [],
+        shift2UserIds: [],
+      };
+    }
+    const startIndex = this._indexForWeek(position, weekStart, total, step);
+    const rotated = [...rosters.slice(startIndex), ...rosters.slice(0, startIndex)];
+    const { shift1Members, shift2Members } = this._splitShifts(rotated, position);
+    return {
+      weekStart: toISO(getMonday(weekStart)),
+      step,
+      startIndex,
+      rosterCount: total,
+      shift1Count: s1Count,
+      shift2Count: s2Count,
+      shift1UserIds: shift1Members.map((r) => r.userId),
+      shift2UserIds: shift2Members.map((r) => r.userId),
+    };
+  }
 
   async generateWeek(positionId, weekStart, options = {}) {
     const position = await this.getPosition(positionId);
@@ -373,8 +635,10 @@ class RotationService {
     }
 
     const state = position.rotationState || { currentStartIndex: 0 };
-    const startIndex = state.currentStartIndex;
     const totalRoster = roster.length;
+    const step = this._rotationStep(position, totalRoster);
+    const anchor = this._resolveAnchor(position, monday, totalRoster, step);
+    const startIndex = this._indexFromAnchor(anchor, monday, totalRoster, step);
 
     const shift1 = await prisma.shift.findFirst({ where: { name: 'Shift 1' } });
     const shift2 = await prisma.shift.findFirst({ where: { name: 'Shift 2' } });
@@ -383,25 +647,17 @@ class RotationService {
       throw new AppError('Data Shift 1 dan Shift 2 belum ada di database', 500, 'INTERNAL_ERROR');
     }
 
-    // Rotasi berdasarkan posisi di roster (circular), bukan shiftNumber yang tersimpan.
-    // Setiap minggu startIndex maju sebesar shift1Capacity, sehingga orang yang minggu
-    // sebelumnya ada di Shift 2 akan berpindah ke Shift 1 dan sebaliknya.
+    // Rotasi berdasarkan POSISI DI URUTAN ROTASI (orderIndex, circular), bukan
+    // berdasarkan `roster.shiftNumber` yang tersimpan.
+    //
+    // PENTING: index rotasi dihitung dari TANGGAL minggu itu (`_indexFromAnchor`),
+    // bukan disimpan lalu dimajukan tiap kali fungsi ini dipanggil. Karena itu
+    // generate ulang untuk minggu yang sama menghasilkan jadwal yang SAMA
+    // (idempoten), dan generate satu bulan tidak menukar minggu di bulan lain.
     const idx = startIndex % roster.length;
     const rotated = [...roster.slice(idx), ...roster.slice(0, idx)];
 
-    // Mode "scheduleAllWorking" (posisi Kitchen): jadwalkan SEMUA orang di
-    // roster (formasi fleksibel 3-4 orang), kapasitas tidak memotong. Shift 1/2
-    // dibagi dari urutan rotasi (setengah-setengah) sehingga tetap adil bergantian.
-    // Mode normal: potong sesuai shift1Capacity / shift2Capacity.
-    let shift1Members, shift2Members;
-    if (position.scheduleAllWorking) {
-      const half = Math.ceil(rotated.length / 2);
-      shift1Members = rotated.slice(0, half);
-      shift2Members = rotated.slice(half);
-    } else {
-      shift1Members = rotated.slice(0, position.shift1Capacity);
-      shift2Members = rotated.slice(position.shift1Capacity);
-    }
+    const { shift1Members, shift2Members } = this._splitShifts(rotated, position);
 
     const assignments = [
       ...shift1Members.map(({ userId }) => ({ userId, shiftNumber: 1, shiftId: shift1.id })),
@@ -477,11 +733,37 @@ class RotationService {
           .map((r) => `${r.userId}_${r.date.toISOString()}`),
       );
 
-      // Remove previous auto-generated rows for this week (single bulk delete).
+      // Hapus baris auto minggu ini: (a) milik anggota roster saat ini, dan
+      // (b) baris SISA yang masih berlabel department posisi ini padahal user-nya
+      // sudah tidak ada di roster lagi.
+      //
+      // (b) penting: kalau roster mengecil (mis. Bar dari 6 orang jadi 2 karena
+      // Wulan/Juli/Nhelam/Indy pindah ke Dapur), baris lama mereka TIDAK ikut
+      // terhapus oleh (a) karena (a) hanya menyentuh user di roster saat ini.
+      // Akibatnya kalender menampilkan mereka di kolom Bar dengan shift lama
+      // padahal weekly_schedule sudah menempatkan mereka di Dapur.
+      //
+      // (b) hanya dijalankan bila TIDAK ada posisi aktif lain dengan department
+      // sama (mis. Dapur & Kitchen sama-sama KITCHEN); kalau ada, penghapusan
+      // selebar department bisa menghapus jadwal posisi lain.
+      const otherActiveSameDept = await prisma.position.count({
+        where: {
+          isActive: true,
+          id: { not: positionId },
+          name: department === 'KITCHEN'
+            ? { in: [...KITCHEN_NAMES] }
+            : { notIn: [...KITCHEN_NAMES] },
+        },
+      });
+
       await prisma.userSchedule.deleteMany({
         where: {
           isManualOverride: false,
-          OR: pairs.map((p) => ({ userId: p.userId, date: p.date })),
+          date: { in: weekDates },
+          OR: [
+            ...pairs.map((p) => ({ userId: p.userId, date: p.date })),
+            ...(otherActiveSameDept === 0 ? [{ temporaryDepartment: department }] : []),
+          ],
         },
       });
 
@@ -582,17 +864,26 @@ class RotationService {
       }
     }
 
-    const nextStartIndex = (startIndex + position.shift1Capacity) % totalRoster;
+    // Simpan titik acuan + minggu terakhir yang digenerate.
+    //
+    // CATATAN SEMANTIK: mulai sekarang `currentStartIndex` berarti index rotasi
+    // untuk `lastGeneratedWeekStart` (dulu: index untuk minggu BERIKUTNYA).
+    // `anchorWeekStart`/`anchorIndex` adalah acuan tetap sehingga index tiap
+    // minggu bisa dihitung ulang dari tanggalnya (lihat _resolveAnchor).
     await prisma.rotationState.upsert({
       where: { positionId },
       update: {
-        currentStartIndex: nextStartIndex,
+        currentStartIndex: startIndex,
         lastGeneratedWeekStart: monday,
+        anchorWeekStart: anchor.anchorWeekStart,
+        anchorIndex: anchor.anchorIndex,
       },
       create: {
         positionId,
-        currentStartIndex: nextStartIndex,
+        currentStartIndex: startIndex,
         lastGeneratedWeekStart: monday,
+        anchorWeekStart: anchor.anchorWeekStart,
+        anchorIndex: anchor.anchorIndex,
       },
     });
 
@@ -1764,8 +2055,12 @@ class RotationService {
     }
 
     const position = await this.getPosition(positionId);
-    const shift1Capacity = position.shift1Capacity || 1;
-    const shift2Capacity = position.shift2Capacity || 1;
+    // Penuhi-perbandingkan dengan pembagian yang BENAR-BENAR ditulis generateWeek
+    // (posisi fleksibel memakai jumlah roster, bukan kolom kapasitas).
+    const { s1Count: shift1Capacity, s2Count: shift2Capacity } = this._shiftSplit(
+      position,
+      position.rosters.length,
+    );
 
     const generatedWeeks = [];
     const understaffed = [];

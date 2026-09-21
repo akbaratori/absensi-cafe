@@ -8,6 +8,21 @@ import ManualOffDayPanel from '../../components/admin/ManualOffDayPanel';
 // ─── Helper ───────────────────────────────────────────────────────────────────
 const getUserName = (u) => u?.name || u?.fullName || u?.username || `User ${u?.id || '?'}`;
 
+/** Senin (YYYY-MM-DD) dari minggu yang memuat `d`, memakai kalender lokal. */
+const mondayISO = (d) => {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  x.setDate(x.getDate() - (x.getDay() === 0 ? 6 : x.getDay() - 1));
+  return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
+};
+
+/** Senin berikutnya (YYYY-MM-DD), untuk pratinjau "minggu depan". */
+const nextMondayISO = () => {
+  const x = new Date();
+  x.setDate(x.getDate() + 7);
+  return mondayISO(x);
+};
+
 function getDaysInMonth(year, month) {
   // month: 1-based
   const result = [];
@@ -337,7 +352,7 @@ function EditScheduleModal({ date, assignments, roster, onClose, onSave, onReset
     return {
       userId: r.userId,
       name: getUserName(r.user),
-      shiftNumber: a ? a.shiftNumber : r.shift,
+      shiftNumber: a ? a.shiftNumber : r.shiftNumber,
       isOffDay: a ? a.isOffDay : false,
       isManualOverride: a ? a.isManualOverride : false,
     };
@@ -492,6 +507,8 @@ export default function RotationManagementPage() {
   const [backupModal, setBackupModal] = useState(null); // { date, issues }
   const [monthSchedule, setMonthSchedule] = useState([]); // hasil generate bulanan (per tanggal per user)
   const [editDate, setEditDate] = useState(null); // tanggal yang sedang diedit (string YYYY-MM-DD)
+  const [previewWeek, setPreviewWeek] = useState(() => mondayISO(new Date())); // Senin minggu pratinjau
+  const [rosterDraft, setRosterDraft] = useState([]); // urutan rotasi di modal (belum disimpan)
 
   // Current step detection
   const currentStep = !positions.length ? 1
@@ -540,26 +557,20 @@ export default function RotationManagementPage() {
     setMonthSchedule([]);
     setEditDate(null);
     setRoster(
-      (pos.rosters || []).map((r, i) => ({
-        ...r,
-        shift: r.shiftNumber || (i < pos.shift1Capacity ? 1 : 2),
-      }))
+      (pos.rosters || []).map((r) => ({ ...r }))
     );
     setJobdesks((pos.jobdesks || []).map((j) => ({ name: j.name, isHeavy: !!j.isHeavy })));
     try {
-      const res = await rotationService.getPosition(pos.id);
+      const res = await rotationService.getPosition(pos.id, previewWeek);
       setSelectedPosition(res.data.data);
       setRoster(
-        (res.data.data.rosters || []).map((r, i) => ({
-          ...r,
-          shift: r.shiftNumber || (i < res.data.data.shift1Capacity ? 1 : 2),
-        }))
+        (res.data.data.rosters || []).map((r) => ({ ...r }))
       );
       setJobdesks((res.data.data.jobdesks || []).map((j) => ({ name: j.name, isHeavy: !!j.isHeavy })));
     } catch {
       toast.error('Gagal memuat detail posisi');
     }
-  }, []);
+  }, [previewWeek]);
 
   // Simpan daftar jobdesk posisi terpilih ke server (array {name, isHeavy}).
   const saveJobdesks = async (list) => {
@@ -649,8 +660,16 @@ export default function RotationManagementPage() {
 
   const handleSaveRoster = async () => {
     try {
-      const sorted = [...roster].sort((a, b) => (a.shift || 1) - (b.shift || 1));
-      await rotationService.setRoster(selectedPosition.id, sorted.map((r) => ({ userId: r.userId, shiftNumber: r.shift || 1 })));
+      // Urutan yang tampil di modal = URUTAN ROTASI. Jangan diurutkan ulang
+      // berdasarkan `shift` (perilaku lama) karena itu mengacak urutan rotasi
+      // yang justru dipakai generate.
+      await rotationService.setRoster(
+        selectedPosition.id,
+        roster.map((r, i) => ({
+          userId: r.userId,
+          shiftNumber: r.shiftNumber || (i < (selectedPosition?.rotationPreview?.shift1Count ?? selectedPosition?.shift1Capacity ?? 1) ? 1 : 2),
+        })),
+      );
       toast.success('Roster berhasil disimpan');
       setRosterModal(false);
       openPosition(selectedPosition);
@@ -717,11 +736,11 @@ export default function RotationManagementPage() {
 
   const addToRoster = (user) => {
     if (roster.find((r) => r.userId === user.id)) return toast.error('User sudah ada di roster');
-    const shift = roster.filter((r) => r.shift === 1).length < (selectedPosition?.shift1Capacity || 2) ? 1 : 2;
-    setRoster([...roster, { userId: user.id, user, shift }]);
+    // Ditempel di AKHIR urutan rotasi: paling belakang artinya paling akhir
+    // mendapat giliran Shift 1. Urutan bisa diubah lewat tombol ↑ ↓.
+    setRoster([...roster, { userId: user.id, user }]);
   };
   const removeFromRoster = (userId) => setRoster(roster.filter((r) => r.userId !== userId));
-  const setShift = (userId, shift) => setRoster(roster.map((r) => r.userId === userId ? { ...r, shift } : r));
   const moveRoster = (idx, dir) => {
     const next = [...roster];
     const target = idx + dir;
@@ -730,10 +749,36 @@ export default function RotationManagementPage() {
     setRoster(next);
   };
 
+  // Pratinjau rotasi minggu ini / minggu depan (dihitung di backend dengan rumus
+  // yang sama seperti generate, jadi tidak ada risiko rumus UI ≠ rumus server).
+  useEffect(() => {
+    if (!selectedPosition) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await rotationService.getPosition(selectedPosition.id, previewWeek);
+        if (!cancelled) setSelectedPosition(res.data.data);
+      } catch {
+        /* biarkan detail lama bila gagal */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [previewWeek, selectedPosition?.id]);
+
   if (loading) return <LoadingSpinner />;
 
-  const shift1Roster = roster.filter((r) => (r.shift || 1) === 1);
-  const shift2Roster = roster.filter((r) => (r.shift || 1) === 2);
+  // Pembagian Shift 1/2 yang BENAR-BENAR berlaku pada minggu pratinjau, dihitung
+  // backend. Tidak memakai `roster.shiftNumber` karena kolom itu tidak dipakai
+  // saat generate (lihat RotationService.generateWeek).
+  const previewShift1Ids = selectedPosition?.rotationPreview
+    ? new Set(selectedPosition.rotationPreview.shift1UserIds)
+    : null;
+  const shift1Roster = previewShift1Ids
+    ? roster.filter((r) => previewShift1Ids.has(r.userId))
+    : roster.filter((r) => (r.shiftNumber || 1) === 1);
+  const shift2Roster = previewShift1Ids
+    ? roster.filter((r) => !previewShift1Ids.has(r.userId))
+    : roster.filter((r) => (r.shiftNumber || 1) === 2);
 
   return (
     <div className="p-4 md:p-6 max-w-6xl mx-auto">
@@ -795,7 +840,9 @@ export default function RotationManagementPage() {
                         </div>
                       </div>
                       <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                        S1: {pos.shift1Capacity} org · S2: {pos.shift2Capacity} org
+                        {pos.scheduleAllWorking
+                          ? `S1: ${Math.ceil((pos.rosters?.length || 0) / 2)} org · S2: ${Math.floor((pos.rosters?.length || 0) / 2)} org (otomatis, ${pos.rosters?.length || 0} staff)`
+                          : `S1: ${pos.shift1Capacity} org · S2: ${pos.shift2Capacity} org`}
                       </div>
                     </button>
                   </li>
@@ -838,7 +885,9 @@ export default function RotationManagementPage() {
                   <div className="grid grid-cols-2 gap-3">
                     <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-700">
                       <div className="text-xs font-semibold text-blue-700 dark:text-blue-300 mb-2">
-                        Shift 1 ({shift1Roster.length}/{selectedPosition.shift1Capacity} slot)
+                        Shift 1 minggu ini ({shift1Roster.length}{selectedPosition.scheduleAllWorking
+                          ? `/${selectedPosition.rotationPreview?.shift1Count ?? '-'} otomatis`
+                          : `/${selectedPosition.shift1Capacity} slot`})
                       </div>
                       {shift1Roster.length === 0 ? (
                         <p className="text-xs text-gray-400">Kosong</p>
@@ -850,7 +899,9 @@ export default function RotationManagementPage() {
                     </div>
                     <div className="p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-700">
                       <div className="text-xs font-semibold text-purple-700 dark:text-purple-300 mb-2">
-                        Shift 2 ({shift2Roster.length}/{selectedPosition.shift2Capacity} slot)
+                        Shift 2 minggu ini ({shift2Roster.length}{selectedPosition.scheduleAllWorking
+                          ? `/${selectedPosition.rotationPreview?.shift2Count ?? '-'} otomatis`
+                          : `/${selectedPosition.shift2Capacity} slot`})
                       </div>
                       {shift2Roster.length === 0 ? (
                         <p className="text-xs text-gray-400">Kosong</p>
@@ -862,6 +913,63 @@ export default function RotationManagementPage() {
                     </div>
                   </div>
                 )}
+              </div>
+
+              {/* ─── Pratinjau rotasi (minggu ini / depan) ─── */}
+              <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
+                  <h2 className="font-semibold text-gray-700 dark:text-gray-200 text-sm flex items-center gap-2">
+                    <span className="w-5 h-5 bg-indigo-500 text-white text-xs rounded-full flex items-center justify-center font-bold">🔄</span>
+                    Pratinjau Rotasi
+                  </h2>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setPreviewWeek(mondayISO(new Date()))}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-medium ${previewWeek === mondayISO(new Date()) ? 'bg-indigo-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'}`}
+                    >
+                      Minggu ini
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPreviewWeek(nextMondayISO())}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-medium ${previewWeek !== mondayISO(new Date()) ? 'bg-indigo-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'}`}
+                    >
+                      Minggu depan
+                    </button>
+                  </div>
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                  Urutan daftar di panel roster adalah <span className="font-medium">urutan rotasi</span>, bukan penugasan shift tetap.
+                  Tiap minggu urutan itu digeser {selectedPosition.rotationPreview?.step ?? selectedPosition.shift1Capacity} posisi,
+                  jadi Shift 1 dan Shift 2 bertukar sendiri tiap Senin. Berikut hasilnya untuk minggu {previewWeek}:
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="p-3 rounded-lg border border-blue-200 dark:border-blue-700 bg-blue-50 dark:bg-blue-900/20">
+                    <div className="text-xs font-semibold text-blue-700 dark:text-blue-300 mb-1.5">Shift 1</div>
+                    {(selectedPosition.rotationPreview?.shift1UserIds || []).length === 0 ? (
+                      <p className="text-xs text-gray-400">Kosong</p>
+                    ) : (
+                      (selectedPosition.rotationPreview?.shift1UserIds || []).map((uid, i) => (
+                        <div key={uid} className="text-sm text-gray-700 dark:text-gray-200 py-0.5">
+                          {i + 1}. {getUserName(roster.find((r) => r.userId === uid)?.user) }
+                        </div>
+                      ))
+                    )}
+                  </div>
+                  <div className="p-3 rounded-lg border border-purple-200 dark:border-purple-700 bg-purple-50 dark:bg-purple-900/20">
+                    <div className="text-xs font-semibold text-purple-700 dark:text-purple-300 mb-1.5">Shift 2</div>
+                    {(selectedPosition.rotationPreview?.shift2UserIds || []).length === 0 ? (
+                      <p className="text-xs text-gray-400">Kosong</p>
+                    ) : (
+                      (selectedPosition.rotationPreview?.shift2UserIds || []).map((uid, i) => (
+                        <div key={uid} className="text-sm text-gray-700 dark:text-gray-200 py-0.5">
+                          {i + 1}. {getUserName(roster.find((r) => r.userId === uid)?.user) }
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
               </div>
 
               {/* ─── Jobdesk (rotasi harian) ─── */}
@@ -1037,28 +1145,35 @@ export default function RotationManagementPage() {
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">Kapasitas Shift 1</label>
-                  <input type="number" min="1" required value={newPosition.shift1Capacity}
-                    onChange={(e) => setNewPosition({ ...newPosition, shift1Capacity: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100" />
+              {newPosition.scheduleAllWorking ? (
+                <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg text-xs text-blue-700 dark:text-blue-300">
+                  Formasi <span className="font-medium">otomatis</span> mengikuti jumlah staff: Shift 1 = jumlah staff dibagi 2 dibulatkan ke atas, sisanya Shift 2.
+                  Contoh — 4 staff: 2/2 (tukar penuh tiap Senin), 5 staff: 3/2 (1 orang bertahan tiap Senin).
+                  Kolom kapasitas tidak dipakai pada mode ini.
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">Kapasitas Shift 2</label>
-                  <input type="number" min="1" required value={newPosition.shift2Capacity}
-                    onChange={(e) => setNewPosition({ ...newPosition, shift2Capacity: e.target.value })}
-                    disabled={newPosition.scheduleAllWorking}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 disabled:opacity-50" />
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">Kapasitas Shift 1</label>
+                    <input type="number" min="1" required value={newPosition.shift1Capacity}
+                      onChange={(e) => setNewPosition({ ...newPosition, shift1Capacity: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">Kapasitas Shift 2</label>
+                    <input type="number" min="1" required value={newPosition.shift2Capacity}
+                      onChange={(e) => setNewPosition({ ...newPosition, shift2Capacity: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100" />
+                  </div>
                 </div>
-              </div>
+              )}
               <label className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer select-none">
                 <input type="checkbox" checked={!!newPosition.scheduleAllWorking}
                   onChange={(e) => setNewPosition({ ...newPosition, scheduleAllWorking: e.target.checked })}
                   className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600" />
                 <span>
                   <span className="font-medium">Jadwalkan semua yang tidak libur</span>
-                  <span className="block text-xs text-gray-500 dark:text-gray-400">Formasi fleksibel (mis. 3–4 orang). Kapasitas shift diabaikan; semua anggota roster yang tidak libur dijadwalkan, dibagi Shift 1/2 bergantian. Cocok untuk Kitchen.</span>
+                  <span className="block text-xs text-gray-500 dark:text-gray-400">Formasi fleksibel: jumlah orang per shift dihitung otomatis dari jumlah staff (4 staff → 2/2, 5 staff → 3/2). Semua anggota roster yang tidak libur tetap dijadwalkan. Cocok untuk Kitchen/Dapur.</span>
                 </span>
               </label>
               <div className="flex justify-end gap-2 pt-2">
@@ -1082,28 +1197,38 @@ export default function RotationManagementPage() {
                   onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100" />
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">Kapasitas Shift 1</label>
-                  <input type="number" min="1" required value={editForm.shift1Capacity}
-                    onChange={(e) => setEditForm({ ...editForm, shift1Capacity: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100" />
+              {editForm.scheduleAllWorking ? (
+                <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg text-xs text-blue-700 dark:text-blue-300">
+                  Formasi <span className="font-medium">otomatis</span> mengikuti jumlah staff
+                  {selectedPosition?.id === editModal.id && selectedPosition?.rosters?.length
+                    ? ` — saat ini ${selectedPosition.rosters.length} staff: Shift 1 = ${Math.ceil(selectedPosition.rosters.length / 2)}, Shift 2 = ${Math.floor(selectedPosition.rosters.length / 2)}`
+                    : ''}.
+                  Contoh — 4 staff: 2/2 (tukar penuh tiap Senin), 5 staff: 3/2 (1 orang bertahan tiap Senin).
+                  Kolom kapasitas tidak dipakai pada mode ini.
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">Kapasitas Shift 2</label>
-                  <input type="number" min="1" required value={editForm.shift2Capacity}
-                    onChange={(e) => setEditForm({ ...editForm, shift2Capacity: e.target.value })}
-                    disabled={editForm.scheduleAllWorking}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 disabled:opacity-50" />
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">Kapasitas Shift 1</label>
+                    <input type="number" min="1" required value={editForm.shift1Capacity}
+                      onChange={(e) => setEditForm({ ...editForm, shift1Capacity: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">Kapasitas Shift 2</label>
+                    <input type="number" min="1" required value={editForm.shift2Capacity}
+                      onChange={(e) => setEditForm({ ...editForm, shift2Capacity: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100" />
+                  </div>
                 </div>
-              </div>
+              )}
               <label className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer select-none">
                 <input type="checkbox" checked={!!editForm.scheduleAllWorking}
                   onChange={(e) => setEditForm({ ...editForm, scheduleAllWorking: e.target.checked })}
                   className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600" />
                 <span>
                   <span className="font-medium">Jadwalkan semua yang tidak libur</span>
-                  <span className="block text-xs text-gray-500 dark:text-gray-400">Formasi fleksibel (mis. 3–4 orang). Kapasitas shift diabaikan; semua anggota roster yang tidak libur dijadwalkan, dibagi Shift 1/2 bergantian. Cocok untuk Kitchen.</span>
+                  <span className="block text-xs text-gray-500 dark:text-gray-400">Formasi fleksibel: jumlah orang per shift dihitung otomatis dari jumlah staff (4 staff → 2/2, 5 staff → 3/2). Semua anggota roster yang tidak libur tetap dijadwalkan. Cocok untuk Kitchen/Dapur.</span>
                 </span>
               </label>
               <div className="flex justify-end gap-2 pt-2">
@@ -1123,6 +1248,17 @@ export default function RotationManagementPage() {
               <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Atur Roster — {selectedPosition?.name}</h2>
               <button onClick={() => setRosterModal(false)} className="text-gray-400 hover:text-gray-600 text-xl">✕</button>
             </div>
+
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-4 -mt-2">
+              Urutan di bawah adalah <span className="font-medium">urutan rotasi</span>. Tiap Senin urutan itu
+              digeser {selectedPosition?.rotationPreview?.step ?? selectedPosition?.shift1Capacity ?? 1} posisi,
+              sehingga Shift 1 dan Shift 2 bertukar otomatis
+              {selectedPosition?.scheduleAllWorking
+                ? ` (jumlah orang per shift mengikuti jumlah staff: ${selectedPosition?.rosters?.length || 0} staff → ${selectedPosition?.rotationPreview?.shift1Count ?? '-'}/${selectedPosition?.rotationPreview?.shift2Count ?? '-'})`
+                : ''}.
+              Badge S1/S2 menunjukkan posisi tiap orang pada minggu ini. Pakai ↑ ↓ untuk mengubah
+              urutan — urutan inilah yang menentukan hasil generate, bukan angka shift.
+            </p>
 
             {/* Tambah user */}
             <div className="mb-4">
@@ -1152,7 +1288,7 @@ export default function RotationManagementPage() {
             {/* Daftar roster */}
             <div className="mb-4">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-gray-600 dark:text-gray-300">Anggota ({roster.length})</span>
+                <span className="text-sm font-medium text-gray-600 dark:text-gray-300">Urutan Rotasi ({roster.length})</span>
                 {roster.length > 0 && (
                   <button onClick={() => setRoster([])} className="text-xs text-red-500 hover:text-red-700">Hapus Semua</button>
                 )}
@@ -1161,27 +1297,25 @@ export default function RotationManagementPage() {
                 <p className="text-gray-400 text-sm text-center py-4">Belum ada anggota</p>
               ) : (
                 <ul className="space-y-1.5">
-                  {roster.map((r, idx) => (
+                  {roster.map((r, idx) => {
+                    const previewIdx = (selectedPosition?.rotationPreview?.shift1UserIds || []).indexOf(r.userId);
+                    return (
                     <li key={r.userId} className="flex items-center justify-between bg-gray-50 dark:bg-gray-700 rounded-lg px-3 py-2">
-                      <span className="text-sm text-gray-700 dark:text-gray-200 flex items-center gap-2">
-                        <span className="w-5 h-5 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-full text-xs flex items-center justify-center">{idx + 1}</span>
-                        {getUserName(r.user) || `User ${r.userId}`}
+                      <span className="text-sm text-gray-700 dark:text-gray-200 flex items-center gap-2 min-w-0">
+                        <span className="w-5 h-5 shrink-0 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-full text-xs flex items-center justify-center">{idx + 1}</span>
+                        <span className="truncate">{getUserName(r.user) || `User ${r.userId}`}</span>
+                        <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded-full ${previewIdx >= 0 ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' : 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300'}`}>
+                          S{previewIdx >= 0 ? 1 : 2} minggu ini
+                        </span>
                       </span>
                       <div className="flex items-center gap-1">
-                        <select
-                          value={r.shift || 1}
-                          onChange={(e) => setShift(r.userId, Number(e.target.value))}
-                          className="text-xs border border-gray-300 dark:border-gray-600 rounded px-1.5 py-1 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200"
-                        >
-                          <option value={1}>Shift 1</option>
-                          <option value={2}>Shift 2</option>
-                        </select>
                         <button onClick={() => moveRoster(idx, -1)} disabled={idx === 0} className="px-1.5 py-1 text-gray-500 disabled:opacity-30">↑</button>
                         <button onClick={() => moveRoster(idx, 1)} disabled={idx === roster.length - 1} className="px-1.5 py-1 text-gray-500 disabled:opacity-30">↓</button>
                         <button onClick={() => removeFromRoster(r.userId)} className="px-1.5 py-1 text-red-500 hover:text-red-700">✕</button>
                       </div>
                     </li>
-                  ))}
+                    );
+                  })}
                 </ul>
               )}
             </div>

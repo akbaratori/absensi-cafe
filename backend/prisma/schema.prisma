@@ -352,6 +352,11 @@ model RotationState {
   positionId            Int      @unique @map("position_id")
   currentStartIndex     Int      @default(0) @map("current_start_index")
   lastGeneratedWeekStart DateTime? @map("last_generated_week_start")
+  // Titik acuan rotasi: minggu `anchorWeekStart` memakai index `anchorIndex`.
+  // Index minggu lain dihitung dari jarak minggu terhadap anchor, sehingga
+  // generate bersifat idempoten & tidak saling menggeser antar bulan.
+  anchorWeekStart       DateTime? @map("anchor_week_start")
+  anchorIndex           Int?     @map("anchor_index")
   updatedAt             DateTime @updatedAt @map("updated_at")
 
   position Position @relation(fields: [positionId], references: [id], onDelete: Cascade)

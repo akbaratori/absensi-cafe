@@ -373,7 +373,11 @@ export default function FullSchedulePage() {
       <div key={`${position.id}-${ws}`} className="bg-white dark:bg-gray-800 rounded-xl shadow overflow-hidden">
         <div className="px-4 py-3 bg-blue-600 text-white flex items-center justify-between">
           <h2 className="font-semibold text-base">{position.name}</h2>
-          <span className="text-xs opacity-80">Shift 1: {position.shift1Capacity} orang &middot; Shift 2: {position.shift2Capacity} orang</span>
+          <span className="text-xs opacity-80">
+            {position.scheduleAllWorking
+              ? `Formasi otomatis (${position.rosters?.length ?? '?'} staff)`
+              : `Shift 1: ${position.shift1Capacity} orang · Shift 2: ${position.shift2Capacity} orang`}
+          </span>
         </div>
         {!schedule || !schedule.schedules?.length ? (
           <div className="px-4 py-6 text-center text-gray-400 text-sm">

@@ -220,7 +220,10 @@ class RotationController {
 
     async getPosition(req, res, next) {
         try {
-            const position = await rotationService.getPosition(parseInt(req.params.id));
+            // weekStart opsional: dipakai UI untuk pratinjau rotasi minggu tertentu
+            // (mis. minggu depan) lewat GET /rotation/:id?weekStart=YYYY-MM-DD.
+            const { weekStart } = req.query;
+            const position = await rotationService.getPosition(parseInt(req.params.id), weekStart);
             return successResponse(res, 200, position, 'Detail posisi berhasil dimuat');
         } catch (err) {
             next(err);

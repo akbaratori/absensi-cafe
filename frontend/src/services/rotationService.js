@@ -3,7 +3,8 @@ import api from './api';
 const rotationService = {
   // Posisi
   listPositions: () => api.get('/rotation'),
-  getPosition: (id) => api.get(`/rotation/${id}`),
+  getPosition: (id, weekStart) =>
+    api.get(`/rotation/${id}`, weekStart ? { params: { weekStart } } : undefined),
   createPosition: (data) => api.post('/rotation', data),
   updatePosition: (id, data) => api.put(`/rotation/${id}`, data),
   getJobdesks: (id) => api.get(`/rotation/${id}/jobdesks`),
