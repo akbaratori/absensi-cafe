@@ -67,3 +67,14 @@ export const saveClosingConfig = async (data) => {
     const response = await api.post('/schedules/closing-config', data);
     return response.data;
 };
+
+/**
+ * Rekap keadilan jobdesk dapur (staff × jobdesk + beban rata-rata per hari kerja).
+ * Dipakai panel "Rekap Keadilan Jobdesk" di halaman Jadwal Lengkap.
+ * @param {string} month - "YYYY-MM"
+ */
+export const getJobdeskFairness = async (month) => {
+    const response = await api.get('/schedules/jobdesk-fairness', { params: { month } });
+    return response.data;
+};
+

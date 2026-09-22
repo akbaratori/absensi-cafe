@@ -324,6 +324,24 @@ class ScheduleController {
         }
     }
 
+    /**
+     * GET /schedules/jobdesk-fairness?month=YYYY-MM
+     * Rekap keadilan jobdesk dapur (per staff × jobdesk + beban rata-rata).
+     * Dipakai panel "Rekap Keadilan Jobdesk" di halaman Jadwal Lengkap.
+     */
+    async getJobdeskFairness(req, res, next) {
+        try {
+            const { month } = req.query;
+            if (!month) {
+                throw new AppError('Parameter month wajib diisi (YYYY-MM)', 400, 'VALIDATION_ERROR');
+            }
+            const report = await scheduleService.getJobdeskFairness(month);
+            return successResponse(res, 200, report, 'Rekap keadilan jobdesk berhasil dimuat');
+        } catch (err) {
+            next(err);
+        }
+    }
+
     async getPublicSchedule(req, res, next) {
         try {
             const { startDate, endDate } = req.query;

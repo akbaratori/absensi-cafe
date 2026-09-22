@@ -9,7 +9,6 @@ import { generateSchedule, distributeKitchenShifts, checkConflicts } from '../..
 import api from '../../services/api';
 import { showSuccess, showError } from '../../hooks/useToast';
 import ScheduleCalendar from '../../components/admin/ScheduleCalendar';
-import StationSummaryPanel from '../../components/admin/StationSummaryPanel';
 import BulkSchedulePanel from '../../components/admin/BulkSchedulePanel';
 import ClosingSetupPanel from '../../components/admin/ClosingSetupPanel';
 
@@ -221,8 +220,6 @@ const ScheduleManagementPage = () => {
             <ClosingSetupPanel />
 
             <BulkSchedulePanel />
-
-            <StationSummaryPanel />
 
             <Card>
                 <div className="p-4" id="schedule-calendar-container">

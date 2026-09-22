@@ -1,5 +1,53 @@
-const { ErrorCodes } = require('../utils/AppError');
+const { AppError, ErrorCodes } = require('../utils/AppError');
 const prisma = require('../utils/database');
+
+/** Format Date → "YYYY-MM-DD" (UTC), dipakai untuk tanggal murni. */
+const toDateStr = (d) => new Date(d).toISOString().slice(0, 10);
+
+/** Format (year, month) → "YYYY-MM". */
+const toMonthStr = (year, mon) => `${year}-${String(mon).padStart(2, '0')}`;
+
+/**
+ * Bobot beban tiap jobdesk dapur, mengacu JOB_DESK_KITCHEN.md:
+ * A (Main Cook) paling berat → E (Helper / Floating) paling ringan.
+ *
+ * `label` HARUS persis sama dengan potongan nama yang dipakai di
+ * `user_schedules.kitchen_station` (dipisah ' + '). `short` dipakai frontend.
+ */
+const JOBDESK_ROLES = [
+    { key: 'MAIN', label: 'Main Cook', short: 'A', weight: 5 },
+    { key: 'SUPPORT', label: 'Support Cook', short: 'B', weight: 4 },
+    { key: 'CHECKER', label: 'Checker / Stock', short: 'C', weight: 3 },
+    { key: 'PLATING', label: 'Plating', short: 'C+', weight: 3 },
+    { key: 'RUNNER', label: 'Runner / Area', short: 'D', weight: 2 },
+    { key: 'HELPER', label: 'Helper / Floating', short: 'E', weight: 1 },
+];
+
+/**
+ * Ambang selisih jumlah hari untuk menandai distribusi sebuah jobdesk
+ * "belum merata" (JOB_DESK_KITCHEN.md §4.4: selisih maksimal 3 hari).
+ */
+const FAIRNESS_GAP_THRESHOLD = 3;
+
+/**
+ * Pecah nilai `kitchen_station` menjadi daftar jobdesk individual.
+ *
+ * Nilai di database bisa rangkap, contoh:
+ *   'Checker / Stock + Plating'                                    → 2 jobdesk
+ *   'Support Cook + Checker / Stock + Runner / Area + Helper'      → 4 jobdesk
+ * Memakai `includes`, BUKAN bagian pertama saja — kode lama hanya mengambil
+ * potongan pertama sehingga `Plating` (dan jobdesk sisanya) hilang dari rekap.
+ *
+ * @param {String} station - nilai mentah kitchen_station
+ * @returns {Array<Object>} daftar role dari JOBDESK_ROLES yang cocok
+ */
+const parseJobdeskRoles = (station) => {
+    const raw = String(station || '');
+    if (!raw.trim()) return [];
+    const parts = raw.split(' + ').map((p) => p.trim()).filter(Boolean);
+    return JOBDESK_ROLES.filter((role) => parts.includes(role.label));
+};
+
 const attendanceRepository = require('../repositories/attendanceRepository');
 const { KITCHEN_STATIONS, PRIORITY_ORDER } = require('../config/stationConfig');
 
@@ -1078,6 +1126,205 @@ class ScheduleService {
         }
 
         return Object.values(summaryMap).sort((a, b) => a.fullName.localeCompare(b.fullName));
+    }
+
+    /**
+     * Rekap keadilan jobdesk dapur untuk satu bulan.
+     *
+     * Berbeda dari `getStationSummary` (yang selalu mengambil potongan pertama
+     * `kitchen_station`), method ini:
+     *
+     *  1. Menghitung SEMUA jobdesk di dalam satu nilai rangkap, sehingga
+     *     'Checker / Stock + Plating' menambah 1 hari Checker DAN 1 hari
+     *     Plating — bukan hanya Checker.
+     *  2. Memberi bobot beban A=5 … E=1 sesuai JOB_DESK_KITCHEN.md lalu memakai
+     *     **beban rata-rata per hari kerja** sebagai pembanding. Penting karena
+     *     jumlah hari kerja staff tidak sama (mis. 25 vs 29 hari); tanpa
+     *     normalisasi ini staff yang lebih banyak masuk otomatis terlihat
+     *     "paling berat" padahal beban hariannya ringan.
+     *  3. Menandai jobdesk yang distribusinya timpang (selisih hari > 3, §4.4)
+     *     serta staff yang jauh di atas/bawah rata-rata beban.
+     *
+     * READ-ONLY dan tidak bergantung pada rotationVersion, jadi tetap sah
+     * untuk data lama maupun baru.
+     *
+     * @param {String} month - format "YYYY-MM"
+     * @returns {Object} rekap siap kirim
+     */
+    async getJobdeskFairness(month) {
+        const match = /^(\d{4})-(\d{2})$/.exec(String(month ?? '').trim());
+        if (!match) {
+            throw new AppError('Format bulan tidak valid. Gunakan YYYY-MM.', 400, 'VALIDATION_ERROR');
+        }
+        const year = Number(match[1]);
+        const mon = Number(match[2]);
+        if (mon < 1 || mon > 12) {
+            throw new AppError('Bulan harus antara 01 dan 12.', 400, 'VALIDATION_ERROR');
+        }
+
+        const monthKey = toMonthStr(year, mon);
+        const startDate = new Date(Date.UTC(year, mon - 1, 1));
+        const endDate = new Date(Date.UTC(year, mon, 0, 23, 59, 59));
+
+        // Semua hari kerja staff Kitchen bulan ini, terlepas jobdesk-nya terisi
+        // atau belum — hari tanpa jobdesk dihitung sebagai data bolong.
+        const schedules = await prisma.userSchedule.findMany({
+            where: {
+                date: { gte: startDate, lte: endDate },
+                isOffDay: false,
+                user: { department: 'KITCHEN', isActive: true },
+            },
+            include: { user: { select: { id: true, fullName: true } } },
+            orderBy: [{ date: 'asc' }],
+        });
+
+        const perUser = new Map();
+        const ensureUser = (user) => {
+            if (!perUser.has(user.id)) {
+                perUser.set(user.id, {
+                    userId: user.id,
+                    fullName: user.fullName,
+                    daysWorked: 0,
+                    daysWithoutJobdesk: 0,
+                    multiJobdeskDays: 0,
+                    counts: Object.fromEntries(JOBDESK_ROLES.map((r) => [r.key, 0])),
+                    loadSum: 0,
+                });
+            }
+            return perUser.get(user.id);
+        };
+
+        const missingJobdesk = [];
+
+        for (const s of schedules) {
+            const entry = ensureUser(s.user);
+            entry.daysWorked += 1;
+
+            const roles = parseJobdeskRoles(s.kitchenStation);
+            if (!roles.length) {
+                entry.daysWithoutJobdesk += 1;
+                missingJobdesk.push({ date: toDateStr(s.date), userId: s.user.id, fullName: s.user.fullName });
+                continue;
+            }
+
+            if (roles.length > 1) entry.multiJobdeskDays += 1;
+            let dayLoad = 0;
+            for (const role of roles) {
+                entry.counts[role.key] += 1;
+                dayLoad += role.weight;
+            }
+            entry.loadSum += dayLoad;
+        }
+
+        const staff = [...perUser.values()].map((e) => ({
+            userId: e.userId,
+            fullName: e.fullName,
+            daysWorked: e.daysWorked,
+            daysWithoutJobdesk: e.daysWithoutJobdesk,
+            multiJobdeskDays: e.multiJobdeskDays,
+            counts: e.counts,
+            // Beban total = Σ bobot jobdesk yang dipegang sebulan.
+            loadTotal: e.loadSum,
+            // Pembanding yang adil: beban per hari kerja, bukan beban total.
+            loadPerDay: e.daysWorked ? Number((e.loadSum / e.daysWorked).toFixed(2)) : 0,
+        }));
+
+        // ── Rata-rata per jobdesk + penanda timpang ──────────────────────────
+        const byJobdesk = JOBDESK_ROLES.map((role) => {
+            const values = staff.map((s) => s.counts[role.key] || 0);
+            const max = values.length ? Math.max(...values) : 0;
+            const min = values.length ? Math.min(...values) : 0;
+            const total = values.reduce((a, b) => a + b, 0);
+            return {
+                key: role.key,
+                label: role.label,
+                short: role.short,
+                weight: role.weight,
+                total,
+                min,
+                max,
+                spread: max - min,
+                avg: staff.length ? Number((total / staff.length).toFixed(2)) : 0,
+                // Timpang bila selisih hari antar staff melebihi ambang §4.4.
+                isUneven: staff.length > 1 && max - min > FAIRNESS_GAP_THRESHOLD,
+            };
+        });
+
+        // Urutkan dari beban harian terberat agar yang perlu diperiksa di atas.
+        const sortedByLoad = [...staff].sort(
+            (a, b) => b.loadPerDay - a.loadPerDay || b.loadTotal - a.loadTotal || a.fullName.localeCompare(b.fullName),
+        );
+        const topLoad = sortedByLoad[0] || null;
+        const bottomLoad = sortedByLoad[sortedByLoad.length - 1] || null;
+        const loadValues = staff.map((s) => s.loadPerDay);
+        const loadAvg = loadValues.length
+            ? Number((loadValues.reduce((a, b) => a + b, 0) / loadValues.length).toFixed(2))
+            : 0;
+
+        // Ambang "beban tidak seimbang": selisih beban harian > 1 poin penuh —
+        // setara satu staff selalu Main Cook sementara lainnya selalu Runner.
+        const loadSpread = staff.length > 1 ? Number((topLoad.loadPerDay - bottomLoad.loadPerDay).toFixed(2)) : 0;
+        const isLoadUneven = loadSpread > 1;
+
+        const unevenJobdesks = byJobdesk.filter((j) => j.isUneven);
+
+        // ── Sorotan untuk ditampilkan di UI ─────────────────────────────────
+        const highlights = [];
+
+        if (!staff.length) {
+            highlights.push({ type: 'info', message: 'Belum ada hari kerja Kitchen pada bulan ini.' });
+        } else {
+            if (isLoadUneven) {
+                highlights.push({
+                    type: 'warning',
+                    message:
+                        `Beban harian belum merata: ${topLoad.fullName} ${topLoad.loadPerDay} vs ` +
+                        `${bottomLoad.fullName} ${bottomLoad.loadPerDay} (selisih ${loadSpread}).`,
+                });
+            }
+            for (const j of unevenJobdesks) {
+                highlights.push({
+                    type: 'warning',
+                    message: `Jobdesk ${j.label} timpang: paling banyak ${j.max}x, paling sedikit ${j.min}x (selisih ${j.spread} hari).`,
+                });
+            }
+            const withGaps = staff.filter((s) => s.daysWithoutJobdesk > 0);
+            if (withGaps.length) {
+                const totalGaps = withGaps.reduce((a, s) => a + s.daysWithoutJobdesk, 0);
+                highlights.push({
+                    type: 'warning',
+                    message: `${totalGaps} hari kerja belum punya jobdesk sama sekali (${withGaps
+                        .map((s) => `${s.fullName} ${s.daysWithoutJobdesk}`)
+                        .join(', ')}).`,
+                });
+            }
+            if (!highlights.length) {
+                highlights.push({ type: 'success', message: 'Distribusi jobdesk bulan ini sudah merata.' });
+            }
+        }
+
+        return {
+            month: monthKey,
+            range: { from: toDateStr(startDate), to: toDateStr(endDate) },
+            roles: JOBDESK_ROLES.map(({ key, label, short, weight }) => ({ key, label, short, weight })),
+            staff: sortedByLoad,
+            byJobdesk,
+            summary: {
+                staffCount: staff.length,
+                totalWorkDays: staff.reduce((a, s) => a + s.daysWorked, 0),
+                totalJobdeskDays: staff.reduce((a, s) => a + Object.values(s.counts).reduce((x, y) => x + y, 0), 0),
+                daysWithoutJobdesk: missingJobdesk.length,
+                loadAvg,
+                loadMin: bottomLoad ? bottomLoad.loadPerDay : 0,
+                loadMax: topLoad ? topLoad.loadPerDay : 0,
+                loadSpread,
+                isLoadUneven,
+                unevenJobdeskCount: unevenJobdesks.length,
+                gapThreshold: FAIRNESS_GAP_THRESHOLD,
+            },
+            missingJobdesk,
+            highlights,
+        };
     }
 }
 

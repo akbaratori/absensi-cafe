@@ -55,6 +55,9 @@ router.delete('/:id', authorize('ADMIN'), scheduleController.deleteSchedule);
 // Get station summary for a month (Admin only) - MUST be before /:userId
 router.get('/station-summary', authorize('ADMIN'), scheduleController.getStationSummary);
 
+// Rekap keadilan jobdesk dapur (Admin only) - MUST be before /:userId
+router.get('/jobdesk-fairness', authorize('ADMIN'), scheduleController.getJobdeskFairness);
+
 // GET closing-config — must be before /:userId
 router.get('/closing-config', asyncHandler(async (req, res) => {
     const cfg = await prisma.systemConfig.findUnique({ where: { key: 'closing_jobdesk_config' } });

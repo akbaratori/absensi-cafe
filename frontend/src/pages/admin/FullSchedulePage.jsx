@@ -5,6 +5,7 @@ import rotationService from '../../services/rotationService';
 import { getAllShifts } from '../../services/shiftService';
 import { updateUserScheduleCell } from '../../services/scheduleService';
 import BackupPanel from '../../components/admin/BackupPanel';
+import JobdeskFairnessPanel from '../../components/admin/JobdeskFairnessPanel';
 import Modal from '../../components/shared/Modal';
 import Button from '../../components/shared/Button';
 import { showSuccess, showError } from '../../hooks/useToast';
@@ -755,6 +756,15 @@ export default function FullSchedulePage() {
           </>
         )}
       </div>
+      {/* Rekap keadilan jobdesk — satu-satunya tempat rekap jobdesk dapur.
+          Sengaja di luar exportRef agar tidak ikut masuk gambar/PDF jadwal. */}
+      <div className="mb-6">
+        <JobdeskFairnessPanel
+          month={activeMonth}
+          onMonthChange={(m) => { if (m) { setMonthView(m); setViewMode('month'); } }}
+        />
+      </div>
+
       <div ref={exportRef} className="bg-gray-50 dark:bg-transparent p-1 rounded-lg">
         {viewMode === 'week' && !loading && data.length > 0 && <BackupBar ws={weekStart} />}
         {error && <div className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-700 text-red-700 dark:text-red-300 rounded-lg p-4 mb-4 text-sm">{error}</div>}
