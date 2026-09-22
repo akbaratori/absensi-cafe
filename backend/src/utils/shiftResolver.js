@@ -19,12 +19,17 @@ function parseShiftNumber(name) {
   return m ? parseInt(m[1], 10) : null;
 }
 
-/** Peta { nomorShift -> baris shift }. Bila nomor kembar, id terkecil menang. */
+/**
+ * Peta { nomorShift -> baris shift }. Bila nomor kembar, id terkecil menang.
+ *
+ * PENTING: kembalikan SELURUH kolom shift (bukan hanya id + name).
+ * Baris hasil peta ini dipakai langsung sebagai "shift efektif" di
+ * resolveEffectiveShift; tanpa startTime/endTime, classifyByDuration menghitung
+ * String(undefined).split(':') -> NaN, sehingga user selalu dinilai setengah
+ * hari. Jangan sempitkan select di sini.
+ */
 async function loadShiftMapByNumber() {
-  const shifts = await prisma.shift.findMany({
-    select: { id: true, name: true },
-    orderBy: { id: 'asc' },
-  });
+  const shifts = await prisma.shift.findMany({ orderBy: { id: 'asc' } });
   const map = new Map();
   for (const s of shifts) {
     const n = parseShiftNumber(s.name);

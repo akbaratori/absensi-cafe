@@ -1,5 +1,6 @@
 const prisma = require('../src/utils/database');
 const { parseShiftNumber, loadShiftMapByNumber } = require('../src/utils/shiftResolver');
+const { shiftDurationMinutes } = require('../src/utils/attendanceHelpers');
 
 /**
  * Pemetaan nomor shift <-> baris tabel `shifts`.
@@ -66,6 +67,34 @@ describe('Pemetaan shiftNumber <-> shiftId', () => {
       expect(map.get(9)).toBeTruthy();
       expect(map.get(9).id).toBe(created.id);
       expect(map.get(9).name).toBe(TAG);
+    });
+
+    it('setiap entri membawa startTime & endTime — bukan hanya id + name', async () => {
+      // REGRESI: pernah `select: { id, name }` saja. Akibatnya baris hasil peta
+      // dipakai sebagai shift efektif tanpa jam, dan badge dashboard mencetak
+      // "Shift 2 (undefined - undefined)". Guard di sini murni soal KEBERADAAN
+      // kolom (bukan nilainya), supaya tetap hijau walau jam tiap environment
+      // berbeda.
+      const map = await loadShiftMapByNumber();
+      expect(map.size).toBeGreaterThan(0);
+      for (const [num, s] of map) {
+        expect(typeof s.startTime).toBe('string');
+        expect(typeof s.endTime).toBe('string');
+      }
+    });
+
+    it('jam dari entri peta bisa dihitung durasinya (bukan NaN)', async () => {
+      // Bentuk kegagalan yang sebenarnya: tanpa startTime/endTime,
+      // shiftDurationMinutes('undefined','undefined') menghasilkan NaN sehingga
+      // ambang setengah hari tidak pernah terpenuhi. Durasi harus angka wajar
+      // (0, 24 jam].
+      const map = await loadShiftMapByNumber();
+      for (const [num, s] of map) {
+        const durasi = shiftDurationMinutes(s.startTime, s.endTime);
+        expect(Number.isFinite(durasi)).toBe(true);
+        expect(durasi).toBeGreaterThan(0);
+        expect(durasi).toBeLessThanOrEqual(24 * 60);
+      }
     });
   });
 });
