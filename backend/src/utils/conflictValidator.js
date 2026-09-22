@@ -9,9 +9,21 @@ const prisma = require('./database');
  * Check if an employee has a schedule conflict on a given date.
  * A conflict exists if:
  * - The employee is on leave (approved) on that date
- * - The employee already has an approved shift swap on that date
- * - The employee already has an approved off-day swap involving that date
- * 
+ * - The employee sudah punya pertukaran yang mengunci tanggal itu (lihat `context`)
+ *
+ * `context` menentukan pertukaran jenis apa yang dianggap MENGUNCI tanggal:
+ * - 'OFF_DAY'   : tukar LIBUR saja. Tukar shift tidak dipedulikan.
+ * - 'SHIFT_SWAP': tukar SHIFT saja. Tukar libur hanya dihitung pada tanggal
+ *                 kerja pengganti / tanggal libur pengganti (lihat komentar di
+ *                 Check 3 & 5), bukan pada semua kombinasi tanggal.
+ * - 'ALL'       : keduanya (dipakai validator generik / legacy).
+ *
+ * Kenapa dipisah: tukar SHIFT pada tanggal X tidak boleh memblokir pengajuan
+ * tukar LIBUR yang kebetulan menyentuh tanggal X. Keduanya mengubah sel jadwal
+ * yang berbeda (shift kerja vs. hari libur), dan dulu pemisahan ini hanya
+ * diterapkan pada Check 3 & 5 — Check 2 & 4 meloloskan shift swap untuk
+ * konteks apa pun sehingga tukar libur ikut tertolak tanpa alasan.
+ *
  * @param {number} employeeId
  * @param {Date} date
  * @param {number} [excludeSwapId] - ID shift swap yang sedang divalidasi
@@ -50,24 +62,33 @@ async function checkEmployeeScheduleConflict(
   }
 
   // Check 2: Approved shift swap on the same day (as requester or target)
-  const shiftSwapWhere = {
-    date: checkDate,
-    status: 'APPROVED',
-    OR: [
-      { requesterId: employeeId },
-      { targetUserId: employeeId },
-    ],
-  };
-  if (excludeSwapId) {
-    shiftSwapWhere.id = { not: excludeSwapId };
-  }
-  const shiftSwap = await prisma.shiftSwap.findFirst({ where: shiftSwapWhere });
-
-  if (shiftSwap) {
-    return {
-      hasConflict: true,
-      reason: `Karyawan sudah memiliki tukar shift yang disetujui pada tanggal ${checkDate.toLocaleDateString('id-ID')}.`,
+  //
+  // DILEWATI untuk konteks 'OFF_DAY'. Tukar shift hanya mengganti shift kerja
+  // pada tanggal itu; sel jadwalnya sudah diperbarui saat swap disetujui, dan
+  // off-dayService membaca sel itu langsung (isUserOffDayOnDate). Kalau check ini
+  // ikut jalan, tanggal yang pernah ditukar shift-nya jadi MUSTAHIL ditukar
+  // liburnya selamanya — itulah sumber 422 "Karyawan sudah memiliki tukar shift
+  // yang disetujui pada tanggal ..." pada pengajuan tukar LIBUR.
+  if (context !== 'OFF_DAY') {
+    const shiftSwapWhere = {
+      date: checkDate,
+      status: 'APPROVED',
+      OR: [
+        { requesterId: employeeId },
+        { targetUserId: employeeId },
+      ],
     };
+    if (excludeSwapId) {
+      shiftSwapWhere.id = { not: excludeSwapId };
+    }
+    const shiftSwap = await prisma.shiftSwap.findFirst({ where: shiftSwapWhere });
+
+    if (shiftSwap) {
+      return {
+        hasConflict: true,
+        reason: `Karyawan sudah memiliki tukar shift yang disetujui pada tanggal ${checkDate.toLocaleDateString('id-ID')}.`,
+      };
+    }
   }
 
   // Check 3: Approved off-day request on the same day
@@ -109,28 +130,38 @@ async function checkEmployeeScheduleConflict(
   }
 
   // Check 4: Pending shift swap (prevents double request, but not a hard conflict)
-  // Kecualikan swap yang sedang divalidasi (excludeSwapId) agar tidak cocok dengan dirinya sendiri.
-  const pendingSwapWhere = {
-    date: checkDate,
-    status: { in: ['PENDING_VALIDATION', 'PENDING_TARGET_RESPONSE', 'PENDING_APPROVAL'] },
-    OR: [
-      { requesterId: employeeId },
-      { targetUserId: employeeId },
-    ],
-  };
-  if (excludeSwapId) {
-    pendingSwapWhere.id = { not: excludeSwapId };
-  }
-  const pendingSwap = await prisma.shiftSwap.findFirst({ where: pendingSwapWhere });
-
-  if (pendingSwap) {
-    return {
-      hasConflict: true,
-      reason: `Masih ada pengajuan tukar shift yang menunggu pada tanggal ${checkDate.toLocaleDateString('id-ID')}. Selesaikan atau batalkan dulu.`,
+  //
+  // DILEWATI untuk konteks 'OFF_DAY' dengan alasan yang sama seperti Check 2:
+  // pengajuan tukar SHIFT yang masih menunggu tidak boleh mengunci tanggal bagi
+  // pengajuan tukar LIBUR, karena keduanya menyentuh sel jadwal yang berbeda.
+  if (context !== 'OFF_DAY') {
+    // Kecualikan swap yang sedang divalidasi (excludeSwapId) agar tidak cocok dengan dirinya sendiri.
+    const pendingSwapWhere = {
+      date: checkDate,
+      status: { in: ['PENDING_VALIDATION', 'PENDING_TARGET_RESPONSE', 'PENDING_APPROVAL'] },
+      OR: [
+        { requesterId: employeeId },
+        { targetUserId: employeeId },
+      ],
     };
+    if (excludeSwapId) {
+      pendingSwapWhere.id = { not: excludeSwapId };
+    }
+    const pendingSwap = await prisma.shiftSwap.findFirst({ where: pendingSwapWhere });
+
+    if (pendingSwap) {
+      return {
+        hasConflict: true,
+        reason: `Masih ada pengajuan tukar shift yang menunggu pada tanggal ${checkDate.toLocaleDateString('id-ID')}. Selesaikan atau batalkan dulu.`,
+      };
+    }
   }
 
   // Check 5: Pending off-day request
+  //
+  // Untuk konteks 'SHIFT_SWAP', tanggal yang terpakai adalah tanggal saat
+  // karyawan benar-benar LIBUR (requester.workDate / target.offDate). Tanggal
+  // ketika karyawan justru MASUK menggantikan tetap boleh ditukar shift-nya.
   let pendingOffDayWhere;
   if (context === 'SHIFT_SWAP') {
     pendingOffDayWhere = {

@@ -55,6 +55,20 @@ const OffDayRequestModal = ({ onClose, onSuccess }) => {
     return new Date(val).toISOString().slice(0, 10);
   };
 
+  // Backend membalas { success:false, error:{ code, message } } — pesan penolakan
+  // sebenarnya ada di error.message, bukan data.message. Fallback ke pesan
+  // jaringan kalau backend tidak bisa dihubungi.
+  const toErrorMessage = (err) => {
+    if (!err?.response) return "Tidak dapat menghubungi server. Coba lagi.";
+    const payload = err.response.data;
+    return (
+      payload?.error?.message ||
+      payload?.message ||
+      (typeof payload === "string" ? payload : "") ||
+      "Gagal mengirim permintaan"
+    );
+  };
+
   // Ambil jadwal pemohon bulan ini untuk menentukan hari libur pemohon
   useEffect(() => {
     const fetchMySchedule = async () => {
@@ -210,7 +224,7 @@ const OffDayRequestModal = ({ onClose, onSuccess }) => {
       onSuccess?.();
       onClose();
     } catch (err) {
-      showError(err.response?.data?.message || "Gagal mengirim permintaan");
+      showError(toErrorMessage(err));
     } finally {
       setLoading(false);
     }

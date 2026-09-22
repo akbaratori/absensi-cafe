@@ -83,10 +83,14 @@ class OffDayService {
     }
 
     // Run conflict validators (sebelum record dibuat)
-    const requesterOffConflict = await checkEmployeeScheduleConflict(requesterId, workDateObj);
-    const requesterWorkConflict = await checkEmployeeScheduleConflict(requesterId, offDateObj);
-    const targetOffConflict = await checkEmployeeScheduleConflict(targetId, workDateObj);
-    const targetWorkConflict = await checkEmployeeScheduleConflict(targetId, offDateObj);
+    // Konteks 'OFF_DAY' — hanya pertukaran tukar LIBUR yang dianggap mengunci
+    // tanggal. Tukar shift pada tanggal yang sama tidak lagi memblokir (dulu
+    // memakai konteks default 'ALL', sehingga tanggal bekas tukar shift jadi
+    // mustahil ditukar liburnya).
+    const requesterOffConflict = await checkEmployeeScheduleConflict(requesterId, workDateObj, null, null, 'OFF_DAY');
+    const requesterWorkConflict = await checkEmployeeScheduleConflict(requesterId, offDateObj, null, null, 'OFF_DAY');
+    const targetOffConflict = await checkEmployeeScheduleConflict(targetId, workDateObj, null, null, 'OFF_DAY');
+    const targetWorkConflict = await checkEmployeeScheduleConflict(targetId, offDateObj, null, null, 'OFF_DAY');
 
     const conflicts = [];
     if (requesterOffConflict.hasConflict) conflicts.push(`Pemohon (tanggal ${workDateObj.toLocaleDateString('id-ID')}): ${requesterOffConflict.reason}`);
@@ -177,10 +181,12 @@ class OffDayService {
     }
 
     // Revalidate conflicts fresh from DB with excludeOffDayId = requestId agar tidak self-conflict
-    const requesterOffConflict = await checkEmployeeScheduleConflict(req.userId, req.workDate, null, requestId);
-    const requesterWorkConflict = await checkEmployeeScheduleConflict(req.userId, req.offDate, null, requestId);
-    const targetOffConflict = await checkEmployeeScheduleConflict(req.targetUserId, req.workDate, null, requestId);
-    const targetWorkConflict = await checkEmployeeScheduleConflict(req.targetUserId, req.offDate, null, requestId);
+    // Konteks 'OFF_DAY' — konsisten dengan createRequest, supaya state validasi
+    // request yang sama tidak berubah jawaban hanya karena konteksnya beda.
+    const requesterOffConflict = await checkEmployeeScheduleConflict(req.userId, req.workDate, null, requestId, 'OFF_DAY');
+    const requesterWorkConflict = await checkEmployeeScheduleConflict(req.userId, req.offDate, null, requestId, 'OFF_DAY');
+    const targetOffConflict = await checkEmployeeScheduleConflict(req.targetUserId, req.workDate, null, requestId, 'OFF_DAY');
+    const targetWorkConflict = await checkEmployeeScheduleConflict(req.targetUserId, req.offDate, null, requestId, 'OFF_DAY');
 
     const conflicts = [];
     if (requesterOffConflict.hasConflict) conflicts.push(requesterOffConflict.reason);
