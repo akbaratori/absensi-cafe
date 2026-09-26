@@ -208,6 +208,18 @@ class AdminController {
   });
 
   /**
+   * Rekap absensi seluruh pegawai untuk periode fleksibel
+   * GET /api/v1/admin/reports/recap?start=YYYY-MM-DD&end=YYYY-MM-DD
+   *                              ?month=YYYY-MM  |  ?date=YYYY-MM-DD
+   *                              &userId=&department=
+   */
+  getAttendanceRecap = asyncHandler(async (req, res) => {
+    const result = await attendanceService.getRecap(req.query);
+
+    return successResponse(res, 200, result);
+  });
+
+  /**
    * Export attendance as CSV
    * GET /api/v1/admin/reports/export
    */

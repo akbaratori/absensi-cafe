@@ -133,6 +133,103 @@ const getTodayEnd = () => {
   return new Date(`${dateStr}T23:59:59+08:00`);
 };
 
+/** Batas maksimum rentang laporan (dipakai semua rekap period-based). */
+const MAX_REPORT_RANGE_DAYS = 366;
+
+/**
+ * Normalisasi periode rekap absensi dari query string.
+ *
+ * Semua rekap ("hari ini", "bulan ini", "rentang bebas") akhirnya jadi rentang
+ * tanggal WITA: inklusif, jam 00:00:00.000 s/d 23:59:59.999, dan setiap tepi
+ * dianker ke `T00:00:00.000Z` seperti `date` di tabel attendance disimpan.
+ *
+ * @param {Object} params
+ * @param {String} [params.start] - "YYYY-MM-DD"
+ * @param {String} [params.end]   - "YYYY-MM-DD"
+ * @param {String} [params.month] - "YYYY-MM"
+ * @param {String} [params.date]  - "YYYY-MM-DD" (satu hari)
+ * @returns {{startDate: Date, endDate: Date, days: Number, start: String, end: String}}
+ * @throws {Error} statusCode 400 kalau format tanggal salah / rentang terlalu panjang /
+ *                 start > end
+ */
+const getPeriodRange = ({ start, end, month, date } = {}) => {
+    const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+    const MONTH_RE = /^\d{4}-\d{2}$/;
+
+    const invalid = (msg) => {
+        const err = new Error(msg);
+        err.statusCode = 400;
+        err.code = 'INVALID_DATE_RANGE';
+        // WAJIB: tanpa flag ini errorHandler memperlakukannya sebagai error tak
+        // terduga dan membalas 500, padahal ini murni kesalahan input.
+        err.isOperational = true;
+        return err;
+    };
+
+    const iso = (s) => String(s || '').slice(0, 10);
+
+    // 1. Preset "satu hari" menang atas yang lain (dipakai /reports/daily).
+    if (!start && !end && !month && date) {
+        const day = iso(date);
+        if (!DATE_RE.test(day)) throw invalid(`Format tanggal tidak valid: "${date}". Gunakan YYYY-MM-DD.`);
+        return { start: day, end: day, startDate: new Date(`${day}T00:00:00.000Z`), endDate: new Date(`${day}T23:59:59.999Z`), days: 1 };
+    }
+
+    // 2. Preset bulan penuh (dipakai panel bulanan).
+    if (!start && !end && month) {
+        if (!MONTH_RE.test(String(month))) throw invalid(`Format bulan tidak valid: "${month}". Gunakan YYYY-MM.`);
+        const [y, m] = String(month).split('-').map(Number);
+        if (m < 1 || m > 12) throw invalid(`Bulan tidak valid: "${month}".`);
+        const first = `${month}-01`;
+        const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate(); // hari terakhir bulan itu
+        const last = `${month}-${String(lastDay).padStart(2, '0')}`;
+        return { start: first, end: last, startDate: new Date(`${first}T00:00:00.000Z`), endDate: new Date(`${last}T23:59:59.999Z`), days: lastDay };
+    }
+
+    // 3. Rentang bebas start..end. Default: end = hari ini WITA, start = awal bulan.
+    const today = toWITA(new Date()).toISOString().slice(0, 10);
+    const rawStart = start ? iso(start) : `${(end ? iso(end) : today).slice(0, 7)}-01`;
+    const rawEnd = end ? iso(end) : today;
+
+    if (!DATE_RE.test(rawStart)) throw invalid(`Tanggal mulai tidak valid: "${start}". Gunakan YYYY-MM-DD.`);
+    if (!DATE_RE.test(rawEnd)) throw invalid(`Tanggal akhir tidak valid: "${end}". Gunakan YYYY-MM-DD.`);
+
+    const startDate = new Date(`${rawStart}T00:00:00.000Z`);
+    const endDate = new Date(`${rawEnd}T23:59:59.999Z`);
+
+    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+        throw invalid('Tanggal tidak dikenali.');
+    }
+    if (startDate > endDate) {
+        throw invalid(`Tanggal mulai (${rawStart}) melewati tanggal akhir (${rawEnd}).`);
+    }
+
+    const days = Math.floor((endDate.getTime() - startDate.getTime()) / 86400000) + 1;
+    if (days > MAX_REPORT_RANGE_DAYS) {
+        throw invalid(`Rentang maksimum ${MAX_REPORT_RANGE_DAYS} hari, diminta ${days} hari.`);
+    }
+
+    return { start: rawStart, end: rawEnd, startDate, endDate, days };
+};
+
+/**
+ * Semua tanggal "YYYY-MM-DD" dalam sebuah rentang (inklusif).
+ * @param {String} start - "YYYY-MM-DD"
+ * @param {String} end   - "YYYY-MM-DD"
+ * @returns {String[]}
+ */
+const enumerateDateStrings = (start, end) => {
+    const out = [];
+    let cursor = new Date(`${String(start).slice(0, 10)}T00:00:00.000Z`);
+    const last = new Date(`${String(end).slice(0, 10)}T00:00:00.000Z`);
+    // Guard ekstra supaya tidak ada kemungkinan loop tak berujung.
+    for (let i = 0; cursor <= last && i <= MAX_REPORT_RANGE_DAYS; i++) {
+        out.push(cursor.toISOString().slice(0, 10));
+        cursor = new Date(cursor.getTime() + 86400000);
+    }
+    return out;
+};
+
 /**
  * Convert database enum to API format
  * @param {String} status - Database status
@@ -254,4 +351,7 @@ module.exports = {
   addMinutesToTime,
   getShiftEndInstant,
   formatDurationMinutes,
+  getPeriodRange,
+  enumerateDateStrings,
+  MAX_REPORT_RANGE_DAYS,
 };

@@ -1,7 +1,7 @@
 const { ErrorCodes } = require('../utils/AppError');
 const attendanceRepository = require('../repositories/attendanceRepository');
 const prisma = require('../utils/database');
-const { getAttendanceConfig, calculateAttendanceStatus, calculateTotalHours, formatLocation, getTodayStart, getTodayEnd, formatStatus, parseStatus, calculateDistance, toWITA, shiftDurationMinutes, getHalfDayThresholdMinutes, addMinutesToTime, getShiftEndInstant, formatDurationMinutes } = require('../utils/attendanceHelpers');
+const { getAttendanceConfig, calculateAttendanceStatus, calculateTotalHours, formatLocation, getTodayStart, getTodayEnd, formatStatus, parseStatus, calculateDistance, toWITA, shiftDurationMinutes, getHalfDayThresholdMinutes, addMinutesToTime, getShiftEndInstant, formatDurationMinutes, getPeriodRange, enumerateDateStrings } = require('../utils/attendanceHelpers');
 const swapService = require('./swapService'); // Import SwapService
 const offDayService = require('./offDayService'); // Import OffDayService
 const auditService = require('./auditService');
@@ -1103,6 +1103,282 @@ class AttendanceService {
     return {
       content: csvContent,
       filename: `attendance_${startDate}_to_${endDate}.csv`,
+    };
+  }
+
+  /**
+   * Admin: Rekap absensi SELURUH pegawai untuk periode bebas (fleksibel).
+   *
+   * Menjawab pertanyaan: "dalam rentang tanggal ini, tiap pegawai masuk berapa
+   * hari, telat berapa kali, total jam berapa, dan hari mana yang ramai/sepi?"
+   *
+   * Satu query rentang + satu kali agregasi di memori, jadi angka tabel
+   * per-pegawai, tabel per-hari, dan kartu ringkasan MUSTAHIL berbeda satu sama
+   * lain (semuanya dihitung dari `records` yang sama) — sama seperti pola
+   * `getJobdeskSummary` di scheduleService.
+   *
+   * @param {Object} options
+   * @param {String} [options.start] - "YYYY-MM-DD" (awal rentang)
+   * @param {String} [options.end]   - "YYYY-MM-DD" (akhir rentang, inklusif)
+   * @param {String} [options.month] - "YYYY-MM" (preset bulan penuh)
+   * @param {String} [options.date]  - "YYYY-MM-DD" (preset satu hari)
+   * @param {Number} [options.userId]     - batasi ke satu pegawai
+   * @param {String} [options.department] - batasi ke satu departemen
+   */
+  async getRecap(options = {}) {
+    const { userId, department } = options;
+    const period = getPeriodRange(options); // melempar 400 kalau rentang ngawur
+
+    const userIdNum = userId ? Number(userId) : null;
+    const dept = department ? String(department).trim() : null;
+
+    const [users, records, leaves, holidays] = await Promise.all([
+      prisma.user.findMany({
+        // Pegawai nonaktif tetap ikut kalau datanya masih punya absensi di
+        // rentang ini; untuk daftar dasar kita ambil yang aktif (atau yang
+        // diminta spesifik).
+        where: {
+          ...(userIdNum ? { id: userIdNum } : { isActive: true }),
+          ...(dept ? { department: dept } : {}),
+        },
+        select: { id: true, fullName: true, employeeId: true, department: true, isActive: true },
+        orderBy: { fullName: 'asc' },
+      }),
+      prisma.attendance.findMany({
+        where: {
+          date: { gte: period.startDate, lte: period.endDate },
+          ...(userIdNum ? { userId: userIdNum } : {}),
+          ...(dept ? { user: { department: dept } } : {}),
+        },
+        select: { userId: true, date: true, clockIn: true, clockOut: true, status: true, lateMinutes: true },
+        orderBy: { date: 'asc' },
+      }),
+      prisma.leave.findMany({
+        where: {
+          status: 'APPROVED',
+          startDate: { lte: period.endDate },
+          endDate: { gte: period.startDate },
+          ...(userIdNum ? { userId: userIdNum } : {}),
+        },
+        select: { userId: true, startDate: true, endDate: true, type: true },
+      }),
+      prisma.publicHoliday.findMany({
+        where: { date: { gte: period.startDate, lte: period.endDate } },
+        select: { date: true, name: true },
+        orderBy: { date: 'asc' },
+      }),
+    ]);
+
+    const STATUS_KEYS = ['PRESENT', 'LATE', 'HALF_DAY', 'ABSENT'];
+    const emptyCounts = () => ({ present: 0, late: 0, halfDay: 0, absent: 0 });
+    const bump = (target, status) => {
+      if (status === 'PRESENT') target.present += 1;
+      else if (status === 'LATE') target.late += 1;
+      else if (status === 'HALF_DAY') target.halfDay += 1;
+      else if (status === 'ABSENT') target.absent += 1;
+      else if (status) target[status] = (target[status] || 0) + 1; // status tak dikenal tetap terhitung
+    };
+
+    // ── Siapkan baris per pegawai ─────────────────────────────────────────
+    const perUser = new Map();
+    for (const u of users) {
+      perUser.set(u.id, {
+        userId: u.id,
+        fullName: u.fullName,
+        employeeId: u.employeeId || '',
+        department: u.department || '',
+        isActive: u.isActive !== false,
+        ...emptyCounts(),
+        totalRecords: 0,
+        totalHours: 0,
+        lateMinutes: 0,
+        daysWithoutClockOut: 0,
+        onLeaveDays: 0,
+        days: new Set(),
+      });
+    }
+
+    // Pegawai yang punya absensi tapi tidak ikut query dasar (mis. sudah
+    // dinonaktifkan) tetap dimunculkan supaya total rekap tidak "hilang".
+    const ensureUser = (id) => {
+      if (!perUser.has(id)) {
+        perUser.set(id, {
+          userId: id,
+          fullName: `Pegawai #${id}`,
+          employeeId: '',
+          department: '',
+          isActive: false,
+          ...emptyCounts(),
+          totalRecords: 0,
+          totalHours: 0,
+          lateMinutes: 0,
+          daysWithoutClockOut: 0,
+          onLeaveDays: 0,
+          days: new Set(),
+        });
+      }
+      return perUser.get(id);
+    };
+
+    // ── Siapkan baris per hari (semua tanggal, termasuk yang kosong) ──────
+    const daily = enumerateDateStrings(period.start, period.end).map((date) => ({
+      date,
+      ...emptyCounts(),
+      total: 0,
+      totalHours: 0,
+      userIds: new Set(),
+    }));
+    const dailyMap = new Map(daily.map((d) => [d.date, d]));
+
+    // ── Satu kali jalan untuk semua agregat ───────────────────────────────
+    for (const r of records) {
+      const row = ensureUser(r.userId);
+      const dayKey = toWITADateString(r.date);
+      const hours = r.clockOut ? calculateTotalHours(r.clockIn, r.clockOut) : 0;
+
+      row.totalRecords += 1;
+      row.totalHours += hours;
+      row.lateMinutes += r.lateMinutes || 0;
+      row.days.add(dayKey);
+      if (!r.clockOut) row.daysWithoutClockOut += 1;
+      bump(row, r.status);
+
+      const day = dailyMap.get(dayKey);
+      if (day) {
+        day.total += 1;
+        day.totalHours += hours;
+        day.userIds.add(r.userId);
+        bump(day, r.status);
+      }
+    }
+    // Tanggal libur nasional -> Map untuk lookup O(1) waktu menyusun kalender.
+    const holidayMap = new Map(holidays.map((h) => [toWITADateString(h.date), h.name || 'Libur Nasional']));
+
+    // ── Baris per hari (semua tanggal, termasuk yang kosong) ──────────────
+    // Dipakai untuk kalender/grafik harian; hari kosong tetap dikirim supaya
+    // admin bisa lihat tanggal yang benar-benar tidak ada aktivitas.
+    const dailyRows = daily.map((d) => ({
+      date: d.date,
+      total: d.total,
+      uniqueStaff: d.userIds.size,
+      present: d.present,
+      late: d.late,
+      halfDay: d.halfDay,
+      absent: d.absent,
+      totalHours: Math.round(d.totalHours * 100) / 100,
+      isHoliday: holidayMap.has(d.date),
+      holidayName: holidayMap.get(d.date) || null,
+    }));
+
+    // ── Cuti disetujui: ikut menentukan "hari kerja efektif" pegawai ──────
+    for (const lv of leaves) {
+      const row = perUser.get(lv.userId);
+      if (!row) continue;
+      if (!row._leaveDays) row._leaveDays = new Set();
+      const from = Math.max(new Date(lv.startDate).getTime(), period.startDate.getTime());
+      const to = Math.min(new Date(lv.endDate).getTime(), period.endDate.getTime());
+      for (let d = from; d <= to; d += 86400000) {
+        const key = toWITADateString(new Date(d));
+        // Set, bukan counter: dua cuti yang tumpang tindih tidak dihitung dobel.
+        if (!row._leaveDays.has(key)) {
+          row._leaveDays.add(key);
+          row.onLeaveDays += 1;
+        }
+      }
+    }
+
+    // ── Rapikan baris per pegawai (Set -> angka) ──────────────────────────
+    const rows = [...perUser.values()].map((r) => {
+      const presentDays = r.days.size;
+      const effectiveWorkDays = presentDays + r.onLeaveDays;
+      return {
+        userId: r.userId,
+        fullName: r.fullName,
+        employeeId: r.employeeId,
+        department: r.department,
+        isActive: r.isActive,
+        present: r.present,
+        late: r.late,
+        halfDay: r.halfDay,
+        absent: r.absent,
+        totalRecords: r.totalRecords,
+        presentDays,
+        onLeaveDays: r.onLeaveDays,
+        daysWithoutClockOut: r.daysWithoutClockOut,
+        totalHours: Math.round(r.totalHours * 100) / 100,
+        lateMinutes: r.lateMinutes,
+        avgHoursPerPresentDay: presentDays ? Math.round((r.totalHours / presentDays) * 100) / 100 : 0,
+        attendanceRate: effectiveWorkDays ? Math.round((presentDays / effectiveWorkDays) * 1000) / 10 : null,
+      };
+    });
+
+    // Urut paling rajin hadir; seri -> yang paling sedikit telat -> nama.
+    rows.sort((a, b) => b.presentDays - a.presentDays
+      || a.late - b.late
+      || a.fullName.localeCompare(b.fullName));
+
+    // Ringkasan dijumlah dari `rows` yang SAMA dengan yang dikirim ke UI.
+    const totals = rows.reduce((acc, r) => {
+      acc.present += r.present;
+      acc.late += r.late;
+      acc.halfDay += r.halfDay;
+      acc.absent += r.absent;
+      acc.totalRecords += r.totalRecords;
+      acc.totalHours += r.totalHours;
+      acc.lateMinutes += r.lateMinutes;
+      acc.daysWithoutClockOut += r.daysWithoutClockOut;
+      acc.onLeaveDays += r.onLeaveDays;
+      return acc;
+    }, { present: 0, late: 0, halfDay: 0, absent: 0, totalRecords: 0, totalHours: 0, lateMinutes: 0, daysWithoutClockOut: 0, onLeaveDays: 0 });
+
+    const staffWithRecord = rows.filter((r) => r.totalRecords > 0).length;
+    const staffWithoutRecord = rows.filter((r) => r.totalRecords === 0);
+    const topLate = [...rows].sort((a, b) => b.late - a.late)[0] || null;
+    const topHours = [...rows].sort((a, b) => b.totalHours - a.totalHours)[0] || null;
+
+    const summary = {
+      totalEmployees: rows.length,
+      activeEmployees: rows.filter((r) => r.isActive).length,
+      staffWithRecord,
+      staffWithoutRecord: staffWithoutRecord.length,
+      totalRecords: totals.totalRecords,
+      present: totals.present,
+      late: totals.late,
+      halfDay: totals.halfDay,
+      absent: totals.absent,
+      onLeaveDays: totals.onLeaveDays,
+      totalHours: Math.round(totals.totalHours * 100) / 100,
+      totalLateMinutes: totals.lateMinutes,
+      daysWithoutClockOut: totals.daysWithoutClockOut,
+      avgHoursPerPresentDay: totals.present ? Math.round((totals.totalHours / totals.present) * 100) / 100 : 0,
+      avgPresentDaysPerStaff: staffWithRecord ? Math.round((totals.present / staffWithRecord) * 10) / 10 : 0,
+      activeDays: dailyRows.filter((d) => d.total > 0).length,
+      emptyDays: dailyRows.filter((d) => d.total === 0).length,
+      holidayCount: holidays.length,
+      topLate: topLate && topLate.late > 0
+        ? { userId: topLate.userId, fullName: topLate.fullName, count: topLate.late }
+        : null,
+      topHours: topHours && topHours.totalHours > 0
+        ? { userId: topHours.userId, fullName: topHours.fullName, hours: topHours.totalHours }
+        : null,
+      neverClockedIn: staffWithoutRecord.slice(0, 10).map((r) => ({ userId: r.userId, fullName: r.fullName })),
+    };
+
+    return {
+      period: {
+        start: period.start,
+        end: period.end,
+        days: period.days,
+        startDate: period.startDate,
+        endDate: period.endDate,
+      },
+      filters: { userId: userIdNum, department: dept },
+      summary,
+      employees: rows,
+      daily: dailyRows,
+      holidays: holidays.map((h) => ({ date: toWITADateString(h.date), name: h.name || 'Libur Nasional' })),
+      departments: [...new Set(rows.map((r) => r.department).filter(Boolean))].sort(),
+      staffOptions: users.map((u) => ({ userId: u.id, fullName: u.fullName, department: u.department || '' })),
     };
   }
 

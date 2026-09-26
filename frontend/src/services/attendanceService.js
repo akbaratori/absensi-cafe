@@ -134,6 +134,27 @@ export const getMonthlyReport = async (params = {}) => {
 };
 
 /**
+ * Rekap absensi SELURUH pegawai dengan periode fleksibel (admin).
+ *
+ * @param {Object} params
+ * @param {string} [params.start] - "YYYY-MM-DD" awal rentang (inklusif)
+ * @param {string} [params.end]   - "YYYY-MM-DD" akhir rentang (inklusif)
+ * @param {string} [params.month] - "YYYY-MM" preset bulan penuh
+ * @param {string} [params.date]  - "YYYY-MM-DD" preset satu hari
+ * @param {number} [params.userId]     - filter satu pegawai
+ * @param {string} [params.department] - filter satu departemen
+ * @returns {Promise<{period, summary, employees, daily, holidays, departments}>}
+ */
+export const getAttendanceRecap = async (params = {}) => {
+  // Buang key kosong/undefined supaya axios tidak mengirim "?start=undefined".
+  const clean = Object.fromEntries(
+    Object.entries(params).filter(([, v]) => v !== '' && v !== null && v !== undefined)
+  );
+  const response = await api.get('/admin/reports/recap', { params: clean });
+  return response.data;
+};
+
+/**
  * Export report as CSV (admin)
  */
 export const exportReport = async (params = {}) => {

@@ -19,6 +19,7 @@ import MySchedulePage from './pages/employee/MySchedulePage';
 import AdminDashboardPage from './pages/admin/AdminDashboardPage';
 import UsersPage from './pages/admin/UsersPage';
 import AttendanceAdminPage from './pages/admin/AttendanceAdminPage';
+import AttendanceRecapPage from './pages/admin/AttendanceRecapPage';
 import LeaveApprovalPage from './pages/admin/LeaveApprovalPage';
 import ReportsPage from './pages/admin/ReportsPage';
 import SettingsPage from './pages/admin/SettingsPage';
@@ -171,6 +172,15 @@ function App() {
               element={
                 <AdminRoute>
                   <AttendanceAdminPage />
+                </AdminRoute>
+              }
+            />
+
+            <Route
+              path="/admin/attendance-recap"
+              element={
+                <AdminRoute>
+                  <AttendanceRecapPage />
                 </AdminRoute>
               }
             />

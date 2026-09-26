@@ -140,6 +140,23 @@ const reportQuerySchema = Joi.object({
   userId: Joi.number().integer().positive().optional(),
 });
 
+/**
+ * Rekap absensi periode fleksibel (admin).
+ *
+ * `start`/`end` = rentang bebas inklusif, `month` = preset bulan penuh,
+ * `date` = preset satu hari. Kalau semuanya kosong, service default ke
+ * "awal bulan ini s/d hari ini (WITA)". Pola tanggal divalidasi di sini supaya
+ * input ngawur ketolak lebih awal dengan pesan yang jelas (bukan error 500).
+ */
+const attendanceRecapQuerySchema = Joi.object({
+  start: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  end: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  month: Joi.string().pattern(/^\d{4}-\d{2}$/).optional(),
+  date: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  userId: Joi.number().integer().positive().optional(),
+  department: Joi.string().trim().max(50).optional().allow('', null),
+});
+
 // Validation Middleware Factory
 const validate = (schema) => {
   return (req, res, next) => {
@@ -217,6 +234,7 @@ module.exports = {
   updateConfigSchema,
   usersQuerySchema,
   reportQuerySchema,
+  attendanceRecapQuerySchema,
   validate,
   validateQuery,
 };

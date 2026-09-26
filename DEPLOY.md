@@ -95,5 +95,49 @@ membawa header teknis seperti `Cronjob Response: laporan-absensi-harian` / `(job
    `Cronjob Response:` / `(job_id: ...)` otomatis dipotong sebelum pesan dikirim
    (`whatsappService.stripCronNoise`), sehingga isi pesan tetap langsung ke inti.
 
+## 9. Rekap Absensi Seluruh Pegawai (Periode Bebas)
+
+Menu **Admin → Rekap Absensi** (`/admin/attendance-recap`) merangkum kehadiran *semua* pegawai
+sekali jalan untuk periode apa pun. Satu respons backend menopang seluruh tampilan, sehingga
+angka di kartu ringkasan, tabel pegawai, dan sebaran harian tidak mungkin berbeda.
+
+Cara memilih periode:
+
+| Pilihan di UI     | Query yang dikirim        | Arti                        |
+| ----------------- | ------------------------- | --------------------------- |
+| Hari ini          | `date=YYYY-MM-DD`         | satu tanggal (WITA)         |
+| 7 hari            | `start=…&end=…`           | 7 hari terakhir inklusif    |
+| Bulan ini / lalu  | `month=YYYY-MM`           | satu bulan penuh            |
+| Rentang bebas     | `start=…&end=…`           | bebas, maksimum 366 hari    |
+| (tanpa parameter) | –                         | awal bulan ini s/d hari ini |
+
+Endpoint: `GET /api/v1/admin/reports/recap` — **hanya ADMIN** (401 tanpa token, 403 non-admin).
+
+Filter opsional: `userId` (satu pegawai) dan `department` (satu departemen). Presedensi bila
+beberapa parameter diisi bersamaan: `start`/`end` → `month` → `date`.
+
+Isi balasan (`data`):
+
+- `period` — `{ start, end, days }`, tepi rentang **inklusif**;
+- `summary` — total pegawai, hadir/telat/setengah hari/absen, total jam kerja, total menit
+  telat, hari tanpa absen pulang, hari cuti, jumlah tanggal yang ada aktivitas;
+- `employees[]` — satu baris per pegawai: `presentDays` (tanggal unik), `present`, `late`,
+  `halfDay`, `absent`, `onLeaveDays`, `totalHours`, `avgHoursPerPresentDay`, `lateMinutes`,
+  `daysWithoutClockOut`, `attendanceRate`;
+- `daily[]` — satu baris per tanggal (termasuk yang kosong) plus penanda `isHoliday`;
+- `holidays[]`, `departments[]`, `staffOptions[]` — untuk mengisi filter/kalender di UI.
+
+Catatan rumus:
+
+- `presentDays` = jumlah **tanggal unik** yang punya absensi; satu pegawai dihitung sekali
+  per hari walau ada lebih dari satu baris absensi.
+- `totalHours` hanya menjumlahkan hari yang sudah absen pulang — hari tanpa `clockOut`
+  tetap dihitung di `daysWithoutClockOut` supaya jamnya tidak "ditagih" padahal belum lengkap.
+- `attendanceRate` = `presentDays ÷ (presentDays + onLeaveDays)`. Hari libur jadwal tidak
+  punya baris absensi, jadi tidak menurunkan persentase. Bernilai `null` bila tidak ada
+  hari kerja efektif sama sekali.
+- Rentang ngawur (`start` > `end`, format salah, atau > 366 hari) dibalas `400`
+  `INVALID_DATE_RANGE`, bukan `500`.
+
 ## Bantuan
 Jika ada kendala (Error), cek log di terminal backend atau hubungi teknisi.

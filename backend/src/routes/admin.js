@@ -16,6 +16,7 @@ const {
   updateConfigSchema,
   usersQuerySchema,
   reportQuerySchema,
+  attendanceRecapQuerySchema,
 } = require('../utils/validator');
 
 // All routes require authentication and admin role
@@ -160,6 +161,14 @@ router.get('/reports/daily', validateQuery(reportQuerySchema), adminController.g
  * @access  Private (Admin)
  */
 router.get('/reports/monthly', validateQuery(reportQuerySchema), adminController.getMonthlyReport);
+
+/**
+ * @route   GET /api/v1/admin/reports/recap
+ * @desc    Rekap absensi SELURUH pegawai dengan periode fleksibel
+ *          (start+end bebas, month=YYYY-MM, atau date tunggal)
+ * @access  Private (Admin)
+ */
+router.get('/reports/recap', validateQuery(attendanceRecapQuerySchema), adminController.getAttendanceRecap);
 
 /**
  * @route   GET /api/v1/admin/reports/export
