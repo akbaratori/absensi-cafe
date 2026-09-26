@@ -1129,6 +1129,276 @@ class ScheduleService {
     }
 
     /**
+     * Rekap satu staff (dipakai endpoint personal "Jobdesk Saya").
+     *
+     * Sengaja menghitung dari kumpulan hari yang SAMA dengan `getJobdeskFairness`
+     * (UserSchedule.isOffDay=false, department KITCHEN, isActive) supaya angka yang
+     * dilihat staff tidak pernah berbeda dengan rekap yang dilihat admin.
+     *
+     * @param {Number} userId
+     * @param {Object} user - { id, fullName, department }
+     * @param {Array}  scheduleRows - baris UserSchedule bulan itu (sudah terfilter)
+     * @param {Array}  teammates - rekap staff lain bulan itu, untuk perbandingan
+     * @returns {Object} rekap personal siap kirim
+     */
+    buildPersonalJobdeskSummary(userId, user, scheduleRows, teammates) {
+        const mine = scheduleRows.filter((r) => r.userId === userId);
+        const counts = Object.fromEntries(JOBDESK_ROLES.map((r) => [r.key, 0]));
+        const byDate = [];
+        let daysWorked = 0;
+        let daysWithoutJobdesk = 0;
+        let multiJobdeskDays = 0;
+        let loadSum = 0;
+
+        for (const row of mine) {
+            daysWorked += 1;
+            const roles = parseJobdeskRoles(row.kitchenStation);
+            const iso = toDateStr(row.date);
+
+            if (!roles.length) {
+                daysWithoutJobdesk += 1;
+                // Hari kerja tanpa jobdesk tetap dilaporkan supaya staff bisa
+                // melaporkannya ke admin (ini yang biasanya jadi sumber sengketa).
+                byDate.push({
+                    date: iso,
+                    raw: row.kitchenStation || null,
+                    jobdesks: [],
+                    load: 0,
+                });
+                continue;
+            }
+
+            if (roles.length > 1) multiJobdeskDays += 1;
+            let dayLoad = 0;
+            for (const role of roles) {
+                counts[role.key] += 1;
+                dayLoad += role.weight;
+            }
+            loadSum += dayLoad;
+            byDate.push({
+                date: iso,
+                raw: row.kitchenStation,
+                jobdesks: roles.map((r) => ({ key: r.key, label: r.label, short: r.short, weight: r.weight })),
+                load: dayLoad,
+            });
+        }
+
+        byDate.sort((a, b) => a.date.localeCompare(b.date));
+
+        const loadPerDay = daysWorked ? Number((loadSum / daysWorked).toFixed(2)) : 0;
+        const days = Object.fromEntries(JOBDESK_ROLES.map((r) => [r.key, counts[r.key]]));
+
+        // ── Perbandingan dengan rekan satu tim ─────────────────────────────────
+        // Hanya memakai ANGKA AGREGAT (rata-rata/min/max beban + jumlah staff).
+        // Rekap per orang sengaja TIDAK dikirim, supaya staff tidak bisa melihat
+        // rincian jobdesk rekan kerjanya lewat endpoint ini.
+        const teamLoads = (teammates || []).map((t) => t.loadPerDay);
+        const teamAvg = teamLoads.length
+            ? Number((teamLoads.reduce((a, b) => a + b, 0) / teamLoads.length).toFixed(2))
+            : 0;
+        const diff = Number((loadPerDay - teamAvg).toFixed(2));
+
+        // Ambang selisih beban harian yang dianggap "layak dibicarakan".
+        const FAIR_BAND = 1;
+        const comparison = {
+            teamStaffCount: teamLoads.length,
+            teamAvgLoadPerDay: teamAvg,
+            teamMinLoadPerDay: teamLoads.length ? Number(Math.min(...teamLoads).toFixed(2)) : 0,
+            teamMaxLoadPerDay: teamLoads.length ? Number(Math.max(...teamLoads).toFixed(2)) : 0,
+            diff,
+        };
+
+        let verdict;
+        if (!daysWorked) {
+            verdict = {
+                key: 'no-data',
+                label: 'Belum ada hari kerja',
+                tone: 'info',
+                message: 'Belum ada hari kerja tercatat untukmu di bulan ini.',
+            };
+        } else if (daysWithoutJobdesk > 0) {
+            verdict = {
+                key: 'missing',
+                label: 'Ada jobdesk belum tercatat',
+                tone: 'warning',
+                message: `Ada ${daysWithoutJobdesk} hari kerja yang belum tercatat jobdesk-nya. Coba laporkan ke admin agar tidak terlewat.`,
+            };
+        } else if (diff > FAIR_BAND) {
+            verdict = {
+                key: 'above',
+                label: 'Bebanmu di atas rata-rata',
+                tone: 'warning',
+                message: `Beban jobdesk harianmu ${diff} poin di atas rata-rata tim. Kalau terasa berat, sampaikan ke admin untuk penyeimbangan.`,
+            };
+        } else if (diff < -FAIR_BAND) {
+            verdict = {
+                key: 'below',
+                label: 'Bebanmu di bawah rata-rata',
+                tone: 'info',
+                message: `Beban jobdesk harianmu ${Math.abs(diff)} poin di bawah rata-rata tim. Admin bisa menambah porsi agar lebih merata.`,
+            };
+        } else {
+            verdict = {
+                key: 'fair',
+                label: 'Seimbang dengan tim',
+                tone: 'success',
+                message: 'Beban jobdesk harianmu seimbang dengan rata-rata tim.',
+            };
+        }
+
+        return {
+            userId,
+            fullName: user.fullName,
+            department: user.department,
+            daysWorked,
+            daysWithoutJobdesk,
+            multiJobdeskDays,
+            days,
+            roles: JOBDESK_ROLES.map(({ key, label, short, weight }) => ({ key, label, short, weight })),
+            loadTotal: loadSum,
+            loadPerDay,
+            byDate,
+            comparison,
+            verdict,
+        };
+    }
+
+    /**
+     * Validasi + normalisasi parameter bulan "YYYY-MM".
+     * @param {String} month
+     * @returns {{year:Number, mon:Number, monthKey:String, startDate:Date, endDate:Date}}
+     */
+    parseMonthParam(month) {
+        const match = /^(\d{4})-(\d{2})$/.exec(String(month ?? '').trim());
+        if (!match) {
+            throw new AppError('Format bulan tidak valid. Gunakan YYYY-MM.', 400, 'VALIDATION_ERROR');
+        }
+        const year = Number(match[1]);
+        const mon = Number(match[2]);
+        if (mon < 1 || mon > 12) {
+            throw new AppError('Bulan harus antara 01 dan 12.', 400, 'VALIDATION_ERROR');
+        }
+        return {
+            year,
+            mon,
+            monthKey: toMonthStr(year, mon),
+            startDate: new Date(Date.UTC(year, mon - 1, 1)),
+            endDate: new Date(Date.UTC(year, mon, 0, 23, 59, 59)),
+        };
+    }
+
+    /**
+     * Ambil SEMUA hari kerja staff Kitchen pada rentang tanggal tertentu.
+     *
+     * Ini satu-satunya query sumber rekap jobdesk (admin maupun personal), jadi
+     * mustahil kedua sisi menampilkan angka yang berbeda. Hari tanpa jobdesk
+     * tetap ikut terambil — dipakai untuk mendeteksi data bolong.
+     *
+     * @param {Date} startDate
+     * @param {Date} endDate
+     * @returns {Array} baris UserSchedule + user { id, fullName, department }
+     */
+    async fetchMonthKitchenSchedules(startDate, endDate) {
+        return prisma.userSchedule.findMany({
+            where: {
+                date: { gte: startDate, lte: endDate },
+                isOffDay: false,
+                user: { department: 'KITCHEN', isActive: true },
+            },
+            include: { user: { select: { id: true, fullName: true, department: true } } },
+            orderBy: [{ date: 'asc' }],
+        });
+    }
+
+    /**
+     * Rekap jobdesk MILIK SENDIRI untuk satu bulan — versi staff.
+     *
+     * Berbeda dari `getJobdeskFairness` (khusus admin) yang mengembalikan daftar
+     * semua staff, method ini hanya mengembalikan satu orang: pemanggilnya.
+     * Perbandingan tim tetap disertakan tetapi HANYA berupa angka agregat
+     * (rata-rata/min/max beban harian), bukan rincian jobdesk rekan kerja.
+     *
+     * @param {String} month - format "YYYY-MM"
+     * @param {Number} userId - id user yang sedang login
+     * @returns {Object} rekap personal siap kirim
+     */
+    async getMyJobdeskSummary(month, userId) {
+        const { monthKey, startDate, endDate } = this.parseMonthParam(month);
+
+        const user = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { id: true, fullName: true, department: true },
+        });
+        if (!user) {
+            throw new AppError('User tidak ditemukan.', 404, 'NOT_FOUND');
+        }
+
+        const schedules = await this.fetchMonthKitchenSchedules(startDate, endDate);
+        const teammateRows = this._buildStaffRows(schedules);
+        const summary = this.buildPersonalJobdeskSummary(userId, user, schedules, teammateRows);
+
+        return {
+            month: monthKey,
+            generatedAt: new Date().toISOString(),
+            ...summary,
+        };
+    }
+
+    /**
+     * Agregasi baris UserSchedule jadi satu entri per staff. Dipakai sebagai
+     * pembanding tim pada rekap personal; rekap admin memakai agregasi yang sama
+     * agar angka `loadPerDay` kedua sisi identik.
+     *
+     * @param {Array} schedules - baris dari fetchMonthKitchenSchedules
+     * @returns {Array} entri staff dengan counts/loadTotal/loadPerDay
+     */
+    _buildStaffRows(schedules) {
+        const perUser = new Map();
+        for (const s of schedules) {
+            if (!perUser.has(s.user.id)) {
+                perUser.set(s.user.id, {
+                    userId: s.user.id,
+                    fullName: s.user.fullName,
+                    daysWorked: 0,
+                    daysWithoutJobdesk: 0,
+                    multiJobdeskDays: 0,
+                    counts: Object.fromEntries(JOBDESK_ROLES.map((r) => [r.key, 0])),
+                    loadSum: 0,
+                });
+            }
+            const entry = perUser.get(s.user.id);
+            entry.daysWorked += 1;
+
+            const roles = parseJobdeskRoles(s.kitchenStation);
+            if (!roles.length) {
+                entry.daysWithoutJobdesk += 1;
+                continue;
+            }
+
+            if (roles.length > 1) entry.multiJobdeskDays += 1;
+            let dayLoad = 0;
+            for (const role of roles) {
+                entry.counts[role.key] += 1;
+                dayLoad += role.weight;
+            }
+            entry.loadSum += dayLoad;
+        }
+
+        return [...perUser.values()].map((e) => ({
+            userId: e.userId,
+            fullName: e.fullName,
+            daysWorked: e.daysWorked,
+            daysWithoutJobdesk: e.daysWithoutJobdesk,
+            multiJobdeskDays: e.multiJobdeskDays,
+            counts: e.counts,
+            // Beban total = Σ bobot jobdesk yang dipegang sebulan.
+            loadTotal: e.loadSum,
+            // Pembanding yang adil: beban per hari kerja, bukan beban total.
+            loadPerDay: e.daysWorked ? Number((e.loadSum / e.daysWorked).toFixed(2)) : 0,
+        }));
+    }
+
+    /**
      * Rekap keadilan jobdesk dapur untuk satu bulan.
      *
      * Berbeda dari `getStationSummary` (yang selalu mengambil potongan pertama
@@ -1152,82 +1422,20 @@ class ScheduleService {
      * @returns {Object} rekap siap kirim
      */
     async getJobdeskFairness(month) {
-        const match = /^(\d{4})-(\d{2})$/.exec(String(month ?? '').trim());
-        if (!match) {
-            throw new AppError('Format bulan tidak valid. Gunakan YYYY-MM.', 400, 'VALIDATION_ERROR');
-        }
-        const year = Number(match[1]);
-        const mon = Number(match[2]);
-        if (mon < 1 || mon > 12) {
-            throw new AppError('Bulan harus antara 01 dan 12.', 400, 'VALIDATION_ERROR');
-        }
-
-        const monthKey = toMonthStr(year, mon);
-        const startDate = new Date(Date.UTC(year, mon - 1, 1));
-        const endDate = new Date(Date.UTC(year, mon, 0, 23, 59, 59));
+        const { monthKey, startDate, endDate } = this.parseMonthParam(month);
 
         // Semua hari kerja staff Kitchen bulan ini, terlepas jobdesk-nya terisi
         // atau belum — hari tanpa jobdesk dihitung sebagai data bolong.
-        const schedules = await prisma.userSchedule.findMany({
-            where: {
-                date: { gte: startDate, lte: endDate },
-                isOffDay: false,
-                user: { department: 'KITCHEN', isActive: true },
-            },
-            include: { user: { select: { id: true, fullName: true } } },
-            orderBy: [{ date: 'asc' }],
-        });
-
-        const perUser = new Map();
-        const ensureUser = (user) => {
-            if (!perUser.has(user.id)) {
-                perUser.set(user.id, {
-                    userId: user.id,
-                    fullName: user.fullName,
-                    daysWorked: 0,
-                    daysWithoutJobdesk: 0,
-                    multiJobdeskDays: 0,
-                    counts: Object.fromEntries(JOBDESK_ROLES.map((r) => [r.key, 0])),
-                    loadSum: 0,
-                });
-            }
-            return perUser.get(user.id);
-        };
+        const schedules = await this.fetchMonthKitchenSchedules(startDate, endDate);
 
         const missingJobdesk = [];
-
         for (const s of schedules) {
-            const entry = ensureUser(s.user);
-            entry.daysWorked += 1;
-
-            const roles = parseJobdeskRoles(s.kitchenStation);
-            if (!roles.length) {
-                entry.daysWithoutJobdesk += 1;
+            if (!parseJobdeskRoles(s.kitchenStation).length) {
                 missingJobdesk.push({ date: toDateStr(s.date), userId: s.user.id, fullName: s.user.fullName });
-                continue;
             }
-
-            if (roles.length > 1) entry.multiJobdeskDays += 1;
-            let dayLoad = 0;
-            for (const role of roles) {
-                entry.counts[role.key] += 1;
-                dayLoad += role.weight;
-            }
-            entry.loadSum += dayLoad;
         }
 
-        const staff = [...perUser.values()].map((e) => ({
-            userId: e.userId,
-            fullName: e.fullName,
-            daysWorked: e.daysWorked,
-            daysWithoutJobdesk: e.daysWithoutJobdesk,
-            multiJobdeskDays: e.multiJobdeskDays,
-            counts: e.counts,
-            // Beban total = Σ bobot jobdesk yang dipegang sebulan.
-            loadTotal: e.loadSum,
-            // Pembanding yang adil: beban per hari kerja, bukan beban total.
-            loadPerDay: e.daysWorked ? Number((e.loadSum / e.daysWorked).toFixed(2)) : 0,
-        }));
+        const staff = this._buildStaffRows(schedules);
 
         // ── Rata-rata per jobdesk + penanda timpang ──────────────────────────
         const byJobdesk = JOBDESK_ROLES.map((role) => {

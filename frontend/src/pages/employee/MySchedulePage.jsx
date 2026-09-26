@@ -5,6 +5,7 @@ import Card from '../../components/shared/Card';
 import Button from '../../components/shared/Button';
 import Badge from '../../components/shared/Badge';
 import MyClosingJobdeskWidget from '../../components/employee/MyClosingJobdeskWidget';
+import MyJobdeskRekapPanel from '../../components/employee/MyJobdeskRekapPanel';
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Clock, Coffee, ChefHat, ArrowLeftRight } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths, getDay, isToday } from 'date-fns';
 import { id } from 'date-fns/locale';
@@ -352,6 +353,9 @@ const MySchedulePage = () => {
                     </button>
                 </div>
             </div>
+
+            {/* Rekap jobdesk bulan berjalan — staff bisa cek sendiri tanpa tanya admin */}
+            <MyJobdeskRekapPanel month={format(currentDate, 'yyyy-MM')} />
 
             {/* Jobdesk Closing Ramadhan — hanya muncul jika user ada di tim closing */}
             <MyClosingJobdeskWidget />

@@ -325,6 +325,23 @@ class ScheduleController {
     }
 
     /**
+     * GET /schedules/my-jobdesk-summary?month=YYYY-MM
+     *
+     * Rekap jobdesk MILIK user yang sedang login (bukan rekap tim). Aman untuk
+     * EMPLOYEE karena userId selalu diambil dari token, bukan dari query, jadi
+     * tidak mungkin dipakai mengintip jobdesk orang lain.
+     */
+    async getMyJobdeskSummary(req, res, next) {
+        try {
+            const month = req.query.month;
+            const data = await scheduleService.getMyJobdeskSummary(month, req.user.id);
+            res.json({ success: true, data });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    /**
      * GET /schedules/jobdesk-fairness?month=YYYY-MM
      * Rekap keadilan jobdesk dapur (per staff × jobdesk + beban rata-rata).
      * Dipakai panel "Rekap Keadilan Jobdesk" di halaman Jadwal Lengkap.

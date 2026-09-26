@@ -78,3 +78,14 @@ export const getJobdeskFairness = async (month) => {
     return response.data;
 };
 
+/**
+ * Rekap jobdesk MILIK SENDIRI untuk satu bulan — dipakai halaman "Jadwal Saya".
+ * Berbeda dari `getJobdeskFairness` (khusus admin), endpoint ini hanya
+ * mengembalikan data user yang sedang login, jadi aman dipanggil EMPLOYEE.
+ * @param {string} month - "YYYY-MM"
+ */
+export const getMyJobdeskSummary = async (month) => {
+    const response = await api.get('/schedules/my-jobdesk-summary', { params: { month } });
+    return response.data;
+};
+
