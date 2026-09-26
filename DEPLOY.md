@@ -139,5 +139,27 @@ Catatan rumus:
 - Rentang ngawur (`start` > `end`, format salah, atau > 366 hari) dibalas `400`
   `INVALID_DATE_RANGE`, bukan `500`.
 
+## 10. Ikon PWA
+
+`manifest.json` mendeklarasikan ikon sebagai `image/png`, jadi berkasnya wajib PNG
+asli. Kalau isinya SVG (walau namanya `.png`), Chrome menolak dan muncul:
+
+```
+Error while trying to use the following icon from the Manifest:
+/icons/icon-192x192.png (Download error or resource isn't a valid image)
+```
+
+Ikon dibuat ulang tanpa dependensi tambahan (hanya modul `zlib` bawaan Python,
+tanpa Pillow/ImageMagick):
+
+```bash
+cd frontend
+python scripts/make-pwa-icons.py
+```
+
+Skrip itu menulis ulang `icon-72x72.png`, `icon-192x192.png`, `icon-512x512.png`,
+dan `badge-72x72.png` (dipakai `sw.js` untuk badge notifikasi). Versi `.svg`
+tetap disimpan dan dipakai sebagai favicon di `index.html`.
+
 ## Bantuan
 Jika ada kendala (Error), cek log di terminal backend atau hubungi teknisi.

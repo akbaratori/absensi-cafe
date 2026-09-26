@@ -519,9 +519,9 @@ const AttendanceRecapPanel = () => {
                                         <span className="font-semibold text-red-600 dark:text-red-400">{num(summary.staffWithoutRecord)}</span> pegawai tanpa absensi sama sekali:
                                     </p>
                                     <p className="text-sm text-gray-500 dark:text-gray-400">
-                                        {summary.neverClockedIn.map((r) => r.fullName).join(', ')}
-                                        {summary.staffWithoutRecord > summary.neverClockedIn.length
-                                            && ` +${summary.staffWithoutRecord - summary.neverClockedIn.length} lainnya`}
+                                        {(summary.neverClockedIn || []).map((r) => r.fullName).join(', ')}
+                                        {summary.staffWithoutRecord > (summary.neverClockedIn || []).length
+                                            && ` +${summary.staffWithoutRecord - (summary.neverClockedIn || []).length} lainnya`}
                                     </p>
                                 </>
                             )}
