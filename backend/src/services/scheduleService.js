@@ -1131,6 +1131,21 @@ class ScheduleService {
         const loadPerDay = daysWorked ? Number((loadSum / daysWorked).toFixed(2)) : 0;
         const days = Object.fromEntries(JOBDESK_ROLES.map((r) => [r.key, counts[r.key]]));
 
+        // ── Rekap "sebulan ini" ───────────────────────────────────────────────
+        // Inti yang ditanyakan staff: "bulan ini saya mengerjakan jobdesk apa
+        // saja, dan berapa kali?". Semua jobdesk ditampilkan (termasuk yang 0x)
+        // supaya kelihatan mana yang belum pernah dipegang bulan ini.
+        const totalJobdesk = JOBDESK_ROLES.reduce((a, r) => a + counts[r.key], 0);
+        const perJobdesk = JOBDESK_ROLES.map((r) => ({
+            key: r.key,
+            label: r.label,
+            short: r.short,
+            weight: r.weight,
+            count: counts[r.key],
+            // Persentase dari seluruh jobdesk yang dipegang bulan ini.
+            share: totalJobdesk ? Number(((counts[r.key] / totalJobdesk) * 100).toFixed(1)) : 0,
+        })).sort((a, b) => b.count - a.count || a.weight - b.weight);
+
         // ── Perbandingan dengan rekan satu tim ─────────────────────────────────
         // Hanya memakai ANGKA AGREGAT (rata-rata/min/max beban + jumlah staff).
         // Rekap per orang sengaja TIDAK dikirim, supaya staff tidak bisa melihat
@@ -1197,6 +1212,8 @@ class ScheduleService {
             daysWithoutJobdesk,
             multiJobdeskDays,
             days,
+            perJobdesk,
+            totalJobdesk,
             roles: JOBDESK_ROLES.map(({ key, label, short, weight }) => ({ key, label, short, weight })),
             loadTotal: loadSum,
             loadPerDay,
@@ -1327,18 +1344,26 @@ class ScheduleService {
             entry.loadSum += dayLoad;
         }
 
-        return [...perUser.values()].map((e) => ({
-            userId: e.userId,
-            fullName: e.fullName,
-            daysWorked: e.daysWorked,
-            daysWithoutJobdesk: e.daysWithoutJobdesk,
-            multiJobdeskDays: e.multiJobdeskDays,
-            counts: e.counts,
-            // Beban total = Σ bobot jobdesk yang dipegang sebulan.
-            loadTotal: e.loadSum,
-            // Pembanding yang adil: beban per hari kerja, bukan beban total.
-            loadPerDay: e.daysWorked ? Number((e.loadSum / e.daysWorked).toFixed(2)) : 0,
-        }));
+        return [...perUser.values()].map((e) => {
+            // Jumlah jobdesk = Σ hari per jobdesk. Nilai rangkap dihitung per
+            // jobdesk, jadi 'Checker / Stock + Plating' menyumbang 2.
+            const totalJobdesk = Object.values(e.counts).reduce((a, b) => a + b, 0);
+            const jobdeskTypes = Object.values(e.counts).filter((n) => n > 0).length;
+            return {
+                userId: e.userId,
+                fullName: e.fullName,
+                daysWorked: e.daysWorked,
+                daysWithoutJobdesk: e.daysWithoutJobdesk,
+                multiJobdeskDays: e.multiJobdeskDays,
+                counts: e.counts,
+                totalJobdesk,
+                jobdeskTypes,
+                // Beban total = Σ bobot jobdesk yang dipegang sebulan.
+                loadTotal: e.loadSum,
+                // Pembanding yang adil: beban per hari kerja, bukan beban total.
+                loadPerDay: e.daysWorked ? Number((e.loadSum / e.daysWorked).toFixed(2)) : 0,
+            };
+        });
     }
 
     /**
@@ -1463,7 +1488,11 @@ class ScheduleService {
             summary: {
                 staffCount: staff.length,
                 totalWorkDays: staff.reduce((a, s) => a + s.daysWorked, 0),
+                totalJobdesk: staff.reduce((a, s) => a + (s.totalJobdesk || 0), 0),
                 totalJobdeskDays: staff.reduce((a, s) => a + Object.values(s.counts).reduce((x, y) => x + y, 0), 0),
+                avgJobdeskPerStaff: staff.length
+                    ? Number((staff.reduce((a, s) => a + (s.totalJobdesk || 0), 0) / staff.length).toFixed(1))
+                    : 0,
                 daysWithoutJobdesk: missingJobdesk.length,
                 loadAvg,
                 loadMin: bottomLoad ? bottomLoad.loadPerDay : 0,
@@ -1475,6 +1504,94 @@ class ScheduleService {
             },
             missingJobdesk,
             highlights,
+        };
+    }
+
+    /**
+     * Rangkuman JUMLAH jobdesk SELURUH pegawai dapur untuk satu bulan.
+     *
+     * Menjawab pertanyaan admin "pegawai ini sudah mengerjakan berapa jobdesk
+     * bulan ini?". Berbeda dari `getJobdeskFairness` yang fokus membandingkan
+     * keadilan beban, di sini yang ditonjolkan adalah jumlah/jenis jobdesk per
+     * pegawai dan sebaran tiap jobdesk ke seluruh pegawai.
+     *
+     * Memakai `fetchMonthKitchenSchedules` + `_buildStaffRows` yang SAMA dengan
+     * rekap keadilan dan rekap personal staff, jadi ketiga tampilan tidak mungkin
+     * menampilkan angka yang berbeda.
+     *
+     * READ-ONLY.
+     *
+     * @param {String} month - format "YYYY-MM"
+     * @returns {Object} rangkuman siap kirim
+     */
+    async getJobdeskSummary(month) {
+        const { monthKey, startDate, endDate } = this.parseMonthParam(month);
+
+        const schedules = await this.fetchMonthKitchenSchedules(startDate, endDate);
+
+        // Urut dari yang paling banyak mengerjakan jobdesk bulan ini.
+        const staff = this._buildStaffRows(schedules)
+            .map((s) => ({
+                ...s,
+                byJobdesk: JOBDESK_ROLES
+                    .map((r) => ({
+                        key: r.key,
+                        label: r.label,
+                        short: r.short,
+                        weight: r.weight,
+                        count: s.counts[r.key] || 0,
+                    }))
+                    .filter((j) => j.count > 0)
+                    .sort((a, b) => b.count - a.count || b.weight - a.weight),
+            }))
+            .sort((a, b) => b.totalJobdesk - a.totalJobdesk || a.fullName.localeCompare(b.fullName));
+
+        // Sebaran tiap jobdesk ke seluruh pegawai (siapa paling sering dapat).
+        const byJobdesk = JOBDESK_ROLES.map((r) => {
+            const counts = staff.map((s) => s.counts[r.key] || 0);
+            const top = staff.length
+                ? staff.reduce((best, s) => ((s.counts[r.key] || 0) > (best.counts[r.key] || 0) ? s : best), staff[0])
+                : null;
+            return {
+                key: r.key,
+                label: r.label,
+                short: r.short,
+                weight: r.weight,
+                total: counts.reduce((a, b) => a + b, 0),
+                staffCount: counts.filter((n) => n > 0).length,
+                max: counts.length ? Math.max(...counts) : 0,
+                min: counts.length ? Math.min(...counts) : 0,
+                topStaff: top
+                    ? { userId: top.userId, fullName: top.fullName, count: top.counts[r.key] || 0 }
+                    : null,
+            };
+        }).sort((a, b) => b.total - a.total || a.weight - b.weight);
+
+        const totalJobdesk = staff.reduce((a, s) => a + s.totalJobdesk, 0);
+
+        return {
+            month: monthKey,
+            range: { from: toDateStr(startDate), to: toDateStr(endDate) },
+            roles: JOBDESK_ROLES.map(({ key, label, short, weight }) => ({ key, label, short, weight })),
+            staff,
+            byJobdesk,
+            summary: {
+                staffCount: staff.length,
+                totalJobdesk,
+                totalWorkDays: staff.reduce((a, s) => a + s.daysWorked, 0),
+                avgJobdeskPerStaff: staff.length ? Number((totalJobdesk / staff.length).toFixed(1)) : 0,
+                // staff sudah urut dari terbesar, jadi ujung array = paling sedikit.
+                maxJobdeskPerStaff: staff.length ? staff[0].totalJobdesk : 0,
+                minJobdeskPerStaff: staff.length ? staff[staff.length - 1].totalJobdesk : 0,
+                daysWithoutJobdesk: staff.reduce((a, s) => a + s.daysWithoutJobdesk, 0),
+                topStaff: staff.length
+                    ? {
+                        userId: staff[0].userId,
+                        fullName: staff[0].fullName,
+                        totalJobdesk: staff[0].totalJobdesk,
+                    }
+                    : null,
+            },
         };
     }
 }

@@ -327,6 +327,29 @@ class ScheduleController {
     }
 
     /**
+     * GET /schedules/jobdesk-summary?month=YYYY-MM
+     *
+     * Rangkuman jobdesk SELURUH pegawai dapur untuk satu bulan (sudah
+     * dikelompokkan per pegawai, urut dari yang paling banyak mengerjakan).
+     * Dipakai panel "Rangkuman Jobdesk Pegawai" di halaman admin.
+     *
+     * Beda dari `jobdesk-fairness` yang fokus membandingkan keadilan beban:
+     * di sini yang ditonjolkan adalah JUMLAH jobdesk yang sudah dikerjakan.
+     */
+    async getJobdeskSummary(req, res, next) {
+        try {
+            const { month } = req.query;
+            if (!month) {
+                throw new AppError('Parameter month wajib diisi (YYYY-MM)', 400, 'VALIDATION_ERROR');
+            }
+            const report = await scheduleService.getJobdeskSummary(month);
+            return successResponse(res, 200, report, 'Rangkuman jobdesk pegawai berhasil dimuat');
+        } catch (err) {
+            next(err);
+        }
+    }
+
+    /**
      * GET /schedules/jobdesk-fairness?month=YYYY-MM
      * Rekap keadilan jobdesk dapur (per staff × jobdesk + beban rata-rata).
      * Dipakai panel "Rekap Keadilan Jobdesk" di halaman Jadwal Lengkap.

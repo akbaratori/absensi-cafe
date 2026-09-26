@@ -58,6 +58,9 @@ router.get('/my-jobdesk-summary', authorize('EMPLOYEE', 'ADMIN'), scheduleContro
 // Rekap keadilan jobdesk dapur (Admin only) - MUST be before /:userId
 router.get('/jobdesk-fairness', authorize('ADMIN'), scheduleController.getJobdeskFairness);
 
+// Rangkuman jumlah jobdesk seluruh pegawai (Admin only) - MUST be before /:userId
+router.get('/jobdesk-summary', authorize('ADMIN'), scheduleController.getJobdeskSummary);
+
 // GET closing-config — must be before /:userId
 router.get('/closing-config', asyncHandler(async (req, res) => {
     const cfg = await prisma.systemConfig.findUnique({ where: { key: 'closing_jobdesk_config' } });

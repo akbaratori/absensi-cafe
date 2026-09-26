@@ -6,6 +6,7 @@ import { getAllShifts } from '../../services/shiftService';
 import { updateUserScheduleCell } from '../../services/scheduleService';
 import BackupPanel from '../../components/admin/BackupPanel';
 import JobdeskFairnessPanel from '../../components/admin/JobdeskFairnessPanel';
+import JobdeskEmployeeSummaryPanel from '../../components/admin/JobdeskEmployeeSummaryPanel';
 import Modal from '../../components/shared/Modal';
 import Button from '../../components/shared/Button';
 import { showSuccess, showError } from '../../hooks/useToast';
@@ -760,6 +761,15 @@ export default function FullSchedulePage() {
           Sengaja di luar exportRef agar tidak ikut masuk gambar/PDF jadwal. */}
       <div className="mb-6">
         <JobdeskFairnessPanel
+          month={activeMonth}
+          onMonthChange={(m) => { if (m) { setMonthView(m); setViewMode('month'); } }}
+        />
+      </div>
+
+      {/* Rangkuman jumlah jobdesk seluruh pegawai — jawaban "pegawai ini sudah
+          berapa jobdesk bulan ini?". Sumber data sama dengan panel di atas. */}
+      <div className="mb-6">
+        <JobdeskEmployeeSummaryPanel
           month={activeMonth}
           onMonthChange={(m) => { if (m) { setMonthView(m); setViewMode('month'); } }}
         />

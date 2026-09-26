@@ -89,3 +89,13 @@ export const getMyJobdeskSummary = async (month) => {
     return response.data;
 };
 
+/**
+ * Rangkuman JUMLAH jobdesk SELURUH pegawai untuk satu bulan (khusus admin).
+ * Menjawab "pegawai ini sudah mengerjakan berapa jobdesk bulan ini?".
+ * @param {string} month - "YYYY-MM"
+ */
+export const getJobdeskSummary = async (month) => {
+    const response = await api.get('/schedules/jobdesk-summary', { params: { month } });
+    return response.data;
+};
+

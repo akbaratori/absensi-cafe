@@ -48,16 +48,7 @@ const VERDICT_STYLE = {
     },
 };
 
-const DAY_ID = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
 const MONTH_ID = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
-
-/** "2025-07-14" -> "Sen, 14 Juli" (tanpa Intl agar timezone tidak menggeser hari). */
-const formatDateLabel = (iso) => {
-    const [y, m, d] = String(iso).split('-').map(Number);
-    if (!y || !m || !d) return iso;
-    const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
-    return `${DAY_ID[dow]}, ${d} ${MONTH_ID[m - 1]}`;
-};
 
 const formatMonthLabel = (monthKey) => {
     const [y, m] = String(monthKey || '').split('-').map(Number);
@@ -82,7 +73,6 @@ const MyJobdeskRekapPanel = ({ month }) => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [expanded, setExpanded] = useState(true);
-    const [showDays, setShowDays] = useState(false);
 
     const fetchData = useCallback(async () => {
         if (!month) return;
@@ -122,9 +112,9 @@ const MyJobdeskRekapPanel = ({ month }) => {
     const comparison = data?.comparison;
 
     // Hari kerja yang belum tercatat jobdesk-nya — biasanya ini yang bikin staff
-    // merasa "kok saya tidak dapat jobdesk?".
+    // merasa "kok saya tidak dapat jobdesk?". Ditampilkan sebagai jumlah saja,
+    // karena halaman ini sengaja hanya menyajikan rekap bulanan.
     const missingDays = (data?.byDate || []).filter((d) => !d.jobdesks.length);
-    const filledDays = (data?.byDate || []).filter((d) => d.jobdesks.length);
 
     return (
         <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm overflow-hidden">
@@ -141,7 +131,7 @@ const MyJobdeskRekapPanel = ({ month }) => {
                     <span className="min-w-0">
                         <span className="block font-semibold text-gray-900 dark:text-white">Rekap Jobdesk Saya</span>
                         <span className="block text-xs text-gray-500 dark:text-gray-400 truncate">
-                            Jumlah jobdesk yang kamu pegang — {monthLabel}
+                            Berapa kali kamu pegang tiap jobdesk &mdash; {monthLabel}
                         </span>
                     </span>
                     <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform shrink-0 ${expanded ? 'rotate-180' : ''}`} />
@@ -222,7 +212,21 @@ const MyJobdeskRekapPanel = ({ month }) => {
                                 />
                             </div>
 
-                            {/* ── Rincian per jobdesk ──────────────────────────── */}
+                            {/* ── Rekap sebulan: berapa kali tiap jobdesk ──────── */}
+                            <div>
+                                <div className="flex items-baseline justify-between gap-2 flex-wrap">
+                                    <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
+                                        Berapa kali kamu pegang tiap jobdesk
+                                    </h3>
+                                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                                        {monthLabel} &middot; {data.daysWorked} hari kerja
+                                    </span>
+                                </div>
+                                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                                    Dihitung per jobdesk: nilai rangkap seperti &ldquo;Checker / Stock + Plating&rdquo;
+                                    dihitung 1x Checker dan 1x Plating.
+                                </p>
+                            </div>
                             {held.length === 0 ? (
                                 <div className="text-center py-6 text-sm text-gray-400 dark:text-gray-500">
                                     Belum ada jobdesk tercatat untukmu di {monthLabel}.
@@ -243,9 +247,9 @@ const MyJobdeskRekapPanel = ({ month }) => {
                                                 <span className="flex-1 h-2.5 rounded-full bg-gray-100 dark:bg-gray-700 overflow-hidden">
                                                     <span className={`block h-full rounded-full ${style.bar}`} style={{ width: `${pct}%` }} />
                                                 </span>
-                                                <span className="w-20 shrink-0 text-right text-sm">
+                                                <span className="w-24 shrink-0 text-right text-sm">
                                                     <b className="text-gray-900 dark:text-white">{r.count}</b>
-                                                    <span className="text-gray-400 dark:text-gray-500"> hari</span>
+                                                    <span className="text-gray-400 dark:text-gray-500"> kali</span>
                                                 </span>
                                             </div>
                                         );
@@ -283,59 +287,17 @@ const MyJobdeskRekapPanel = ({ month }) => {
                             {missingDays.length > 0 && (
                                 <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-3 py-2.5">
                                     <div className="text-xs font-medium text-amber-800 dark:text-amber-200">
-                                        {missingDays.length} hari kerja belum tercatat jobdesk-nya
-                                    </div>
-                                    <div className="mt-1 flex flex-wrap gap-1">
-                                        {missingDays.map((d) => (
-                                            <span key={d.date} className="text-[11px] px-2 py-0.5 rounded bg-white dark:bg-amber-900/40 text-amber-700 dark:text-amber-200 border border-amber-200 dark:border-amber-800">
-                                                {formatDateLabel(d.date)}
-                                            </span>
-                                        ))}
+                                        {missingDays.length} hari kerja bulan ini belum tercatat jobdesk-nya
                                     </div>
                                     <p className="mt-1 text-[11px] text-amber-700 dark:text-amber-300">
                                         Laporkan ke admin supaya jobdesk hari tersebut ikut dihitung.
                                     </p>
                                 </div>
                             )}
-                            {/* ── Rincian harian (opsional, tertutup default) ─── */}
-                            {filledDays.length > 0 && (
-                                <div>
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowDays((v) => !v)}
-                                        className="flex items-center gap-1 text-xs font-medium text-teal-700 dark:text-teal-300 hover:underline"
-                                    >
-                                        <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showDays ? 'rotate-180' : ''}`} />
-                                        {showDays ? 'Sembunyikan rincian harian' : `Lihat rincian harian (${filledDays.length} hari)`}
-                                    </button>
-
-                                    {showDays && (
-                                        <div className="mt-2 max-h-72 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-700">
-                                            {filledDays.map((d) => (
-                                                <div key={d.date} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
-                                                    <span className="text-gray-600 dark:text-gray-300 whitespace-nowrap">
-                                                        {formatDateLabel(d.date)}
-                                                    </span>
-                                                    <span className="flex flex-wrap justify-end gap-1">
-                                                        {d.jobdesks.map((j) => (
-                                                            <span key={j.key} className={`text-[11px] px-2 py-0.5 rounded font-medium ${roleStyle(j.key).chip}`}>
-                                                                {j.short} &middot; {j.label}
-                                                            </span>
-                                                        ))}
-                                                        <span className="text-[11px] text-gray-400 dark:text-gray-500 self-center">
-                                                            beban {d.load}
-                                                        </span>
-                                                    </span>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-                            )}
 
                             <p className="text-[11px] text-gray-400 dark:text-gray-500 border-t border-gray-100 dark:border-gray-700 pt-3">
                                 Sumber data sama dengan rekap yang dipakai admin, jadi angkanya selalu cocok.
-                                Nilai rangkap dihitung per jobdesk &mdash; mis. &ldquo;Checker / Stock + Plating&rdquo; dihitung 1 hari Checker dan 1 hari Plating.
+                                Nilai rangkap dihitung per jobdesk &mdash; mis. &ldquo;Checker / Stock + Plating&rdquo; dihitung 1x Checker dan 1x Plating.
                             </p>
                         </>
                     )}
