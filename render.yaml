@@ -36,4 +36,7 @@ services:
         sync: false
       - key: WA_GROUP_TARGET
         sync: false
+      # Kunci untuk endpoint cron /attendance/cron/daily-report
+      - key: CRON_SECRET
+        sync: false
 

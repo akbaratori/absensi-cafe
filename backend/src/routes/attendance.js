@@ -8,11 +8,89 @@ const {
   clockOutSchema,
   attendanceHistorySchema,
 } = require('../utils/validator');
-const { asyncHandler, successResponse } = require('../utils/response');
+const { asyncHandler, successResponse, errorResponse } = require('../utils/response');
 const prisma = require('../utils/database');
 const upload = require('../middleware/upload');
 const { attendanceActionLimiter } = require('../middleware/rateLimiter');
+const { sendDailyAttendanceReport } = require('../services/whatsappService');
+const { optionalAuth } = require('../middleware/auth');
 const { toWITA } = require('../utils/attendanceHelpers');
+const { asyncHandler: ah } = require('../utils/response');
+const attendanceService = require('../services/attendanceService');
+
+/**
+ * POST /api/v1/attendance/cron/daily-report
+ *
+ * Dipanggil layanan cron (cron-job.org / Vercel Cron / sejenis) untuk mengirim
+ * LAPORAN ABSENSI HARIAN CAFE ke grup WhatsApp.
+ *
+ * Body opsional: { date: 'YYYY-MM-DD', target: '628xxx@g.us' }.
+ * Tanpa body, tanggal dihitung dari WITA (UTC+8) — bukan jam server.
+ *
+ * Aman dipanggil berkali-kali: mengirim ulang laporan tanggal yang sama hanya
+ * memperbarui angka, tidak menulis/mengubah data absensi (read-only). `force`
+ * diperlukan untuk mengirim ulang tanggal yang sudah pernah dikirim.
+ *
+ * Auth bersifat OPSIONAL supaya URL cron tidak pernah mengembalikan 500 yang
+ * bikin cron mengulang terus: kalau CRON_SECRET diset, caller WAJIB memakai
+ * header Authorization: Bearer <CRON_SECRET>.
+ */
+router.post('/cron/daily-report', optionalAuth, ah(async (req, res) => {
+  const cronSecret = process.env.CRON_SECRET;
+  const expected = `Bearer ${cronSecret}`;
+  const provided = req.headers.authorization;
+
+  // Hanya ADMIN yang boleh memanggil manual dari dalam aplikasi. Cron (tanpa
+  // token user) diverifikasi lewat CRON_SECRET.
+  const manualCallerAllowed = req.user && req.user.role === 'ADMIN';
+  if (!manualCallerAllowed) {
+    if (!cronSecret) {
+      return errorResponse(
+        res, 503, 'CRON_NOT_CONFIGURED',
+        'CRON_SECRET belum diset. Set env CRON_SECRET lalu panggil ulang dengan header Authorization: Bearer <CRON_SECRET>.',
+      );
+    }
+    if (provided !== expected) {
+      return errorResponse(res, 401, 'UNAUTHORIZED', 'Authorization header tidak cocok dengan CRON_SECRET');
+    }
+  }
+
+  // Tanggal default memakai WITA (UTC+8) agar cocok dengan data absensi.
+  const WITA_OFFSET_MS = 8 * 60 * 60 * 1000;
+  const nowWITA = new Date(Date.now() + WITA_OFFSET_MS);
+  const date = (req.body?.date || req.query.date || nowWITA.toISOString().slice(0, 10));
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date))) {
+    return errorResponse(res, 400, 'VALIDATION_ERROR', 'Parameter date harus format YYYY-MM-DD');
+  }
+
+  const waConfig = await prisma.systemConfig.findMany({
+    where: { key: { in: ['waGroupTarget', 'waToken'] } },
+  });
+  const waCfg = Object.fromEntries(waConfig.map((c) => [c.key, c.value]));
+  if (waCfg.waToken) process.env.FONNTE_TOKEN = waCfg.waToken;
+
+  // `target` dari body hanya untuk uji coba; default tetap grup dari config/env.
+  const target = req.body?.target || waCfg.waGroupTarget || process.env.WA_GROUP_TARGET;
+
+  const result = await attendanceService.getDailySummary(date);
+  const wa = await sendDailyAttendanceReport({
+    date: result.date || date,
+    summary: result.summary,
+    records: result.records,
+  }, target);
+
+  // 502 kalau pengiriman gagal supaya cron melaporkannya sebagai error.
+  const status = wa && wa.success ? 200 : 502;
+  return successResponse(res, status, {
+    date: result.date || date,
+    sent: Boolean(wa && wa.success),
+    reason: wa && wa.success ? null : (wa?.reason || 'Kirim WhatsApp gagal'),
+    summary: result.summary,
+  }, wa && wa.success ? 'Laporan absensi harian terkirim ke grup WhatsApp' : 'Laporan dibuat, pengiriman WhatsApp gagal');
+}));
+
+module.exports = router;
 
 router.post('/clock-in', authenticate, authorize('EMPLOYEE', 'ADMIN'), attendanceActionLimiter, upload.single('photo'), validate(clockInSchema), attendanceController.clockIn);
 router.post('/clock-out', authenticate, authorize('EMPLOYEE', 'ADMIN'), attendanceActionLimiter, upload.single('photo'), validate(clockOutSchema), attendanceController.clockOut);
