@@ -52,9 +52,6 @@ router.delete('/:id', authorize('ADMIN'), scheduleController.deleteSchedule);
 
 // ─── Static GET routes MUST be before /:userId ────────────────────────────
 
-// Get station summary for a month (Admin only) - MUST be before /:userId
-router.get('/station-summary', authorize('ADMIN'), scheduleController.getStationSummary);
-
 // Rekap jobdesk milik sendiri (EMPLOYEE & ADMIN) - MUST be before /:userId
 router.get('/my-jobdesk-summary', authorize('EMPLOYEE', 'ADMIN'), scheduleController.getMyJobdeskSummary);
 

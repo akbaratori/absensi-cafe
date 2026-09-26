@@ -1072,63 +1072,6 @@ class ScheduleService {
         return { message: 'Stations redistributed successfully', count: staffIds.length };
     }
     /**
-     * Get a summary of how many times each employee was assigned each station in a month
-     * @param {string} month - Format: "YYYY-MM"
-     * @returns {Array} - Summary per employee
-     */
-    async getStationSummary(month) {
-        const [year, mon] = month.split('-').map(Number);
-        const startDate = new Date(year, mon - 1, 1);
-        const endDate = new Date(year, mon, 0, 23, 59, 59); // Last day of month
-
-        // Fetch all working-day schedules (not OFF) for KITCHEN staff this month
-        const schedules = await prisma.userSchedule.findMany({
-            where: {
-                date: { gte: startDate, lte: endDate },
-                isOffDay: false,
-                kitchenStation: { not: null },
-                user: { department: 'KITCHEN', isActive: true }
-            },
-            include: {
-                user: { select: { id: true, fullName: true } }
-            },
-            orderBy: { date: 'asc' }
-        });
-
-        // Build summary map: { userId: { fullName, stations: { stationName: count }, extra: { picStok, shiftPic, sanitation } } }
-        const summaryMap = {};
-
-        for (const s of schedules) {
-            const uid = s.user.id;
-            if (!summaryMap[uid]) {
-                summaryMap[uid] = {
-                    userId: uid,
-                    fullName: s.user.fullName,
-                    stations: {},
-                    picStokCount: 0,
-                    shiftPicCount: 0,
-                    sanitationCount: 0,
-                    totalWorkDays: 0
-                };
-            }
-
-            const entry = summaryMap[uid];
-            entry.totalWorkDays++;
-
-            // Count base station (strip " + Dishwasher" suffix if any)
-            const baseStation = s.kitchenStation.split(' + ')[0].trim();
-            entry.stations[baseStation] = (entry.stations[baseStation] || 0) + 1;
-
-            // Count extra roles
-            if (s.isInventoryController) entry.picStokCount++;
-            if (s.isShiftPic) entry.shiftPicCount++;
-            if (s.isSanitationLead) entry.sanitationCount++;
-        }
-
-        return Object.values(summaryMap).sort((a, b) => a.fullName.localeCompare(b.fullName));
-    }
-
-    /**
      * Rekap satu staff (dipakai endpoint personal "Jobdesk Saya").
      *
      * Sengaja menghitung dari kumpulan hari yang SAMA dengan `getJobdeskFairness`
@@ -1401,7 +1344,7 @@ class ScheduleService {
     /**
      * Rekap keadilan jobdesk dapur untuk satu bulan.
      *
-     * Berbeda dari `getStationSummary` (yang selalu mengambil potongan pertama
+     * Berbeda dari rekap lama (yang selalu mengambil potongan pertama
      * `kitchen_station`), method ini:
      *
      *  1. Menghitung SEMUA jobdesk di dalam satu nilai rangkap, sehingga

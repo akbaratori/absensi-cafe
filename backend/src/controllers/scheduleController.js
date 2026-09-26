@@ -309,21 +309,6 @@ class ScheduleController {
         }
     }
 
-    async getStationSummary(req, res, next) {
-        try {
-            const { month } = req.query;
-            if (!month) {
-                // Default: current month
-                const now = new Date();
-                req.query.month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-            }
-            const summary = await scheduleService.getStationSummary(req.query.month);
-            return successResponse(res, 200, summary, 'Station summary loaded');
-        } catch (err) {
-            next(err);
-        }
-    }
-
     /**
      * GET /schedules/my-jobdesk-summary?month=YYYY-MM
      *

@@ -2,7 +2,7 @@
  * Test rekap keadilan jobdesk (GET /schedules/jobdesk-fairness).
  *
  * Yang dijaga di sini adalah hal-hal yang dulu salah pada rekap lama
- * (`getStationSummary`):
+ * (endpoint station-summary yang sudah dihapus):
  *   1. jobdesk rangkap ('Checker / Stock + Plating') harus dihitung DUA kali,
  *      bukan hanya potongan pertama;
  *   2. pembanding keadilan adalah beban rata-rata per hari kerja, sehingga
