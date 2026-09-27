@@ -139,6 +139,29 @@ Catatan rumus:
 - Rentang ngawur (`start` > `end`, format salah, atau > 366 hari) dibalas `400`
   `INVALID_DATE_RANGE`, bukan `500`.
 
+### Jebakan: `summary` ada di dalam `data`, bukan di akar respons
+
+Balasan endpoint ini mengikuti envelope standar:
+
+```json
+{ "success": true, "data": { "period": {…}, "summary": {…}, "employees": […] } }
+```
+
+`attendanceService.getAttendanceRecap()` mengembalikan **seluruh body** (sama seperti
+`getDailyReport`/`getMonthlyReport`), jadi pemanggilnya **wajib** membaca `.data`:
+
+```js
+const response = await getAttendanceRecap(params);
+const report = response?.data; // ← bukan `response` langsung
+```
+
+Pernah terjadi: panel membaca `report.summary` padahal `report` masih body utuh,
+sehingga `summary` selalu `undefined` dan seluruh halaman `Rekap Absensi` mati dengan
+`TypeError: Cannot read properties of undefined (reading 'totalEmployees')` yang
+ditangkap `ErrorBoundary` menjadi layar "Terjadi Kesalahan". Halaman lain yang lupa
+`.data` akan gagal dengan pola yang sama — selalu cek `res.body.data` di tes
+(mis. `backend/tests/attendanceRecap.test.js`) sebagai acuan bentuk yang benar.
+
 ## 10. Ikon PWA
 
 `manifest.json` mendeklarasikan ikon sebagai `image/png`, jadi berkasnya wajib PNG

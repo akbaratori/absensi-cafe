@@ -161,7 +161,11 @@ const AttendanceRecapPanel = () => {
         setLoading(true);
         setError(null);
         try {
-            const data = await getAttendanceRecap(buildParams());
+            const response = await getAttendanceRecap(buildParams());
+            // Service mengembalikan SELURUH body respons ({ success, data }),
+            // jadi payload rekap ada di response.data — sama seperti
+            // getDailyReport/getMonthlyReport di ReportsPage.
+            const data = response?.data || {};
             setReport(data);
             const freshDepts = data?.departments || [];
             const freshStaff = data?.staffOptions || [];
@@ -206,7 +210,7 @@ const AttendanceRecapPanel = () => {
         });
     }, [report, sortKey, sortDir]);
 
-    const summary = report?.summary;
+    const summary = report?.summary || {};
     const daily = report?.daily || [];
     const visibleDaily = showAllDaily ? daily : daily.slice(-14);
 
@@ -429,7 +433,7 @@ const AttendanceRecapPanel = () => {
                     <RefreshCw className="w-5 h-5 animate-spin mr-2" />
                     Memuat rekap absensi...
                 </div>
-            ) : !report ? null : (
+            ) : !report?.summary ? null : (
                 <>
                     {/* ── Kartu ringkasan ─────────────────────────────── */}
                     <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">

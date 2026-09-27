@@ -143,7 +143,9 @@ export const getMonthlyReport = async (params = {}) => {
  * @param {string} [params.date]  - "YYYY-MM-DD" preset satu hari
  * @param {number} [params.userId]     - filter satu pegawai
  * @param {string} [params.department] - filter satu departemen
- * @returns {Promise<{period, summary, employees, daily, holidays, departments}>}
+ * @returns {Promise<{success: boolean, data: {period, summary, employees, daily,
+ *   holidays, departments, staffOptions}}>} seluruh body respons — payload ada
+ *   di `.data`, konsisten dengan getDailyReport/getMonthlyReport.
  */
 export const getAttendanceRecap = async (params = {}) => {
   // Buang key kosong/undefined supaya axios tidak mengirim "?start=undefined".
