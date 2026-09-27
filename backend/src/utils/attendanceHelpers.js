@@ -46,12 +46,32 @@ const getAttendanceConfig = async (prisma) => {
 /**
  * Calculate attendance status based on clock-in time
  * Uses WITA (UTC+8) timezone for accurate comparison in Makassar.
+ *
+ * Toleransi (`lateGraceMinutes`, default 15) berarti "sampai jam berapa orang
+ * masih dianggap TIDAK telat" — bukan "bonus 15 menit". Karena itu:
+ *   - masuk <= mulai + toleransi  -> PRESENT, lateMinutes 0
+ *   - masuk >  mulai + toleransi  -> LATE, dan lateMinutes DIHITUNG DARI AKHIR
+ *     TOLERANSI (masuk 11:16 untuk shift 11:00 + 15 mnt = telat 1 menit, BUKAN
+ *     16 menit). Sebelumnya angka ini diukur dari jam mulai shift, sehingga
+ *     keterlambatan selalu kelihatan 15 menit lebih besar dari kenyataan dan
+ *     potongan payroll ikut membengkak. Rumus yang sama sudah dipakai di
+ *     GET /attendance/my-penalty (`clockInMins - shiftStartMins - grace`), jadi
+ *     sekarang kedua jalur menghitung dengan cara yang identik.
+ *
  * @param {Date} clockIn - Clock-in timestamp
  * @param {Object} attendanceConfig - Configuration object
- * @returns {Object} { status: String, lateMinutes: Number }
+ * @returns {Object} { status: String, lateMinutes: Number, graceMinutes: Number }
  */
 const calculateAttendanceStatus = (clockIn, attendanceConfig) => {
   const [hours, minutes] = attendanceConfig.workStartTime.split(':').map(Number);
+  // `null` dan `''` harus jatuh ke default 15 menit. Tanpa pemeriksaan eksplisit,
+  // `Number(null)` dan `Number('')` bernilai 0 sehingga toleransi menghilang dan
+  // setiap orang yang masuk lewat 1 menit dianggap telat. `NaN` pun ditolak oleh
+  // Number.isFinite.
+  const graceRaw = attendanceConfig.lateGraceMinutes;
+  const graceMinutes = (graceRaw === null || graceRaw === undefined || graceRaw === '')
+    ? 15
+    : (Number.isFinite(Number(graceRaw)) ? Number(graceRaw) : 15);
 
   // Convert clock-in time to WITA to get correct local hour/minute
   const clockInWITA = toWITA(clockIn);
@@ -61,13 +81,13 @@ const calculateAttendanceStatus = (clockIn, attendanceConfig) => {
   const shiftStartUTC = new Date(`${witaDateStr}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00+08:00`);
 
   // Gunakan grace period dari config untuk semua shift (termasuk Ramadhan)
-  const graceTimeUTC = new Date(shiftStartUTC.getTime() + attendanceConfig.lateGraceMinutes * 60 * 1000);
+  const graceTimeUTC = new Date(shiftStartUTC.getTime() + graceMinutes * 60 * 1000);
   if (clockIn > graceTimeUTC) {
-    const lateMinutes = Math.ceil((clockIn.getTime() - shiftStartUTC.getTime()) / (60 * 1000));
-    return { status: 'LATE', lateMinutes };
+    const lateMinutes = Math.max(1, Math.ceil((clockIn.getTime() - graceTimeUTC.getTime()) / (60 * 1000)));
+    return { status: 'LATE', lateMinutes, graceMinutes };
   }
 
-  return { status: 'PRESENT', lateMinutes: 0 };
+  return { status: 'PRESENT', lateMinutes: 0, graceMinutes };
 };
 
 /**

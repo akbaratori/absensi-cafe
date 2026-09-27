@@ -15,6 +15,7 @@ const { attendanceActionLimiter } = require('../middleware/rateLimiter');
 const { sendDailyAttendanceReport } = require('../services/whatsappService');
 const { optionalAuth } = require('../middleware/auth');
 const { toWITA } = require('../utils/attendanceHelpers');
+const { findShiftById } = require('../utils/shiftResolver');
 const { asyncHandler: ah } = require('../utils/response');
 const attendanceService = require('../services/attendanceService');
 
@@ -106,6 +107,12 @@ router.get('/monthly-summary', authenticate, authorize('EMPLOYEE', 'ADMIN'), att
  *
  * Menit terlambat dihitung dari shift aktual (UserSchedule → Shift),
  * bukan workStartTime global — fix untuk Shift Ramadhan (14:00).
+ *
+ * `lateCount` = jumlah record yang BENAR-BENAR melewati toleransi. Record yang
+ * statusnya LATE tetapi jam masuknya masih di dalam toleransi (mis. 11:01 untuk
+ * shift 2 yang toleran sampai 11:15) tidak dihitung dan tidak didenda; record
+ * itu tetap dikirim di `records` dengan `withinTolerance: true` supaya tidak
+ * ada angka yang disembunyikan.
  */
 router.get('/my-penalty', authenticate, authorize('EMPLOYEE', 'ADMIN'), asyncHandler(async (req, res) => {
   const userId = req.user.id;
@@ -129,7 +136,7 @@ router.get('/my-penalty', authenticate, authorize('EMPLOYEE', 'ADMIN'), asyncHan
   const graceMin = parseInt(cfgMap.lateGraceMinutes ?? '15');
   const defaultWorkStart = cfgMap.workStartTime ?? '08:00';
 
-  // Ambil LATE records + user default shift
+  // Ambil LATE records + shift default user
   const lateRecords = await prisma.attendance.findMany({
     where: { userId, status: 'LATE', date: { gte: startDate, lte: endDate } },
     orderBy: { date: 'asc' },
@@ -137,7 +144,7 @@ router.get('/my-penalty', authenticate, authorize('EMPLOYEE', 'ADMIN'), asyncHan
       id: true,
       date: true,
       clockIn: true,
-      user: { select: { shift: { select: { startTime: true } } } },
+      user: { select: { shiftId: true, shift: { select: { startTime: true } } } },
     },
   });
 
@@ -147,28 +154,47 @@ router.get('/my-penalty', authenticate, authorize('EMPLOYEE', 'ADMIN'), asyncHan
     });
   }
 
-  // Ambil UserSchedule untuk semua tanggal LATE sekaligus (batch query)
-  const lateDates = lateRecords.map(r => r.date);
+  // Ambil UserSchedule untuk semua tanggal LATE sekaligus (batch query).
+  //
+  // PENTING soal rentang, bukan `in`: kolom `Attendance.date` menyimpan
+  // tengah malam WITA sebagai instant UTC (mis. 19 Sep -> 2026-09-18T16:00Z),
+  // sedangkan `UserSchedule.date` menyimpan tengah malam UTC (2026-09-19T00:00Z).
+  // Filter `date: { in: lateDates }` karena itu TIDAK PERNAH cocok, sehingga
+  // jadwal selalu dianggap tidak ada dan jam shift jatuh ke default 08:00 —
+  // staff shift 2 yang telat 11 menit dihitung telat ~3 jam dan dendanya
+  // melonjak ke tier tertinggi. Pakai rentang hari + pencocokan string WITA.
+  const rangeStart = new Date(Math.min(...lateRecords.map((r) => r.date.getTime())) - 86400000);
+  const rangeEnd = new Date(Math.max(...lateRecords.map((r) => r.date.getTime())) + 2 * 86400000);
   const schedules = await prisma.userSchedule.findMany({
-    where: { userId, date: { in: lateDates } },
-    select: { date: true, shift: { select: { startTime: true } } },
+    where: { userId, date: { gte: rangeStart, lte: rangeEnd } },
+    select: { date: true, shiftId: true, shift: { select: { startTime: true } } },
   });
-  // Map: "YYYY-MM-DD" → shiftStartTime
+  // Map: "YYYY-MM-DD" (WITA) -> jam mulai shift hari itu
   const scheduleByDate = {};
-  schedules.forEach(s => {
-    scheduleByDate[s.date.toISOString().split('T')[0]] = s.shift?.startTime;
-  });
+  for (const s of schedules) {
+    const key = toWITA(s.date).toISOString().split('T')[0];
+    const start = s.shift?.startTime
+      // `shiftId` menggantung (mis. 2 padahal tabel `shifts` berisi 1, 3, 5)
+      // membuat relasi `shift` null; pulihkan lewat NAMA sebelum menyerah ke
+      // jam default, supaya denda dihitung terhadap shift yang benar.
+      ?? (s.shiftId != null ? (await findShiftById(s.shiftId))?.startTime : null);
+    if (start) scheduleByDate[key] = start;
+  }
 
   // Helper: "HH:mm" → menit sejak tengah malam
   const parseMins = (t) => { const [h, m] = (t || '08:00').split(':').map(Number); return h * 60 + m; };
 
-  const records = lateRecords.map(r => {
+  const records = await Promise.all(lateRecords.map(async (r) => {
     // Gunakan WITA (UTC+8) untuk format tanggal agar konsisten dengan riwayat absensi
     const dateStr = toWITA(r.date).toISOString().split('T')[0];
 
-    // Prioritas: UserSchedule hari itu → default shift user → config default
+    // Prioritas: UserSchedule hari itu → default shift user → config default.
+    // Shift default pun bisa menggantung (shiftId menunjuk baris yang tidak ada),
+    // jadi pulihkan lewat NAMA dulu sebelum jatuh ke jam default.
+    const userShiftStart = r.user?.shift?.startTime
+      ?? (r.user?.shiftId != null ? (await findShiftById(r.user.shiftId))?.startTime : null);
     const shiftStart = scheduleByDate[dateStr]
-      ?? r.user?.shift?.startTime
+      ?? userShiftStart
       ?? defaultWorkStart;
 
     const [shiftH] = shiftStart.split(':').map(Number);
@@ -180,25 +206,40 @@ router.get('/my-penalty', authenticate, authorize('EMPLOYEE', 'ADMIN'), asyncHan
     // Konversi ke WITA (UTC+8) sebelum ambil jam:menit, agar konsisten dengan shiftStart yang dalam WITA
     const ciWITA = new Date(ci.getTime() + 8 * 60 * 60 * 1000);
     const clockInMins = ciWITA.getUTCHours() * 60 + ciWITA.getUTCMinutes();
-    const minutesLate = Math.max(1, clockInMins - shiftStartMins - effectiveGrace);
-    const penalty = minutesLate > 30 ? penaltyHigh : penaltyLow;
+
+    // Menit telat dihitung dari AKHIR toleransi (batas 11:15 untuk shift 2),
+    // bukan dari jam mulai shift. `Math.max(1, ...)` yang lama membuat jam masuk
+    // 11:01 — masih di dalam toleransi 15 menit — tetap muncul sebagai
+    // "telat 1 menit" berikut denda Rp 7.500. Padahal selama masih di dalam
+    // toleransi, tidak ada keterlambatan sama sekali: menitnya 0, dendanya 0.
+    const rawLate = clockInMins - shiftStartMins - effectiveGrace;
+    const withinTolerance = rawLate <= 0;
+    const minutesLate = withinTolerance ? 0 : rawLate;
+    const penalty = withinTolerance ? 0 : (minutesLate > 30 ? penaltyHigh : penaltyLow);
 
     return {
       id: r.id,
       date: dateStr,
       clockIn: r.clockIn,
       shiftStart,
+      graceMinutes: effectiveGrace,
       minutesLate,
       penalty,
-      tier: minutesLate > 30 ? 'high' : 'low',
+      withinTolerance,
+      tier: withinTolerance ? 'none' : (minutesLate > 30 ? 'high' : 'low'),
     };
-  });
+  }));
 
-  const totalDeduction = records.reduce((sum, r) => sum + r.penalty, 0);
+  // Yang dihitung sebagai keterlambatan hanya record yang benar-benar melewati
+  // toleransi — sama dengan angka yang tampil di rincian, jadi ringkasan dan
+  // daftar tidak mungkin berbeda.
+  const counted = records.filter((r) => !r.withinTolerance);
+  const totalDeduction = counted.reduce((sum, r) => sum + r.penalty, 0);
 
   return successResponse(res, 200, {
     month: monthStr,
-    lateCount: records.length,
+    lateCount: counted.length,
+    withinToleranceCount: records.length - counted.length,
     penaltyLow,
     penaltyHigh,
     totalDeduction,

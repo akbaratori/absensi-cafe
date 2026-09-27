@@ -35,6 +35,29 @@ const formatDayShort = (dateStr) => {
     return `${d.getUTCDate()} ${MONTH_ID[d.getUTCMonth()].slice(0, 3)} ${d.getUTCFullYear()}`;
 };
 
+/**
+ * Menit -> "2j 15m" (atau "45m" bila di bawah satu jam).
+ * Dipakai untuk "total telat" supaya angkanya bisa dibaca sekilas: admin tidak
+ * perlu menghitung sendiri 570 menit itu berapa jam.
+ */
+const formatMinutes = (minutes) => {
+    const total = Math.max(0, Math.round(Number(minutes) || 0));
+    const h = Math.floor(total / 60);
+    const m = total % 60;
+    if (h === 0) return `${m} mnt`;
+    return m === 0 ? `${h} j` : `${h}j ${m}m`;
+};
+
+/**
+ * "11:00" + 15 -> "11:15". Dipakai untuk menuliskan batas toleransi tiap shift
+ * di panel aturan ("Shift 2 11:00–22:30 toleran s/d 11:15").
+ */
+const addMinutesToTime = (time, minutes) => {
+    const [h, m] = String(time || '00:00').split(':').map(Number);
+    const total = (((h * 60 + m + (Number(minutes) || 0)) % 1440) + 1440) % 1440;
+    return `${pad2(Math.floor(total / 60))}:${pad2(total % 60)}`;
+};
+
 /** Label periode yang enak dibaca: "1–26 Sep 2026" / "12 Agu 2026". */
 const formatPeriodLabel = (period) => {
     if (!period) return '';
@@ -229,18 +252,22 @@ const AttendanceRecapPanel = () => {
         const header = [
             'Nama', 'ID Pegawai', 'Departemen', 'Hadir', 'Telat', 'Setengah Hari',
             'Absen', 'Hari Masuk', 'Hari Cuti', 'Jam Kerja', 'Rata-rata Jam/Hari',
-            'Menit Telat', 'Belum Absen Pulang', 'Persentase Kehadiran',
+            'Menit Telat (dihitung)', 'Menit Telat (data lama)', 'Telat Terlama',
+            'Belum Absen Pulang', 'Persentase Kehadiran',
         ];
         const lines = employees.map((r) => [
             r.fullName, r.employeeId, r.department, r.present, r.late, r.halfDay, r.absent,
             r.presentDays, r.onLeaveDays, r.totalHours, r.avgHoursPerPresentDay,
-            r.lateMinutes, r.daysWithoutClockOut,
+            r.lateMinutes, r.lateMinutesUncounted || 0,
+            r.worstLate ? `${r.worstLate.minutes} (${r.worstLate.date} ${r.worstLate.clockIn})` : '',
+            r.daysWithoutClockOut,
             r.attendanceRate === null ? '' : `${r.attendanceRate}%`,
         ].map((c) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(','));
 
         const csv = [
             `"Rekap Absensi ${formatPeriodLabel(report.period)}"`,
             `"Total pegawai: ${summary.totalEmployees}; Total jam kerja: ${summary.totalHours}"`,
+            `"Keterlambatan: ${summary.lateCount || 0} hari, total ${summary.totalLateMinutes || 0} menit (toleransi ${report.lateGraceMinutes || 15} menit)"`,
             '',
             header.map((h) => `"${h}"`).join(','),
             ...lines,
@@ -284,7 +311,7 @@ const AttendanceRecapPanel = () => {
                     <td className="px-3 py-2.5 font-semibold text-gray-900 dark:text-gray-100">{num(r.presentDays)}</td>
                     <td className="px-3 py-2.5 text-emerald-600 dark:text-emerald-400">{num(r.present)}</td>
                     <td className="px-3 py-2.5 text-amber-600 dark:text-amber-400">
-                        {r.late ? `${num(r.late)}${r.lateMinutes ? ` (${num(r.lateMinutes)}m)` : ''}` : '0'}
+                        {r.late ? `${num(r.late)}${r.lateMinutes ? ` (${formatMinutes(r.lateMinutes)})` : ''}` : '0'}
                     </td>
                     <td className="px-3 py-2.5 text-sky-600 dark:text-sky-400">{num(r.halfDay)}</td>
                     <td className="px-3 py-2.5 text-red-600 dark:text-red-400">{num(r.absent)}</td>
@@ -312,7 +339,25 @@ const AttendanceRecapPanel = () => {
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                                 <Metric label="Total record absensi" value={num(r.totalRecords)} />
                                 <Metric label="Rata-rata jam / hari masuk" value={`${dec(r.avgHoursPerPresentDay)} jam`} />
-                                <Metric label="Total menit telat" value={`${num(r.lateMinutes)} menit`} />
+                                <Metric
+                                    label={`Total telat${r.late ? ` (${num(r.late)} hari)` : ''}`}
+                                    value={r.late ? formatMinutes(r.lateMinutes) : '0 mnt'}
+                                    className={r.lateMinutes > 0 ? 'text-amber-600 dark:text-amber-400' : ''}
+                                />
+                                {r.worstLate && (
+                                    <Metric
+                                        label="Telat terlama"
+                                        value={`${formatMinutes(r.worstLate.minutes)} · ${formatDayShort(r.worstLate.date)} (masuk ${r.worstLate.clockIn})`}
+                                        className="text-amber-600 dark:text-amber-400"
+                                    />
+                                )}
+                                {r.lateMinutesUncounted > 0 && (
+                                    <Metric
+                                        label="Data lama (tidak dihitung)"
+                                        value={`${formatMinutes(r.lateMinutesUncounted)} · perlu dibersihkan`}
+                                        className="text-gray-500 dark:text-gray-400"
+                                    />
+                                )}
                                 <Metric
                                     label="Belum absen pulang"
                                     value={`${num(r.daysWithoutClockOut)} hari`}
@@ -470,10 +515,12 @@ const AttendanceRecapPanel = () => {
                         <StatTile
                             icon={<Timer className="w-3.5 h-3.5" />}
                             label="Total telat"
-                            value={`${num(summary.totalLateMinutes)} mnt`}
-                            sub={`rata-rata ${dec(summary.avgPresentDaysPerStaff)} hari masuk / pegawai`}
-                            accent="text-amber-600 dark:text-amber-400"
-                            border="border-amber-200 dark:border-amber-800"
+                            value={summary.totalLateMinutes > 0 ? formatMinutes(summary.totalLateMinutes) : '0 mnt'}
+                            sub={summary.lateCount > 0
+                                ? `dari ${num(summary.lateCount)} hari terlambat · rata-rata ${formatMinutes(summary.avgLateMinutesPerLateDay)}/hari`
+                                : 'tidak ada keterlambatan melewati toleransi'}
+                            accent={summary.totalLateMinutes > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}
+                            border={summary.totalLateMinutes > 0 ? 'border-amber-200 dark:border-amber-800' : 'border-emerald-200 dark:border-emerald-800'}
                         />
                         <StatTile
                             icon={<CalendarDays className="w-3.5 h-3.5" />}
@@ -484,6 +531,95 @@ const AttendanceRecapPanel = () => {
                             border="border-purple-200 dark:border-purple-800"
                         />
                     </div>
+                    {/* ── Aturan penilaian telat ─────────────────────── */}
+                    <div className="rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-900/20 p-4">
+                        <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+                            <Timer className="w-4 h-4 text-amber-600 dark:text-amber-400" /> Cara sistem menghitung telat
+                        </h3>
+                        <p className="text-xs text-gray-600 dark:text-gray-300 mt-1.5">
+                            Pegawai dianggap <span className="font-semibold">TIDAK telat</span> bila jam masuk masih di dalam
+                            toleransi <span className="font-semibold">{num(report.lateGraceMinutes)} menit</span> dari jam mulai
+                            shift-nya. Lewat dari itu baru dicatat telat, dan menit telat dihitung{' '}
+                            <span className="font-semibold">mulai dari akhir toleransi</span> — bukan dari jam mulai shift.
+                        </p>
+                        <div className="flex flex-wrap gap-2 mt-2.5">
+                            {(report.shifts || []).map((s) => (
+                                <span
+                                    key={s.id}
+                                    className="inline-flex items-center gap-1.5 text-[11px] px-2 py-1 rounded-lg bg-white dark:bg-gray-800 border border-amber-200 dark:border-amber-800 text-gray-700 dark:text-gray-200"
+                                >
+                                    <span className="font-semibold">{s.name}</span>
+                                    <span className="text-gray-500 dark:text-gray-400">{s.startTime}–{s.endTime}</span>
+                                    <span className="text-emerald-600 dark:text-emerald-400">toleran s/d {addMinutesToTime(s.startTime, report.lateGraceMinutes)}</span>
+                                </span>
+                            ))}
+                        </div>
+                        {(report.lateDetail || []).some((l) => !l.counted) && (
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-2.5 flex items-start gap-1.5">
+                                <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0 text-gray-400" />
+                                <span>
+                                    Ada <span className="font-semibold">{num((report.lateDetail || []).filter((l) => !l.counted).length)}</span> record
+                                    lama berisi menit telat tapi statusnya bukan telat. Angka itu <span className="font-semibold">tidak</span> ikut
+                                    dijumlahkan ke kartu &quot;Total telat&quot; agar tidak menyesatkan — datanya masih terlihat di tabel di bawah.
+                                </span>
+                            </p>
+                        )}
+                    </div>
+
+                    {/* ── Rincian telat ──────────────────────────────── */}
+                    {(report.lateDetail || []).length > 0 && (
+                        <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-hidden">
+                            <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between gap-2">
+                                <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+                                    <Timer className="w-4 h-4 text-amber-600 dark:text-amber-400" /> Rincian keterlambatan
+                                </h3>
+                                <span className="text-xs text-gray-500 dark:text-gray-400">
+                                    {report.lateDetail.length} record · paling lama di atas
+                                </span>
+                            </div>
+                            <div className="overflow-x-auto max-h-80 overflow-y-auto">
+                                <table className="min-w-full text-sm">
+                                    <thead className="bg-gray-50 dark:bg-gray-700/50 sticky top-0">
+                                        <tr>
+                                            <th className="text-left px-4 py-2 font-medium text-gray-600 dark:text-gray-300">Tanggal</th>
+                                            <th className="text-left px-4 py-2 font-medium text-gray-600 dark:text-gray-300">Nama</th>
+                                            <th className="text-left px-4 py-2 font-medium text-gray-600 dark:text-gray-300">Jam masuk</th>
+                                            <th className="text-right px-4 py-2 font-medium text-gray-600 dark:text-gray-300">Telat</th>
+                                            <th className="text-left px-4 py-2 font-medium text-gray-600 dark:text-gray-300">Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                                        {report.lateDetail.map((l, i) => (
+                                            <tr key={`${l.userId}-${l.date}-${i}`} className={l.counted ? '' : 'opacity-60'}>
+                                                <td className="px-4 py-2 whitespace-nowrap text-gray-600 dark:text-gray-300">{formatDayShort(l.date)}</td>
+                                                <td className="px-4 py-2 font-medium text-gray-900 dark:text-gray-100 whitespace-nowrap">
+                                                    {l.fullName}
+                                                    {l.department && <span className="text-[11px] text-gray-400 ml-1.5">{l.department}</span>}
+                                                </td>
+                                                <td className="px-4 py-2 text-gray-600 dark:text-gray-300">{l.clockIn}</td>
+                                                <td className="px-4 py-2 text-right font-semibold text-amber-600 dark:text-amber-400 whitespace-nowrap">
+                                                    {formatMinutes(l.minutes)}
+                                                </td>
+                                                <td className="px-4 py-2 whitespace-nowrap">
+                                                    {l.counted ? (
+                                                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 font-medium">dihitung</span>
+                                                    ) : (
+                                                        <span
+                                                            className="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 font-medium"
+                                                            title="Statusnya bukan telat, jadi menitnya tidak dijumlahkan ke kartu Total telat"
+                                                        >
+                                                            data lama
+                                                        </span>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+
                     {/* ── Sorotan & yang perlu ditindak ───────────────── */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 space-y-2">
@@ -499,7 +635,16 @@ const AttendanceRecapPanel = () => {
                             )}
                             {summary.topLate && (
                                 <p className="text-sm text-gray-600 dark:text-gray-300">
-                                    Paling sering telat: <span className="font-semibold text-amber-600 dark:text-amber-400">{summary.topLate.fullName}</span> ({num(summary.topLate.count)}x)
+                                    Paling sering telat: <span className="font-semibold text-amber-600 dark:text-amber-400">{summary.topLate.fullName}</span>{' '}
+                                    ({num(summary.topLate.count)}x
+                                    {summary.topLate.minutes ? ` · total ${formatMinutes(summary.topLate.minutes)}` : ''}
+                                    {summary.topLate.count > 1 ? ` · rata-rata ${formatMinutes(Math.round(summary.topLate.minutes / summary.topLate.count))}` : ''})
+                                </p>
+                            )}
+                            {(summary.lateMinutesUncounted || 0) > 0 && (
+                                <p className="text-sm text-gray-500 dark:text-gray-400">
+                                    {formatMinutes(summary.lateMinutesUncounted)} menit telat dari{' '}
+                                    <span className="font-semibold">data lama</span> tidak ikut dihitung — lihat tabel rincian di atas.
                                 </p>
                             )}
                             {summary.daysWithoutClockOut > 0 && (
@@ -581,7 +726,7 @@ const AttendanceRecapPanel = () => {
                                             <td className="px-3 py-2.5">{num(summary.onLeaveDays)}</td>
                                             <td className="px-3 py-2.5 text-indigo-600 dark:text-indigo-400">{dec(summary.totalHours)} j</td>
                                             <td className="px-3 py-2.5 text-[11px] font-normal text-gray-500 dark:text-gray-400">
-                                                kolom total = jumlah absensi
+                                                {summary.lateCount} hari telat · {formatMinutes(summary.totalLateMinutes)}
                                             </td>
                                         </tr>
                                     </tfoot>

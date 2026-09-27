@@ -177,27 +177,38 @@ const LatePenaltyWidget = ({ compact = false }) => {
                             {data.records.map((r, i) => (
                                 <div key={r.id} className="px-5 py-3 flex items-center justify-between">
                                     <div className="flex items-center gap-3">
-                                        <span className={`w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center flex-shrink-0 ${r.tier === 'high'
-                                            ? 'bg-red-200 dark:bg-red-900/60 text-red-700 dark:text-red-300'
-                                            : 'bg-orange-100 dark:bg-orange-900/40 text-orange-600 dark:text-orange-400'}`}>
+                                        <span className={`w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center flex-shrink-0 ${r.withinTolerance
+                                            ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300'
+                                            : r.tier === 'high'
+                                                ? 'bg-red-200 dark:bg-red-900/60 text-red-700 dark:text-red-300'
+                                                : 'bg-orange-100 dark:bg-orange-900/40 text-orange-600 dark:text-orange-400'}`}>
                                             {i + 1}
                                         </span>
                                         <div>
                                             <p className="text-sm font-medium text-gray-800 dark:text-gray-200">
                                                 {formatDate(r.date)}
-                                                <span className={`ml-2 text-xs px-1.5 py-0.5 rounded-full ${r.tier === 'high'
-                                                    ? 'bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400'
-                                                    : 'bg-orange-100 text-orange-600 dark:bg-orange-900/40 dark:text-orange-400'}`}>
-                                                    {r.minutesLate} mnt
+                                                {/* Record yang jam masuknya masih di dalam toleransi ditulis apa
+                                                    adanya ("dalam toleransi"), bukan "0 mnt", supaya karyawan
+                                                    paham kenapa tidak ada denda. */}
+                                                <span className={`ml-2 text-xs px-1.5 py-0.5 rounded-full ${r.withinTolerance
+                                                    ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-400'
+                                                    : r.tier === 'high'
+                                                        ? 'bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400'
+                                                        : 'bg-orange-100 text-orange-600 dark:bg-orange-900/40 dark:text-orange-400'}`}>
+                                                    {r.withinTolerance ? 'dalam toleransi' : `${r.minutesLate} mnt`}
                                                 </span>
                                             </p>
-                                            <p className="text-xs text-gray-500">Masuk jam {formatTime(r.clockIn)}</p>
+                                            <p className="text-xs text-gray-500">
+                                                Masuk jam {formatTime(r.clockIn)}
+                                                {r.shiftStart && ` · shift mulai ${r.shiftStart}`}
+                                                {r.graceMinutes != null && ` · toleran ${r.graceMinutes} mnt`}
+                                            </p>
                                         </div>
                                     </div>
                                     <span className={`text-sm font-semibold ${r.penalty > 0
                                         ? 'text-red-600 dark:text-red-400'
-                                        : 'text-yellow-600 dark:text-yellow-400'}`}>
-                                        {r.penalty > 0 ? `-${formatRp(r.penalty)}` : 'Belum denda'}
+                                        : 'text-emerald-600 dark:text-emerald-400'}`}>
+                                        {r.penalty > 0 ? `-${formatRp(r.penalty)}` : 'Tidak didenda'}
                                     </span>
                                 </div>
                             ))}

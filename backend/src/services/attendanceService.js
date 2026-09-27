@@ -5,7 +5,7 @@ const { getAttendanceConfig, calculateAttendanceStatus, calculateTotalHours, for
 const swapService = require('./swapService'); // Import SwapService
 const offDayService = require('./offDayService'); // Import OffDayService
 const auditService = require('./auditService');
-const { loadShiftMapByNumber } = require('../utils/shiftResolver');
+const { loadShiftMapByNumber, findShiftById } = require('../utils/shiftResolver');
 
 const shifts = require('../config/shifts');
 
@@ -78,9 +78,35 @@ class AttendanceService {
     });
     if (userSchedule?.shift) return { shift: userSchedule.shift, source: 'jadwal' };
 
+    // 3b. Baris jadwal ADA tapi relasi shift-nya kosong -> `shiftId` menggantung
+    // (mis. shiftId=2 padahal tabel `shifts` hanya punya id 1, 3, 5).
+    // Tanpa langkah ini, `userSchedule.shift` bernilai null sehingga resolusi
+    // jatuh ke jam default 08:00 dan staff shift 2 yang masuk 11:00 dicap
+    // "terlambat ~180 menit" — padahal toleransi shift-nya sampai 11:15.
+    // Pulihkan lewat NAMA ("S2"/"Shift 2") dan tandai di `source` supaya
+    // penyebabnya terlihat di catatan absensi, bukan tersembunyi.
+    if (userSchedule && userSchedule.shiftId != null) {
+      const recovered = await findShiftById(userSchedule.shiftId);
+      if (recovered) {
+        return {
+          shift: recovered,
+          source: `jadwal (shiftId=${userSchedule.shiftId} tidak ada, dipulihkan ke "${recovered.name}")`,
+        };
+      }
+    }
+
     // 4. Shift default user
     const user = await attendanceRepository.findUserById(userId);
     if (user?.shift) return { shift: user.shift, source: 'default user' };
+    if (user?.shiftId != null) {
+      const recovered = await findShiftById(user.shiftId);
+      if (recovered) {
+        return {
+          shift: recovered,
+          source: `default user (shiftId=${user.shiftId} tidak ada, dipulihkan ke "${recovered.name}")`,
+        };
+      }
+    }
 
     return { shift: null, source: null };
   }
@@ -575,9 +601,33 @@ class AttendanceService {
     // Parse status to DB enum if provided
     const status = updates.status ? parseStatus(updates.status) : undefined;
 
+    // ── Hitung ulang menit telat bila jam masuk / status ikut diubah ──────
+    // Tanpa langkah ini, `lateMinutes` tetap menyimpan angka lama hasil
+    // perhitungan shift yang salah (mis. staff shift 2 pernah dinilai terhadap
+    // jam Shift 1 sehingga tercatat "telat 168 menit"), padahal statusnya sudah
+    // admin betulkan jadi PRESENT. Akibatnya rekap melaporkan total telat
+    // puluhan jam dari record yang sebenarnya tidak telat.
+    let recomputedLateMinutes;
+    if (updates.clockIn !== undefined || status !== undefined) {
+      const finalStatus = status ?? record.status;
+      if (finalStatus !== 'LATE') {
+        // Tidak berstatus telat -> menit telat wajib nol.
+        recomputedLateMinutes = 0;
+      } else {
+        const attConfig = await getAttendanceConfig(prisma);
+        const { shift } = await this.resolveEffectiveShift(record.userId, toWITADateString(record.date));
+        if (shift) {
+          attConfig.workStartTime = shift.startTime;
+          attConfig.workEndTime = shift.endTime;
+        }
+        recomputedLateMinutes = calculateAttendanceStatus(new Date(effectiveClockIn), attConfig).lateMinutes;
+      }
+    }
+
     const updatedRecord = await attendanceRepository.update(id, {
       ...updates,
       ...(status && { status }),
+      ...(recomputedLateMinutes !== undefined && { lateMinutes: recomputedLateMinutes }),
     });
 
     // Audit trail: log admin edit
@@ -1132,7 +1182,7 @@ class AttendanceService {
     const userIdNum = userId ? Number(userId) : null;
     const dept = department ? String(department).trim() : null;
 
-    const [users, records, leaves, holidays] = await Promise.all([
+    const [users, records, leaves, holidays, shiftRows, graceCfg] = await Promise.all([
       prisma.user.findMany({
         // Pegawai nonaktif tetap ikut kalau datanya masih punya absensi di
         // rentang ini; untuk daftar dasar kita ambil yang aktif (atau yang
@@ -1167,6 +1217,13 @@ class AttendanceService {
         select: { date: true, name: true },
         orderBy: { date: 'asc' },
       }),
+      // Jam shift + toleransi telat ikut dikirim supaya UI bisa menjelaskan
+      // "telat" terhadap acuan apa (mis. Shift 2 11:00 toleran sampai 11:15).
+      prisma.shift.findMany({
+        select: { id: true, name: true, startTime: true, endTime: true },
+        orderBy: { id: 'asc' },
+      }),
+      prisma.systemConfig.findFirst({ where: { key: 'lateGraceMinutes' }, select: { value: true } }),
     ]);
 
     const STATUS_KEYS = ['PRESENT', 'LATE', 'HALF_DAY', 'ABSENT'];
@@ -1191,7 +1248,15 @@ class AttendanceService {
         ...emptyCounts(),
         totalRecords: 0,
         totalHours: 0,
+        // `lateMinutes` = menit telat yang DIHITUNG (hanya record berstatus LATE).
+        // `lateMinutesUncounted` = sisa menit telat di record yang statusnya
+        // BUKAN LATE — data lama dari masa shift belum terbaca (lihat
+        // resolveEffectiveShift) atau sisa edit admin yang tidak menghitung
+        // ulang kolom ini. Tidak dijumlahkan ke "total telat", tapi dilaporkan
+        // supaya admin tahu ada yang perlu dibersihkan.
         lateMinutes: 0,
+        lateMinutesUncounted: 0,
+        worstLate: null,
         daysWithoutClockOut: 0,
         onLeaveDays: 0,
         days: new Set(),
@@ -1212,6 +1277,8 @@ class AttendanceService {
           totalRecords: 0,
           totalHours: 0,
           lateMinutes: 0,
+          lateMinutesUncounted: 0,
+          worstLate: null,
           daysWithoutClockOut: 0,
           onLeaveDays: 0,
           days: new Set(),
@@ -1226,19 +1293,45 @@ class AttendanceService {
       ...emptyCounts(),
       total: 0,
       totalHours: 0,
+      lateMinutes: 0,
       userIds: new Set(),
     }));
     const dailyMap = new Map(daily.map((d) => [d.date, d]));
+
+    // Daftar record yang benar-benar telat — dipakai UI untuk rincian
+    // "siapa telat kapan, jam masuk berapa, telat berapa menit".
+    const lateRecords = [];
 
     // ── Satu kali jalan untuk semua agregat ───────────────────────────────
     for (const r of records) {
       const row = ensureUser(r.userId);
       const dayKey = toWITADateString(r.date);
       const hours = r.clockOut ? calculateTotalHours(r.clockIn, r.clockOut) : 0;
+      const recLate = r.lateMinutes || 0;
+      const isLateRecord = r.status === 'LATE';
 
       row.totalRecords += 1;
       row.totalHours += hours;
-      row.lateMinutes += r.lateMinutes || 0;
+      if (isLateRecord) {
+        row.lateMinutes += recLate;
+        if (recLate > 0 && (!row.worstLate || recLate > row.worstLate.minutes)) {
+          row.worstLate = { date: dayKey, minutes: recLate, clockIn: toWITA(r.clockIn).toISOString().slice(11, 16) };
+        }
+      } else if (recLate > 0) {
+        row.lateMinutesUncounted += recLate;
+      }
+      if (recLate > 0) {
+        lateRecords.push({
+          userId: r.userId,
+          fullName: row.fullName,
+          department: row.department,
+          date: dayKey,
+          clockIn: toWITA(r.clockIn).toISOString().slice(11, 16),
+          minutes: recLate,
+          status: r.status,
+          counted: isLateRecord,
+        });
+      }
       row.days.add(dayKey);
       if (!r.clockOut) row.daysWithoutClockOut += 1;
       bump(row, r.status);
@@ -1247,6 +1340,7 @@ class AttendanceService {
       if (day) {
         day.total += 1;
         day.totalHours += hours;
+        if (isLateRecord) day.lateMinutes += recLate;
         day.userIds.add(r.userId);
         bump(day, r.status);
       }
@@ -1266,6 +1360,7 @@ class AttendanceService {
       halfDay: d.halfDay,
       absent: d.absent,
       totalHours: Math.round(d.totalHours * 100) / 100,
+      lateMinutes: d.lateMinutes,
       isHoliday: holidayMap.has(d.date),
       holidayName: holidayMap.get(d.date) || null,
     }));
@@ -1307,6 +1402,8 @@ class AttendanceService {
         daysWithoutClockOut: r.daysWithoutClockOut,
         totalHours: Math.round(r.totalHours * 100) / 100,
         lateMinutes: r.lateMinutes,
+        lateMinutesUncounted: r.lateMinutesUncounted,
+        worstLate: r.worstLate,
         avgHoursPerPresentDay: presentDays ? Math.round((r.totalHours / presentDays) * 100) / 100 : 0,
         attendanceRate: effectiveWorkDays ? Math.round((presentDays / effectiveWorkDays) * 1000) / 10 : null,
       };
@@ -1331,10 +1428,19 @@ class AttendanceService {
       return acc;
     }, { present: 0, late: 0, halfDay: 0, absent: 0, totalRecords: 0, totalHours: 0, lateMinutes: 0, daysWithoutClockOut: 0, onLeaveDays: 0 });
 
+    // Seluruh baris ringkasan di bawah dijumlahkan dari `rows` — daftar yang
+    // SAMA yang dikirim ke tabel UI. Jadi angka kartu dan tabel tidak mungkin
+    // berbeda: kalau `late` (jumlah hari telat) 4, maka `totalLateMinutes`
+    // adalah jumlah menit telat 4 record itu.
+    const rowsLateMinutes = rows.reduce((s, r) => s + r.lateMinutes, 0);
+    const rowsLateUncounted = rows.reduce((s, r) => s + r.lateMinutesUncounted, 0);
     const staffWithRecord = rows.filter((r) => r.totalRecords > 0).length;
     const staffWithoutRecord = rows.filter((r) => r.totalRecords === 0);
     const topLate = [...rows].sort((a, b) => b.late - a.late)[0] || null;
     const topHours = [...rows].sort((a, b) => b.totalHours - a.totalHours)[0] || null;
+
+    // Nama terpanjang untuk `lateRecords` tidak dikirim lengkap — UI hanya
+    // butuh daftar yang punya angka, bukan seluruh riwayat periode.
 
     const summary = {
       totalEmployees: rows.length,
@@ -1348,7 +1454,13 @@ class AttendanceService {
       absent: totals.absent,
       onLeaveDays: totals.onLeaveDays,
       totalHours: Math.round(totals.totalHours * 100) / 100,
-      totalLateMinutes: totals.lateMinutes,
+      // `lateMinutes` = menit telat yang dihitung; `lateCount` = jumlah
+      // kejadiannya. Dikirim berpasangan supaya UI tidak lagi menampilkan
+      // "telat 9,5 jam" tanpa konteks "dari berapa hari".
+      totalLateMinutes: rowsLateMinutes,
+      lateCount: totals.late,
+      lateMinutesUncounted: rowsLateUncounted,
+      avgLateMinutesPerLateDay: totals.late ? Math.round(rowsLateMinutes / totals.late) : 0,
       daysWithoutClockOut: totals.daysWithoutClockOut,
       avgHoursPerPresentDay: totals.present ? Math.round((totals.totalHours / totals.present) * 100) / 100 : 0,
       avgPresentDaysPerStaff: staffWithRecord ? Math.round((totals.present / staffWithRecord) * 10) / 10 : 0,
@@ -1356,13 +1468,21 @@ class AttendanceService {
       emptyDays: dailyRows.filter((d) => d.total === 0).length,
       holidayCount: holidays.length,
       topLate: topLate && topLate.late > 0
-        ? { userId: topLate.userId, fullName: topLate.fullName, count: topLate.late }
+        ? { userId: topLate.userId, fullName: topLate.fullName, count: topLate.late, minutes: topLate.lateMinutes }
         : null,
       topHours: topHours && topHours.totalHours > 0
         ? { userId: topHours.userId, fullName: topHours.fullName, hours: topHours.totalHours }
         : null,
       neverClockedIn: staffWithoutRecord.slice(0, 10).map((r) => ({ userId: r.userId, fullName: r.fullName })),
     };
+
+    // Rincian telat: paling lama dulu, maksimal 50 baris. `counted: false`
+    // berarti record itu berstatus bukan LATE sehingga menitnya TIDAK ikut
+    // dijumlahkan ke kartu "Total telat" — data lama yang perlu dibersihkan,
+    // bukan keterlambatan baru.
+    const lateDetail = lateRecords
+      .sort((a, b) => b.minutes - a.minutes || a.date.localeCompare(b.date))
+      .slice(0, 50);
 
     return {
       period: {
@@ -1373,9 +1493,19 @@ class AttendanceService {
         endDate: period.endDate,
       },
       filters: { userId: userIdNum, department: dept },
+      // Acuan penilaian telat — supaya UI bisa menuliskan "Shift 2 (11:00–22:30),
+      // toleran 15 menit" alih-alih hanya menampilkan angka menit tanpa konteks.
+      shifts: shiftRows.map((s) => ({
+        id: s.id,
+        name: s.name,
+        startTime: s.startTime,
+        endTime: s.endTime,
+      })),
+      lateGraceMinutes: Number(graceCfg?.value ?? 15) || 15,
       summary,
       employees: rows,
       daily: dailyRows,
+      lateDetail,
       holidays: holidays.map((h) => ({ date: toWITADateString(h.date), name: h.name || 'Libur Nasional' })),
       departments: [...new Set(rows.map((r) => r.department).filter(Boolean))].sort(),
       staffOptions: users.map((u) => ({ userId: u.id, fullName: u.fullName, department: u.department || '' })),
@@ -1446,11 +1576,23 @@ class AttendanceService {
       throw error;
     }
 
-    // Hitung lateMinutes (opsional, pakai 0 jika tidak bisa cek shift)
-    let lateMinutes = 0;
-
-    // Hitung status otomatis kalau tidak disupply
+    // Status DB: sekaligus penentu apakah menit telat perlu dihitung.
     const dbStatus = status ? parseStatus(status) : 'PRESENT';
+
+    // Menit telat dihitung terhadap shift EFEKTIF hari itu (backup/swap/jadwal/
+    // default user), bukan terhadap jam default 08:00. Bila tidak ada acuan
+    // shift sama sekali, biarkan 0 — lebih baik kosong daripada melaporkan
+    // telat fiktif 3 jam untuk staff shift 2 yang masuk 11:00.
+    let lateMinutes = 0;
+    if (dbStatus === 'LATE') {
+      const { shift } = await this.resolveEffectiveShift(userId, date);
+      if (shift) {
+        const attConfig = await getAttendanceConfig(prisma);
+        attConfig.workStartTime = shift.startTime;
+        attConfig.workEndTime = shift.endTime;
+        lateMinutes = calculateAttendanceStatus(clockInISO, attConfig).lateMinutes;
+      }
+    }
 
     const record = await prisma.attendance.create({
       data: {

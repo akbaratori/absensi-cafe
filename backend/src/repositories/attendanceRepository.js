@@ -116,6 +116,10 @@ class AttendanceRepository {
         ...(data.clockInIp !== undefined && { clockInIp: data.clockInIp }),
         ...(data.clockOutIp !== undefined && { clockOutIp: data.clockOutIp }),
         ...(data.status && { status: data.status }),
+        // Menit telat ikut ditulis ulang saat admin membetulkan record —
+        // tanpa ini, angka telat lama (hasil shift yang salah dibaca) akan
+        // terus terhitung di rekap walau statusnya sudah PRESENT.
+        ...(data.lateMinutes !== undefined && { lateMinutes: data.lateMinutes }),
         ...(data.notes !== undefined && { notes: data.notes }),
       },
       include: {

@@ -38,4 +38,43 @@ async function loadShiftMapByNumber() {
   return map;
 }
 
-module.exports = { parseShiftNumber, loadShiftMapByNumber };
+/**
+ * Cari baris shift dari sebuah `shiftId` yang mungkin MENGGANTUNG.
+ *
+ * Latar masalah (nyata di produksi): `shiftId = 2` tersimpan di UserSchedule,
+ * padahal tabel `shifts` hanya punya id 1, 3, 5. Pembacaan naif
+ * (`where: { id: 2 }`) mengembalikan null, sehingga record absensi yang dibuat
+ * lewat jalur itu KEHILANGAN info shift: tidak ada `[Shift: ...]` di catatan,
+ * `lateMinutes` dihitung terhadap jam default 08:00 (staff shift 2 yang masuk
+ * 11:00 tercatat "telat 180 menit"), dan tanggal itu ikut menjatuhkan potongan
+ * payroll. Sumbernya adalah validasi global lama yang keliru mengira
+ * `shiftNumber` == primary key `shifts` (lihat catatan di
+ * rotationService.setScheduleAssignment yang sudah diperbaiki).
+ *
+ * Fungsi ini TIDAK mengembalikan baris yang salah. Ia mengembalikan:
+ *   - baris shift bila `shiftId` valid, atau
+ *   - hasil fallback berbasis NAMA ("S2"/"Shift 2" -> baris "Shift 2") dengan
+ *     `recoveredFrom` berisi id menggantung tadi, supaya pemanggil bisa
+ *     memberi catatan "perlu dibetulkan" — bukan diam-diam menilai staff
+ *     dengan jam shift yang salah.
+ *
+ * Perbandingan id memakai Number() supaya baris hasil `select` yang tipenya
+ * meleset (string vs angka) tidak dianggap menggantung.
+ *
+ * @param {Number|String|null} shiftId
+ * @returns {Promise<{id:Number,name:String,startTime:String,endTime:String,recoveredFrom:Number|null}|null>}
+ */
+async function findShiftById(shiftId) {
+  const id = Number(shiftId);
+  if (!shiftId || Number.isNaN(id)) return null;
+
+  const direct = await prisma.shift.findUnique({ where: { id } });
+  if (direct) return { ...direct, recoveredFrom: null };
+
+  // Menggantung (mis. shiftId=2 yang tidak ada di tabel). Coba pulihkan dari
+  // nama "Shift <n>" — persis konvensi yang dipakai UI saat menyimpan nomor shift.
+  const recovered = (await loadShiftMapByNumber()).get(id);
+  return recovered ? { ...recovered, recoveredFrom: id } : null;
+}
+
+module.exports = { parseShiftNumber, loadShiftMapByNumber, findShiftById };
