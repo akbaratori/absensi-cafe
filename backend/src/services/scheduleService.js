@@ -19,18 +19,53 @@ const toMonthStr = (year, mon) => `${year}-${String(mon).padStart(2, '0')}`;
 
 /**
  * Bobot beban tiap jobdesk dapur, mengacu JOB_DESK_KITCHEN.md:
- * A (Main Cook) paling berat → E (Helper / Floating) paling ringan.
+ * A (Main Cook) paling berat → D (Runner + Helper) paling ringan.
  *
  * `label` HARUS persis sama dengan potongan nama yang dipakai di
- * `user_schedules.kitchen_station` (dipisah ' + '). `short` dipakai frontend.
+ * `user_schedules.kitchen_station` (dipisah ' + '). `short` = huruf kolom rekap
+ * yang menampungnya (lihat JOBDESK_GROUPS) — jobdesk yang selalu menempel
+ * memakai huruf induknya, jadi tidak ada lagi huruf "C+".
+ *
+ * `group` = kunci kelompok untuk rekap (lihat JOBDESK_GROUPS): jobdesk dalam
+ * satu kelompok dihitung sebagai satu stasiun karena memang selalu dipegang
+ * orang yang sama (Plating/Dishwasher menempel pada Checker, §2 butir 3).
  */
 const JOBDESK_ROLES = [
-    { key: 'MAIN', label: 'Main Cook', short: 'A', weight: 5 },
-    { key: 'SUPPORT', label: 'Support Cook', short: 'B', weight: 4 },
-    { key: 'CHECKER', label: 'Checker / Stock', short: 'C', weight: 3 },
-    { key: 'PLATING', label: 'Plating', short: 'C+', weight: 3 },
-    { key: 'RUNNER', label: 'Runner / Area', short: 'D', weight: 2 },
-    { key: 'HELPER', label: 'Helper / Floating', short: 'E', weight: 1 },
+    { key: 'MAIN', label: 'Main Cook', short: 'A', weight: 5, group: 'MAIN' },
+    { key: 'SUPPORT', label: 'Support Cook', short: 'B', weight: 4, group: 'SUPPORT' },
+    { key: 'CHECKER', label: 'Checker / Stock', short: 'C', weight: 3, group: 'CHECKER' },
+    { key: 'PLATING', label: 'Plating', short: 'C', weight: 3, group: 'CHECKER' },
+    { key: 'RUNNER', label: 'Runner / Area', short: 'D', weight: 2, group: 'RUNNER' },
+    { key: 'HELPER', label: 'Helper / Floating', short: 'D', weight: 1, group: 'RUNNER' },
+];
+
+/**
+ * EMPAT kolom huruf rekap jobdesk (A–D) — huruf disesuaikan dengan jumlah
+ * jobdesk kelompok, bukan jumlah nama jobdesk di database:
+ *
+ *   A  Main Cook
+ *   B  Support Cook
+ *   C  Checker / Stock + Plating + Dishwasher
+ *   D  Runner / Area + Helper / Floating
+ *
+ * Karena itu huruf "C+" dihapus: Plating & Dishwasher selalu menempel pada
+ * Checker (JOB_DESK_KITCHEN.md §2 butir 3) sehingga ikut dihitung di kolom C.
+ * Satu hari dihitung SEKALI per huruf — sehari 'Checker / Stock + Plating'
+ * menyumbang 1x C, bukan 2x.
+ *
+ * `pattern` menangkap jobdesk yang namanya belum terdaftar di JOBDESK_ROLES
+ * (mis. 'Dishwasher' / 'Cuci Alat' yang dibuat admin) supaya tetap masuk kolom
+ * yang benar, bukan dihitung sebagai "hari tanpa jobdesk".
+ *
+ * `weight` = bobot beban huruf ini per hari (A terberat → D teringan). Beban
+ * harian = jumlah bobot huruf yang dipegang hari itu, jadi sehari
+ * 'Checker / Stock + Plating' tetap 3 (satu paket, bukan 3+3).
+ */
+const JOBDESK_GROUPS = [
+    { key: 'MAIN', short: 'A', label: 'Main Cook', weight: 5, pattern: /main\s*cook|head\s*cook|kepala/i },
+    { key: 'SUPPORT', short: 'B', label: 'Support Cook / Snack', weight: 4, pattern: /support|snack/i },
+    { key: 'CHECKER', short: 'C', label: 'Checker / Stock + Plating + Dishwasher', weight: 3, pattern: /checker|stock|stok|plating|dishwash|cuci|sanitation/i },
+    { key: 'RUNNER', short: 'D', label: 'Runner / Area + Helper / Floating', weight: 2, pattern: /runner|area|helper|floating/i },
 ];
 
 /**
@@ -56,6 +91,51 @@ const parseJobdeskRoles = (station) => {
     if (!raw.trim()) return [];
     const parts = raw.split(' + ').map((p) => p.trim()).filter(Boolean);
     return JOBDESK_ROLES.filter((role) => parts.includes(role.label));
+};
+
+/**
+ * Pisah `kitchen_station` jadi potongan nama jobdesk.
+ * Dipakai untuk jobdesk kustom yang belum terdaftar di JOBDESK_ROLES.
+ *
+ * @param {String} station - nilai mentah kitchen_station
+ * @returns {String[]} nama jobdesk tanpa spasi berlebih
+ */
+const splitJobdeskNames = (station) => {
+    const raw = String(station || '');
+    if (!raw.trim()) return [];
+    return raw.split(' + ').map((p) => p.trim()).filter(Boolean);
+};
+
+/**
+ * Pemetaan nama jobdesk → huruf kolom. Jobdesk yang dikenali memakai
+ * `group`-nya, sisanya ditebak dari pola nama tiap huruf (mis. 'Dishwasher'
+ * → C). Mengembalikan null bila benar-benar tidak dikenali.
+ *
+ * @param {String} name - nama satu jobdesk
+ * @returns {String|null} key grup (MAIN/SUPPORT/CHECKER/RUNNER) atau null
+ */
+const jobdeskGroupOfName = (name) => {
+    const known = JOBDESK_ROLES.find((r) => r.label === name);
+    if (known) return known.group;
+    const raw = String(name || '');
+    const guessed = JOBDESK_GROUPS.find((g) => g.pattern.test(raw));
+    return guessed ? guessed.key : null;
+};
+
+/**
+ * Empat huruf kolom (A–D) yang dipegang seseorang pada satu hari kerja.
+ *
+ * Berbeda dari `parseJobdeskRoles` yang menghitung jobdesk RINCI (dipakai untuk
+ * beban), fungsi ini bekerja per KOLOM: sehari 'Checker / Stock + Plating'
+ * menghasilkan satu 'C' saja. Hari yang jobdesknya tidak dikenali sama sekali
+ * mengembalikan daftar kosong (dihitung sebagai hari tanpa jobdesk).
+ *
+ * @param {String} station - nilai mentah kitchen_station
+ * @returns {String[]} huruf unik, urut A → D
+ */
+const parseJobdeskGroups = (station) => {
+    const groups = new Set(splitJobdeskNames(station).map(jobdeskGroupOfName).filter(Boolean));
+    return JOBDESK_GROUPS.filter((g) => groups.has(g.key)).map((g) => g.short);
 };
 
 const attendanceRepository = require('../repositories/attendanceRepository');
@@ -1188,7 +1268,10 @@ class ScheduleService {
      */
     buildPersonalJobdeskSummary(userId, user, scheduleRows, teammates) {
         const mine = scheduleRows.filter((r) => r.userId === userId);
-        const counts = Object.fromEntries(JOBDESK_ROLES.map((r) => [r.key, 0]));
+        // Hitungan per huruf kolom (A–D) — satu huruf dihitung sekali per hari.
+        const counts = Object.fromEntries(JOBDESK_GROUPS.map((g) => [g.short, 0]));
+        // Hitungan per jobdesk rinci, hanya untuk rincian harian di UI.
+        const byJobdeskKey = Object.fromEntries(JOBDESK_ROLES.map((r) => [r.key, 0]));
         const byDate = [];
         let daysWorked = 0;
         let daysWithoutJobdesk = 0;
@@ -1198,9 +1281,10 @@ class ScheduleService {
         for (const row of mine) {
             daysWorked += 1;
             const roles = parseJobdeskRoles(row.kitchenStation);
+            const letters = parseJobdeskGroups(row.kitchenStation);
             const iso = toDateStr(row.date);
 
-            if (!roles.length) {
+            if (!letters.length) {
                 daysWithoutJobdesk += 1;
                 // Hari kerja tanpa jobdesk tetap dilaporkan supaya staff bisa
                 // melaporkannya ke admin (ini yang biasanya jadi sumber sengketa).
@@ -1208,22 +1292,25 @@ class ScheduleService {
                     date: iso,
                     raw: row.kitchenStation || null,
                     jobdesks: [],
+                    letters: [],
                     load: 0,
                 });
                 continue;
             }
 
-            if (roles.length > 1) multiJobdeskDays += 1;
+            if (letters.length > 1) multiJobdeskDays += 1;
             let dayLoad = 0;
-            for (const role of roles) {
-                counts[role.key] += 1;
-                dayLoad += role.weight;
+            for (const short of letters) {
+                counts[short] += 1;
+                dayLoad += JOBDESK_GROUPS.find((g) => g.short === short).weight;
             }
+            for (const role of roles) byJobdeskKey[role.key] += 1;
             loadSum += dayLoad;
             byDate.push({
                 date: iso,
                 raw: row.kitchenStation,
                 jobdesks: roles.map((r) => ({ key: r.key, label: r.label, short: r.short, weight: r.weight })),
+                letters,
                 load: dayLoad,
             });
         }
@@ -1231,22 +1318,23 @@ class ScheduleService {
         byDate.sort((a, b) => a.date.localeCompare(b.date));
 
         const loadPerDay = daysWorked ? Number((loadSum / daysWorked).toFixed(2)) : 0;
-        const days = Object.fromEntries(JOBDESK_ROLES.map((r) => [r.key, counts[r.key]]));
+        const days = { ...counts };
+        const jobdeskCounts = { ...byJobdeskKey };
 
         // ── Rekap "sebulan ini" ───────────────────────────────────────────────
-        // Inti yang ditanyakan staff: "bulan ini saya mengerjakan jobdesk apa
-        // saja, dan berapa kali?". Semua jobdesk ditampilkan (termasuk yang 0x)
-        // supaya kelihatan mana yang belum pernah dipegang bulan ini.
-        const totalJobdesk = JOBDESK_ROLES.reduce((a, r) => a + counts[r.key], 0);
-        const perJobdesk = JOBDESK_ROLES.map((r) => ({
-            key: r.key,
-            label: r.label,
-            short: r.short,
-            weight: r.weight,
-            count: counts[r.key],
-            // Persentase dari seluruh jobdesk yang dipegang bulan ini.
-            share: totalJobdesk ? Number(((counts[r.key] / totalJobdesk) * 100).toFixed(1)) : 0,
-        })).sort((a, b) => b.count - a.count || a.weight - b.weight);
+        // Inti yang ditanyakan staff: "bulan ini saya mengerjakan jobdesk /
+        // stasiun apa saja, dan berapa kali?". Semua huruf ditampilkan (termasuk
+        // yang 0x) supaya kelihatan mana yang belum pernah dipegang bulan ini.
+        const totalJobdesk = JOBDESK_GROUPS.reduce((a, g) => a + counts[g.short], 0);
+        const perJobdesk = JOBDESK_GROUPS.map((g) => ({
+            key: g.key,
+            label: g.label,
+            short: g.short,
+            weight: g.weight,
+            count: counts[g.short],
+            // Persentase dari seluruh stasiun yang dipegang bulan ini.
+            share: totalJobdesk ? Number(((counts[g.short] / totalJobdesk) * 100).toFixed(1)) : 0,
+        })).sort((a, b) => b.count - a.count || b.weight - a.weight);
 
         // ── Perbandingan dengan rekan satu tim ─────────────────────────────────
         // Hanya memakai ANGKA AGREGAT (rata-rata/min/max beban + jumlah staff).
@@ -1316,7 +1404,11 @@ class ScheduleService {
             days,
             perJobdesk,
             totalJobdesk,
-            roles: JOBDESK_ROLES.map(({ key, label, short, weight }) => ({ key, label, short, weight })),
+            // Empat kolom huruf A–D — sama persis dengan yang dipakai rekap admin.
+            roles: JOBDESK_GROUPS.map(({ key, label, short, weight }) => ({ key, label, short, weight })),
+            // Rincian per jobdesk (Checker, Plating, Helper, …) untuk modal
+            // "rincian harian" — sengaja terpisah dari `days` yang per huruf.
+            jobdeskCounts,
             loadTotal: loadSum,
             loadPerDay,
             byDate,
@@ -1424,31 +1516,40 @@ class ScheduleService {
                     daysWorked: 0,
                     daysWithoutJobdesk: 0,
                     multiJobdeskDays: 0,
-                    counts: Object.fromEntries(JOBDESK_ROLES.map((r) => [r.key, 0])),
+                    // Hitungan per HURUF kolom (A–D). Satu kolom dihitung SEKALI
+                    // per hari, walau jobdesk di dalamnya dirangkap.
+                    counts: Object.fromEntries(JOBDESK_GROUPS.map((g) => [g.short, 0])),
+                    // Hitungan per jobdesk rinci (Plating, Helper, …) — rincian
+                    // supaya jobdesk yang menempel tidak hilang dari rekap.
+                    roleCounts: Object.fromEntries(JOBDESK_ROLES.map((r) => [r.key, 0])),
                     loadSum: 0,
                 });
             }
             const entry = perUser.get(s.user.id);
             entry.daysWorked += 1;
 
-            const roles = parseJobdeskRoles(s.kitchenStation);
-            if (!roles.length) {
+            const letters = parseJobdeskGroups(s.kitchenStation);
+            if (!letters.length) {
                 entry.daysWithoutJobdesk += 1;
                 continue;
             }
 
-            if (roles.length > 1) entry.multiJobdeskDays += 1;
-            let dayLoad = 0;
-            for (const role of roles) {
-                entry.counts[role.key] += 1;
-                dayLoad += role.weight;
+            // "Rangkap" versi huruf: satu hari memegang lebih dari satu stasiun
+            // (mis. 'Main Cook + Support Cook' atau 'Checker + Runner + Helper').
+            // 'Checker / Stock + Plating' TIDAK dihitung rangkap karena Plating
+            // memang satu paket dengan Checker.
+            if (letters.length > 1) entry.multiJobdeskDays += 1;
+            for (const short of letters) {
+                entry.counts[short] += 1;
+                entry.loadSum += JOBDESK_GROUPS.find((g) => g.short === short).weight;
             }
-            entry.loadSum += dayLoad;
+            for (const role of parseJobdeskRoles(s.kitchenStation)) {
+                entry.roleCounts[role.key] += 1;
+            }
         }
 
         return [...perUser.values()].map((e) => {
-            // Jumlah jobdesk = Σ hari per jobdesk. Nilai rangkap dihitung per
-            // jobdesk, jadi 'Checker / Stock + Plating' menyumbang 2.
+            // Jumlah jobdesk = Σ hari per huruf kolom (A–D).
             const totalJobdesk = Object.values(e.counts).reduce((a, b) => a + b, 0);
             const jobdeskTypes = Object.values(e.counts).filter((n) => n > 0).length;
             return {
@@ -1458,9 +1559,10 @@ class ScheduleService {
                 daysWithoutJobdesk: e.daysWithoutJobdesk,
                 multiJobdeskDays: e.multiJobdeskDays,
                 counts: e.counts,
+                roleCounts: e.roleCounts,
                 totalJobdesk,
                 jobdeskTypes,
-                // Beban total = Σ bobot jobdesk yang dipegang sebulan.
+                // Beban total = Σ bobot huruf yang dipegang sebulan.
                 loadTotal: e.loadSum,
                 // Pembanding yang adil: beban per hari kerja, bukan beban total.
                 loadPerDay: e.daysWorked ? Number((e.loadSum / e.daysWorked).toFixed(2)) : 0,
@@ -1474,10 +1576,10 @@ class ScheduleService {
      * Berbeda dari rekap lama (yang selalu mengambil potongan pertama
      * `kitchen_station`), method ini:
      *
-     *  1. Menghitung SEMUA jobdesk di dalam satu nilai rangkap, sehingga
-     *     'Checker / Stock + Plating' menambah 1 hari Checker DAN 1 hari
-     *     Plating — bukan hanya Checker.
-     *  2. Memberi bobot beban A=5 … E=1 sesuai JOB_DESK_KITCHEN.md lalu memakai
+     *  1. Menghitung jobdesk per HURUF kolom (A–D), sehingga nilai rangkap
+     *     seperti 'Checker / Stock + Plating' tetap satu kolom C — bukan
+     *     dipecah jadi huruf "C+" sendiri seperti tampilan lama.
+     *  2. Memberi bobot beban A=5 … D=2 sesuai JOB_DESK_KITCHEN.md lalu memakai
      *     **beban rata-rata per hari kerja** sebagai pembanding. Penting karena
      *     jumlah hari kerja staff tidak sama (mis. 25 vs 29 hari); tanpa
      *     normalisasi ini staff yang lebih banyak masuk otomatis terlihat
@@ -1500,24 +1602,24 @@ class ScheduleService {
 
         const missingJobdesk = [];
         for (const s of schedules) {
-            if (!parseJobdeskRoles(s.kitchenStation).length) {
+            if (!parseJobdeskGroups(s.kitchenStation).length) {
                 missingJobdesk.push({ date: toDateStr(s.date), userId: s.user.id, fullName: s.user.fullName });
             }
         }
 
         const staff = this._buildStaffRows(schedules);
 
-        // ── Rata-rata per jobdesk + penanda timpang ──────────────────────────
-        const byJobdesk = JOBDESK_ROLES.map((role) => {
-            const values = staff.map((s) => s.counts[role.key] || 0);
+        // ── Rata-rata per huruf kolom + penanda timpang ──────────────────────
+        const byJobdesk = JOBDESK_GROUPS.map((group) => {
+            const values = staff.map((s) => s.counts[group.short] || 0);
             const max = values.length ? Math.max(...values) : 0;
             const min = values.length ? Math.min(...values) : 0;
             const total = values.reduce((a, b) => a + b, 0);
             return {
-                key: role.key,
-                label: role.label,
-                short: role.short,
-                weight: role.weight,
+                key: group.key,
+                label: group.label,
+                short: group.short,
+                weight: group.weight,
                 total,
                 min,
                 max,
@@ -1584,7 +1686,8 @@ class ScheduleService {
         return {
             month: monthKey,
             range: { from: toDateStr(startDate), to: toDateStr(endDate) },
-            roles: JOBDESK_ROLES.map(({ key, label, short, weight }) => ({ key, label, short, weight })),
+            // Empat kolom huruf (A–D) — satu-satunya daftar kolom yang dipakai UI.
+            roles: JOBDESK_GROUPS.map(({ key, label, short, weight }) => ({ key, label, short, weight })),
             staff: sortedByLoad,
             byJobdesk,
             summary: {
@@ -1635,36 +1738,37 @@ class ScheduleService {
         const staff = this._buildStaffRows(schedules)
             .map((s) => ({
                 ...s,
-                byJobdesk: JOBDESK_ROLES
-                    .map((r) => ({
-                        key: r.key,
-                        label: r.label,
-                        short: r.short,
-                        weight: r.weight,
-                        count: s.counts[r.key] || 0,
+                // Rincian per huruf kolom (A–D) yang benar-benar dipegang.
+                byJobdesk: JOBDESK_GROUPS
+                    .map((g) => ({
+                        key: g.key,
+                        label: g.label,
+                        short: g.short,
+                        weight: g.weight,
+                        count: s.counts[g.short] || 0,
                     }))
                     .filter((j) => j.count > 0)
                     .sort((a, b) => b.count - a.count || b.weight - a.weight),
             }))
             .sort((a, b) => b.totalJobdesk - a.totalJobdesk || a.fullName.localeCompare(b.fullName));
 
-        // Sebaran tiap jobdesk ke seluruh pegawai (siapa paling sering dapat).
-        const byJobdesk = JOBDESK_ROLES.map((r) => {
-            const counts = staff.map((s) => s.counts[r.key] || 0);
+        // Sebaran tiap huruf kolom ke seluruh pegawai (siapa paling sering dapat).
+        const byJobdesk = JOBDESK_GROUPS.map((g) => {
+            const counts = staff.map((s) => s.counts[g.short] || 0);
             const top = staff.length
-                ? staff.reduce((best, s) => ((s.counts[r.key] || 0) > (best.counts[r.key] || 0) ? s : best), staff[0])
+                ? staff.reduce((best, s) => ((s.counts[g.short] || 0) > (best.counts[g.short] || 0) ? s : best), staff[0])
                 : null;
             return {
-                key: r.key,
-                label: r.label,
-                short: r.short,
-                weight: r.weight,
+                key: g.key,
+                label: g.label,
+                short: g.short,
+                weight: g.weight,
                 total: counts.reduce((a, b) => a + b, 0),
                 staffCount: counts.filter((n) => n > 0).length,
                 max: counts.length ? Math.max(...counts) : 0,
                 min: counts.length ? Math.min(...counts) : 0,
                 topStaff: top
-                    ? { userId: top.userId, fullName: top.fullName, count: top.counts[r.key] || 0 }
+                    ? { userId: top.userId, fullName: top.fullName, count: top.counts[g.short] || 0 }
                     : null,
             };
         }).sort((a, b) => b.total - a.total || a.weight - b.weight);
@@ -1674,7 +1778,8 @@ class ScheduleService {
         return {
             month: monthKey,
             range: { from: toDateStr(startDate), to: toDateStr(endDate) },
-            roles: JOBDESK_ROLES.map(({ key, label, short, weight }) => ({ key, label, short, weight })),
+            // Empat kolom huruf A–D.
+            roles: JOBDESK_GROUPS.map(({ key, label, short, weight }) => ({ key, label, short, weight })),
             staff,
             byJobdesk,
             summary: {

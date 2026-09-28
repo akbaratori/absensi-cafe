@@ -4,7 +4,8 @@
  * Endpoint ini dipakai panel admin "Rangkuman Jobdesk Pegawai". Yang dijaga:
  *   1. hanya ADMIN (401 tanpa token, 403 non-admin);
  *   2. rute tidak tertangkap oleh '/:userId';
- *   3. total jobdesk = Σ hari per jobdesk (nilai rangkap dihitung per jobdesk);
+ *   3. total jobdesk = Σ hari per HURUF kolom A–D (jobdesk yang menempel
+ *      seperti Checker + Plating dihitung sekali);
  *   4. angkanya IDENTIK dengan rekap keadilan & rekap personal staff — inti
  *      janji "tidak ada dua tampilan yang bisa berbeda".
  */
@@ -97,8 +98,8 @@ describe('perhitungan angka', () => {
     beforeAll(async () => {
         [userA, userB] = await Promise.all([createKitchenUser(NAME_A), createKitchenUser(NAME_B)]);
 
-        // A: 3 hari rangkap 'Checker / Stock + Plating' → 3x Checker DAN 3x
-        //    Plating = 6 jobdesk dari 3 hari kerja (rangkap dihitung per jobdesk).
+        // A: 3 hari 'Checker / Stock + Plating' → keduanya kolom C, jadi
+        //    3 jobdesk dari 3 hari kerja (Plating menempel di Checker).
         for (let i = 0; i < 3; i++) await addDay(userA.id, i, 'Checker / Stock + Plating');
         // B: 2 hari Main Cook saja → 2 jobdesk.
         for (let i = 0; i < 2; i++) await addDay(userB.id, i, 'Main Cook');
@@ -106,21 +107,26 @@ describe('perhitungan angka', () => {
         tokenA = generateAccessToken({ userId: userA.id, role: 'EMPLOYEE' });
     });
 
-    it('menghitung total jobdesk per pegawai dengan rangkap dihitung per jobdesk', async () => {
+    it('menghitung total jobdesk per pegawai dengan jobdesk menempel dihitung sekali', async () => {
         const res = await fetchSummary(adminToken);
         expect(res.status).toBe(200);
 
         const rowA = res.body.data.staff.find((s) => s.userId === userA.id);
         const rowB = res.body.data.staff.find((s) => s.userId === userB.id);
 
-        expect(rowA.totalJobdesk).toBe(6);
-        expect(rowA.jobdeskTypes).toBe(2);
-        expect(rowA.counts.CHECKER).toBe(3);
-        expect(rowA.counts.PLATING).toBe(3);
+        // Kolom C = Checker + Plating, satu hari satu hitungan.
+        expect(rowA.totalJobdesk).toBe(3);
+        expect(rowA.jobdeskTypes).toBe(1);
+        expect(rowA.counts.C).toBe(3);
+        expect(rowA.counts.A).toBe(0);
+        // Rincian per jobdesk tetap ada (Checker dan Plating dua-duanya 3 hari).
+        expect(rowA.roleCounts.CHECKER).toBe(3);
+        expect(rowA.roleCounts.PLATING).toBe(3);
         expect(rowA.daysWorked).toBe(3);
 
         expect(rowB.totalJobdesk).toBe(2);
         expect(rowB.jobdeskTypes).toBe(1);
+        expect(rowB.counts.A).toBe(2);
     });
 
     it('mengurutkan pegawai dari yang paling banyak mengerjakan jobdesk', async () => {
@@ -141,7 +147,8 @@ describe('perhitungan angka', () => {
         expect(summary.totalJobdesk).toBe(sumStaff);
 
         for (const j of byJobdesk) {
-            const fromStaff = staff.reduce((a, s) => a + (s.counts[j.key] || 0), 0);
+            // `counts` staff dikunci per huruf kolom (A–D).
+            const fromStaff = staff.reduce((a, s) => a + (s.counts[j.short] || 0), 0);
             expect(j.total).toBe(fromStaff);
         }
     });

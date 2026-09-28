@@ -3,11 +3,12 @@
  *
  * Yang dijaga di sini adalah hal-hal yang dulu salah pada rekap lama
  * (endpoint station-summary yang sudah dihapus):
- *   1. jobdesk rangkap ('Checker / Stock + Plating') harus dihitung DUA kali,
- *      bukan hanya potongan pertama;
+ *   1. rekap dihitung per HURUF kolom A–D, sehingga jobdesk yang selalu
+ *      menempel ('Checker / Stock + Plating') tidak lagi melahirkan kolom
+ *      setengah seperti "C+";
  *   2. pembanding keadilan adalah beban rata-rata per hari kerja, sehingga
  *      staff dengan jumlah hari kerja berbeda tetap bisa dibandingkan;
- *   3. jobdesk yang distribusinya timpang ditandai (selisih > 3 hari, §4.4).
+ *   3. kolom yang distribusinya timpang ditandai (selisih > 3 hari, §4.4).
  */
 const request = require('supertest');
 const app = require('../src/app');
@@ -21,12 +22,12 @@ const { generateAccessToken } = require('../src/utils/jwt');
  * data produksi):
  *  - otorisasi (401 tanpa token, 403 bukan ADMIN)
  *  - validasi parameter month
- *  - jobdesk rangkap ('Checker / Stock + Plating') dihitung sebagai 2 jobdesk
- *    — bug rekap lama hanya mengambil potongan pertama sehingga 'Plating' hilang
+ *  - jobdesk yang menempel ('Checker / Stock + Plating') masuk SATU kolom C,
+ *    sementara rincian per jobdesknya tetap dikirim (tidak ada yang hilang)
  *  - pembanding keadilan = beban rata-rata per hari kerja (bukan total), supaya
  *    staff dengan jumlah hari kerja berbeda tetap setara
  *  - hari kerja tanpa jobdesk terhitung sebagai data bolong
- *  - jobdesk dengan selisih hari antar staff > 3 ditandai timpang (§4.4)
+ *  - kolom dengan selisih hari antar staff > 3 ditandai timpang (§4.4)
  */
 const BASE = '/api/v1/schedules/jobdesk-fairness';
 const MONTH = '2026-05';
@@ -101,23 +102,30 @@ describe('Rekap keadilan jobdesk dapur', () => {
         // Uji memakai nama unik supaya bisa dibedakan dari data produksi bulan sama.
         const NAME_RANGKAP = 'Uji Rangkap Fairness';
         const NAME_LAMA = 'Uji Lama Fairness';
+        const NAME_BERAT = 'Uji Berat Fairness';
         const NAME_KOSONG = 'Uji Kosong Fairness';
 
         let rangkap;
         let lama;
+        let berat;
         let kosong;
 
         beforeAll(async () => {
-            [rangkap, lama, kosong] = await Promise.all([
+            [rangkap, lama, berat, kosong] = await Promise.all([
                 createKitchenUser(NAME_RANGKAP),
                 createKitchenUser(NAME_LAMA),
+                createKitchenUser(NAME_BERAT),
                 createKitchenUser(NAME_KOSONG),
             ]);
 
-            // Rangkap: 3 hari 'Checker / Stock + Plating' → 3x Checker DAN 3x Plating.
+            // Rangkap: 3 hari 'Checker / Stock + Plating' → keduanya kolom C,
+            // jadi 3x C (bukan 3x C + 3x "C+" seperti tampilan lama).
             for (let i = 0; i < 3; i++) await addDay(rangkap.id, i, 'Checker / Stock + Plating');
-            // Lama: 6 hari 'Checker / Stock + Runner / Area' → 6x Checker + 6x Runner.
+            // Lama: 6 hari 'Checker / Stock + Runner / Area' → 6x C + 6x D.
             for (let i = 0; i < 6; i++) await addDay(lama.id, i, 'Checker / Stock + Runner / Area');
+            // Berat: 3 hari 'Main Cook + Support Cook' → 3x A + 3x B, beban
+            // harian tertinggi walau jumlah harinya paling sedikit.
+            for (let i = 0; i < 3; i++) await addDay(berat.id, i, 'Main Cook + Support Cook');
             // Kosong: 4 hari kerja tanpa jobdesk + 4 hari libur (libur tidak dihitung).
             for (let i = 0; i < 4; i++) await addDay(kosong.id, i, null);
             for (let i = 4; i < 8; i++) await addDay(kosong.id, i, 'Main Cook', true);
@@ -129,35 +137,48 @@ describe('Rekap keadilan jobdesk dapur', () => {
 
             const s = staffBy(res.body, NAME_RANGKAP);
             expect(s).toBeDefined();
-            expect(s.counts.CHECKER).toBe(3);
-            // Inilah regresi utama rekap lama: Plating hilang dari nilai rangkap.
-            expect(s.counts.PLATING).toBe(3);
-            expect(s.multiJobdeskDays).toBe(3);
+            // Huruf disesuaikan jumlah STASIUN: Checker + Plating dua-duanya
+            // kolom C, jadi sehari 'Checker / Stock + Plating' tetap 1x C.
+            expect(s.counts.C).toBe(3);
+            // Rincian per jobdesk tetap lengkap — inilah regresi rekap lama:
+            // Plating hilang dari nilai rangkap.
+            expect(s.roleCounts.CHECKER).toBe(3);
+            expect(s.roleCounts.PLATING).toBe(3);
+            expect(s.multiJobdeskDays).toBe(0);
 
-            // Beban/hari = (Checker 3 + Plating 3) = 6 tiap hari, dibagi 3 hari = 6.
-            // Rangkap berarti satu hari menanggung dua jobdesk sekaligus.
+            // Beban/hari = bobot kolom C (3) tiap hari, dibagi 3 hari = 3.
             expect(s.daysWorked).toBe(3);
-            expect(s.loadTotal).toBe(18);
-            expect(s.loadPerDay).toBe(6);
+            expect(s.loadTotal).toBe(9);
+            expect(s.loadPerDay).toBe(3);
         });
 
         it('memakai beban rata-rata per hari kerja, bukan total, untuk membandingkan', async () => {
             const res = await fetchReport();
-            const rangkapS = staffBy(res.body, NAME_RANGKAP);
             const lamaS = staffBy(res.body, NAME_LAMA);
+            const beratS = staffBy(res.body, NAME_BERAT);
 
-            expect(lamaS.counts.CHECKER).toBe(6);
-            expect(lamaS.counts.RUNNER).toBe(6);
-            // 6 hari x (Checker 3 + Runner 2) = 30, dibagi 6 hari kerja = 5.
+            // Lama: 6 hari 'Checker / Stock + Runner / Area' → kolom C + kolom D.
+            expect(lamaS.counts.C).toBe(6);
+            expect(lamaS.counts.D).toBe(6);
+            expect(lamaS.roleCounts.CHECKER).toBe(6);
+            expect(lamaS.roleCounts.RUNNER).toBe(6);
+            // 6 hari x (kolom C 3 + kolom D 2) = 30, dibagi 6 hari kerja = 5.
             expect(lamaS.loadTotal).toBe(30);
             expect(lamaS.loadPerDay).toBe(5);
 
+            // Berat: 3 hari 'Main Cook + Support Cook' → kolom A + kolom B.
+            expect(beratS.counts.A).toBe(3);
+            expect(beratS.counts.B).toBe(3);
+            // 3 hari x (kolom A 5 + kolom B 4) = 27, dibagi 3 hari kerja = 9.
+            expect(beratS.loadTotal).toBe(27);
+            expect(beratS.loadPerDay).toBe(9);
+
             // Inti normalisasi: dari beban TOTAL, staff 6 hari terlihat lebih berat
-            // (30 vs 18) padahal beban HARIAN-nya justru lebih ringan (5 vs 6).
+            // (30 vs 27) padahal beban HARIAN-nya justru lebih ringan (5 vs 9).
             // Tanpa `loadPerDay`, staff yang sekadar lebih banyak masuk kerja akan
             // selalu tampak "paling berat".
-            expect(lamaS.loadTotal).toBeGreaterThan(rangkapS.loadTotal);
-            expect(rangkapS.loadPerDay).toBeGreaterThan(lamaS.loadPerDay);
+            expect(lamaS.loadTotal).toBeGreaterThan(beratS.loadTotal);
+            expect(beratS.loadPerDay).toBeGreaterThan(lamaS.loadPerDay);
         });
 
         it('menandai hari kerja tanpa jobdesk', async () => {
@@ -175,17 +196,17 @@ describe('Rekap keadilan jobdesk dapur', () => {
             const res = await fetchReport();
             // Hanya berlaku pada bulan uji yang benar-benar berisi fixture ini,
             // supaya tidak rapuh bila ikut dijalankan di DB berisi data lain.
-            const testNames = [NAME_RANGKAP, NAME_LAMA, NAME_KOSONG];
+            const testNames = [NAME_RANGKAP, NAME_LAMA, NAME_BERAT, NAME_KOSONG];
             const testStaff = res.body.data.staff.filter((s) => testNames.includes(s.fullName));
-            expect(testStaff).toHaveLength(3);
-            // Rangkap 6 > Lama 5 > Kosong 0.
-            expect(testStaff.map((s) => s.loadPerDay)).toEqual([6, 5, 0]);
+            expect(testStaff).toHaveLength(4);
+            // Berat 9 > Lama 5 > Rangkap 3 > Kosong 0.
+            expect(testStaff.map((s) => s.loadPerDay)).toEqual([9, 5, 3, 0]);
 
             const loads = res.body.data.staff.map((s) => s.loadPerDay);
             expect(loads).toEqual([...loads].sort((a, b) => b - a));
         });
 
-        it('menandai jobdesk timpang bila selisih hari > 3 (Checker: 6 vs 3)', async () => {
+        it('menandai kolom timpang bila selisih hari > 3 (kolom C: 6 vs 3)', async () => {
             const res = await fetchReport();
             const checker = res.body.data.byJobdesk.find((j) => j.key === 'CHECKER');
             expect(checker.total).toBeGreaterThanOrEqual(9);
@@ -193,19 +214,36 @@ describe('Rekap keadilan jobdesk dapur', () => {
             expect(checker.isUneven).toBe(true);
             expect(res.body.data.summary.gapThreshold).toBe(3);
 
-            // Jobdesk yang hanya dipegang satu orang tidak disebut timpang
+            // Kolom yang hanya dipegang satu orang tidak disebut timpang
             // (tidak ada pembanding), meski selisihnya besar.
             const main = res.body.data.byJobdesk.find((j) => j.key === 'MAIN');
             expect(main.isUneven).toBe(false);
         });
 
-        it('menyertakan daftar jobdesk beserta bobotnya untuk header tabel', async () => {
+        it('mengirim EMPAT kolom huruf A–D beserta bobotnya untuk header tabel', async () => {
             const res = await fetchReport();
             const roles = res.body.data.roles;
-            expect(roles.map((r) => r.key)).toEqual(['MAIN', 'SUPPORT', 'CHECKER', 'PLATING', 'RUNNER', 'HELPER']);
-            // Bobot A=5 paling berat … E=1 paling ringan (JOB_DESK_KITCHEN.md).
+            // Huruf disesuaikan jumlah jobdesk/stasiun — tidak ada lagi 'C+'.
+            expect(roles.map((r) => r.short)).toEqual(['A', 'B', 'C', 'D']);
+            expect(roles.map((r) => r.key)).toEqual(['MAIN', 'SUPPORT', 'CHECKER', 'RUNNER']);
+            // Bobot A=5 paling berat … D=2 paling ringan (JOB_DESK_KITCHEN.md).
             expect(roles[0].weight).toBe(5);
-            expect(roles[roles.length - 1].weight).toBe(1);
+            expect(roles[roles.length - 1].weight).toBe(2);
+        });
+
+        it('menggabungkan jobdesk yang menempel ke satu kolom huruf', async () => {
+            const res = await fetchReport();
+            const s = staffBy(res.body, NAME_RANGKAP);
+            // 'Checker / Stock + Plating' dua-duanya kolom C → satu huruf per hari.
+            expect(s.counts.C).toBe(3);
+            expect(s.counts.A).toBe(0);
+            expect(s.counts.B).toBe(0);
+            expect(s.counts.D).toBe(0);
+            expect(Object.keys(s.counts)).toEqual(['A', 'B', 'C', 'D']);
+
+            // Rincian per jobdesk tetap tersedia supaya tidak ada yang "hilang".
+            expect(s.roleCounts.PLATING).toBe(3);
+            expect(s.roleCounts.CHECKER).toBe(3);
         });
     });
 });

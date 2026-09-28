@@ -19,6 +19,23 @@ Selaras dengan sistem rotasi otomatis di aplikasi absensi
 
 > Beban **A paling berat, E paling ringan** — karena itu sistem menghitung
 > frekuensi tiap orang di tiap stasiun agar tidak ada yang terus-terusan di A.
+>
+> **Huruf kolom di rekap jobdesk = 4 huruf (A–D), bukan 5.** Jobdesk yang
+> selalu menempel digabung ke huruf induknya, jadi tidak ada lagi kolom
+> setengah seperti "C+" di rekap admin maupun di rekap staff:
+>
+> | Huruf kolom | Isi |
+> |-------------|-----|
+> | **A** | Main Cook |
+> | **B** | Support Cook |
+> | **C** | Checker / Stock + Plating + Dishwasher |
+> | **D** | Runner / Area + Helper / Floating |
+>
+> Satu hari dihitung **sekali per huruf**: sehari `Checker / Stock + Plating`
+> menyumbang 1x C (bukan 2x), karena keduanya memang satu paket. Rincian per
+> jobdesk tetap dihitung terpisah di backend (`roleCounts`) supaya tidak ada
+> jobdesk yang hilang dari laporan. Implementasi: `JOBDESK_GROUPS` +
+> `parseJobdeskGroups()` di `scheduleService.js`.
 
 ---
 
@@ -133,20 +150,20 @@ Agar benar-benar adil, terapkan aturan ini di atas sistem otomatis:
 - Backup Main Cook saat order menumpuk
 - Jaga stok bahan siap masak (prepped) tetap aman
 
-**C – Checker / Stock**
+**C – Checker / Stock (+ Plating + Dishwasher)**
 - Verifikasi setiap order: menu, jumlah, catatan khusus, suhu
 - Catat bahan yang menipis/habis ke daftar belanja
 - Koordinasi dengan PIC Stok untuk re-stock
+- **Plating** (menempel, tidak pernah dipisah): atur tampilan akhir — porsi,
+  kebersihan pinggir piring, garnish. Saat ramai, dahulukan cek order.
+- **Dishwasher** (menempel): cuci alat makan & masak, jaga area sink bersih.
 
-**D – Runner / Area**
+**D – Runner / Area + Helper / Floating**
 - Antar order dari pass ke area/service dengan benar
 - Jaga area pass & sekitar dapur tetap bersih
 - Cuci alat kecil (sendok, piring saji) secara berkala
-
-**E – Helper / Floating**
-- Cuci alat masak besar (panci, wajan, grill)
 - Bantu stasiun yang sedang overload (prioritas A → B)
-- Siapkan prep sederhana (kupas, potong) saat senggang
+- Cuci alat masak besar (panci, wajan, grill) & siapkan prep sederhana saat senggang
 
 **Penutup shift (semua stasiun):** bersihkan stasiun masing-masing,
 kembalikan alat ke tempatnya, laporkan kerusakan ke Shift PIC.

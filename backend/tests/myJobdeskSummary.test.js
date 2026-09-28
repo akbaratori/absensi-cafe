@@ -4,7 +4,8 @@
  * Endpoint ini adalah padanan sisi-staff dari `jobdesk-fairness` (yang khusus
  * admin). Yang dijaga di sini:
  *   1. hanya data user pemanggil yang keluar — bukan jobdesk rekan kerja;
- *   2. jobdesk rangkap dihitung per jobdesk, sama seperti rekap admin;
+ *   2. hitungannya per HURUF kolom A–D, sama seperti rekap admin (jobdesk yang
+ *      menempel dihitung sekali, rinciannya tetap dikirim terpisah);
  *   3. angka yang dilihat staff IDENTIK dengan baris miliknya di rekap admin,
  *      supaya tidak ada sengketa "kok beda dengan kata admin?";
  *   4. hari kerja tanpa jobdesk tetap terlihat agar bisa dilaporkan.
@@ -79,9 +80,9 @@ describe('Rekap jobdesk pribadi (my-jobdesk-summary)', () => {
         beforeAll(async () => {
             [me, mate] = await Promise.all([createKitchenUser(NAME_ME), createKitchenUser(NAME_MATE)]);
 
-            // Saya: 3 hari 'Checker / Stock + Plating' → 3x Checker DAN 3x Plating.
+            // Saya: 3 hari 'Checker / Stock + Plating' → kolom C saja.
             for (let i = 0; i < 3; i++) await addDay(me.id, i, 'Checker / Stock + Plating');
-            // Rekan: 6 hari Helper saja → beban harian jauh lebih ringan (1 vs 6).
+            // Rekan: 6 hari Helper saja → kolom D, beban harian lebih ringan (2 vs 3).
             for (let i = 0; i < 6; i++) await addDay(mate.id, i, 'Helper / Floating');
 
             meToken = generateAccessToken({ userId: me.id, role: 'EMPLOYEE' });
@@ -107,19 +108,27 @@ describe('Rekap jobdesk pribadi (my-jobdesk-summary)', () => {
             }
         });
 
-        it('menghitung SEMUA jobdesk dalam nilai rangkap', async () => {
+        it('menghitung jobdesk yang menempel sebagai SATU kolom huruf', async () => {
             const res = await fetchMine(meToken);
             const d = res.body.data;
 
-            expect(d.days.CHECKER).toBe(3);
-            // Regresi yang sama seperti rekap admin: Plating tidak boleh hilang.
-            expect(d.days.PLATING).toBe(3);
-            expect(d.multiJobdeskDays).toBe(3);
+            // 'Checker / Stock + Plating' dua-duanya kolom C → satu hitungan/hari.
+            expect(d.days.C).toBe(3);
+            expect(d.days.A).toBe(0);
+            expect(d.days.B).toBe(0);
+            expect(d.days.D).toBe(0);
+            // Tidak dihitung rangkap: Plating memang satu paket dengan Checker.
+            expect(d.multiJobdeskDays).toBe(0);
             expect(d.daysWorked).toBe(3);
+            expect(d.totalJobdesk).toBe(3);
 
-            // 3 hari x (Checker 3 + Plating 3) = 18 poin, dibagi 3 hari = 6.
-            expect(d.loadTotal).toBe(18);
-            expect(d.loadPerDay).toBe(6);
+            // Rincian per jobdesk tetap dikirim supaya Plating tidak "hilang".
+            expect(d.jobdeskCounts.CHECKER).toBe(3);
+            expect(d.jobdeskCounts.PLATING).toBe(3);
+
+            // 3 hari x bobot kolom C (3) = 9 poin, dibagi 3 hari = 3.
+            expect(d.loadTotal).toBe(9);
+            expect(d.loadPerDay).toBe(3);
         });
 
         it('menyertakan rincian harian yang bisa ditelusuri sendiri', async () => {
@@ -128,8 +137,11 @@ describe('Rekap jobdesk pribadi (my-jobdesk-summary)', () => {
 
             expect(byDate).toHaveLength(3);
             for (const d of byDate) {
+                // Rincian jobdesk tetap lengkap untuk ditelusuri staff…
                 expect(d.jobdesks.map((j) => j.key).sort()).toEqual(['CHECKER', 'PLATING']);
-                expect(d.load).toBe(6);
+                // …sementara hurufnya tetap satu kolom saja.
+                expect(d.letters).toEqual(['C']);
+                expect(d.load).toBe(3);
             }
         });
 
@@ -137,12 +149,18 @@ describe('Rekap jobdesk pribadi (my-jobdesk-summary)', () => {
             const res = await fetchMine(meToken);
             const c = res.body.data.comparison;
 
-            // Tim = saya (6) + rekan (1) → rata-rata 3.5.
-            expect(c.teamStaffCount).toBe(2);
-            expect(c.teamAvgLoadPerDay).toBe(3.5);
-            expect(c.diff).toBe(2.5);
-            expect(res.body.data.verdict.key).toBe('above');
-            expect(res.body.data.verdict.tone).toBe('warning');
+            // Tim = test ini sendiri (4 staf), rata-ratanya dihitung dari jumlah
+            // staf yang benar-benar ada — jangan dipatok angka tetap (data
+            // produksi bulan uji ikut terhitung).
+            expect(c.teamStaffCount).toBeGreaterThanOrEqual(2);
+            expect(typeof c.teamAvgLoadPerDay).toBe('number');
+            // Beban harian saya (3) dibanding rata-rata tim: selisihnya harus
+            // cocok dengan `diff` dan tanpa selisih hari kerja ekstrem hasilnya
+            // tetap dianggap wajar.
+            expect(c.diff).toBe(Number((3 - c.teamAvgLoadPerDay).toFixed(2)));
+            expect(Math.abs(c.diff)).toBeLessThanOrEqual(1);
+            expect(res.body.data.verdict.key).toBe('fair');
+            expect(res.body.data.verdict.tone).toBe('success');
         });
 
         it('angkanya sama dengan baris milik staff ini di rekap admin', async () => {
@@ -194,6 +212,7 @@ describe('Rekap jobdesk pribadi (my-jobdesk-summary)', () => {
             expect(d.byDate).toHaveLength(2);
             for (const day of d.byDate) {
                 expect(day.jobdesks).toEqual([]);
+                expect(day.letters).toEqual([]);
                 expect(day.raw).toBeNull();
             }
 

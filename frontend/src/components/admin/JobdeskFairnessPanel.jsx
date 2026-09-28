@@ -4,35 +4,32 @@ import { getJobdeskFairness } from '../../services/scheduleService';
 import { usePersistentToggle } from '../../hooks/usePersistentToggle';
 
 /**
- * Rekap Keadilan Jobdesk — "staff A sudah berapa kali dapat jobdesk A/B/C/D/E".
+ * Rekap Keadilan Jobdesk — "staff A sudah berapa kali dapat stasiun A/B/C/D".
  *
  * Satu-satunya tempat rekap jobdesk dapur (sebelumnya ada di Manajemen Jadwal,
  * dipindah ke sini agar tidak ada dua tampilan yang bisa berbeda).
  *
  * Sumber data: `user_schedules.kitchen_station` bulan terpilih — sumber yang
  * SAMA dengan tabel jadwal di halaman ini, jadi rekap pasti cocok dengan yang
- * terlihat di kalender. Setiap nilai rangkap dihitung per jobdesk
- * ('Checker / Stock + Plating' = 1x Checker DAN 1x Plating).
- *
- * `Beban/hari` = rata-rata bobot beban jobdesk per hari kerja (A=5 … E=1).
- * Inilah angka pembanding keadilan yang sebenarnya, karena jumlah hari kerja
- * tiap staff tidak sama.
+ * terlihat di kalender. Hitungan per HURUF stasiun (A–D), sehari sekali per
+ * huruf: 'Checker / Stock + Plating' = 1x C, karena Plating satu paket dengan
+ * Checker (tidak ada lagi huruf "C+"). Bobot beban per huruf: A=5 … D=2 —
+ * dipakai backend untuk sorotan "beban timpang"; kolom "Beban/hari" di tabel
+ * sudah dihapus agar rekap tetap sederhana.
  */
 /**
  * Isi rekap: sorotan, tabel staff × jobdesk, dan baris ringkasan per jobdesk.
  * Dipisah dari panel agar bagian fetch dan bagian tampilan tidak menumpuk.
  */
-const JobdeskFairnessBody = ({ report, roles, staff, summary, maxByRole, maxLoad, highlightStyle, highlightIcon }) => {
+const JobdeskFairnessBody = ({ report, roles, staff, summary, maxByRole, highlightStyle, highlightIcon }) => {
     const byJobdesk = report.byJobdesk || [];
 
-    // Warna kolom mengikuti tingkat beban: A merah (terberat) → E ungu.
+    // Warna kolom mengikuti tingkat beban: A merah (terberat) → D hijau.
     const roleHeaderCls = (key) => {
-        if (key === 'MAIN') return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300';
-        if (key === 'SUPPORT') return 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300';
-        if (key === 'CHECKER') return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300';
-        if (key === 'PLATING') return 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300';
-        if (key === 'RUNNER') return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300';
-        return 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300';
+        if (key === 'A' || key === 'MAIN') return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300';
+        if (key === 'B' || key === 'SUPPORT') return 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300';
+        if (key === 'C' || key === 'CHECKER') return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300';
+        return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300';
     };
 
     return (
@@ -59,9 +56,7 @@ const JobdeskFairnessBody = ({ report, roles, staff, summary, maxByRole, maxLoad
                                     {r.short}
                                 </th>
                             ))}
-                            <th className="px-3 py-3 text-center font-semibold text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700" title="Hari kerja dengan lebih dari satu jobdesk">Rangkap</th>
                             <th className="px-3 py-3 text-center font-semibold text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700">Hari Kerja</th>
-                            <th className="px-3 py-3 text-center font-semibold text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700" title="Rata-rata bobot beban jobdesk per hari kerja (A=5 ... E=1)">Beban/hari</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -74,10 +69,19 @@ const JobdeskFairnessBody = ({ report, roles, staff, summary, maxByRole, maxLoad
                                     hover:bg-primary-50/40 dark:hover:bg-primary-900/10 transition-colors
                                 `}
                             >
-                                <td className="px-4 py-3 font-medium text-gray-900 dark:text-white whitespace-nowrap">{emp.fullName}</td>
+                                <td className="px-4 py-3 font-medium text-gray-900 dark:text-white whitespace-nowrap">
+                                    {emp.fullName}
+                                    {emp.daysWithoutJobdesk > 0 && (
+                                        <span className="ml-2 text-[10px] font-normal text-amber-600 dark:text-amber-400" title="Hari kerja tanpa jobdesk">
+                                            {emp.daysWithoutJobdesk} hari kosong
+                                        </span>
+                                    )}
+                                </td>
                                 {roles.map(r => {
-                                    const count = emp.counts?.[r.key] || 0;
-                                    const isMax = count > 0 && count === maxByRole[r.key];
+                                    // Hitungan per HURUF kolom (A–D): 'Checker / Stock +
+                                    // Plating' dihitung satu kali di kolom C.
+                                    const count = emp.counts?.[r.short] || 0;
+                                    const isMax = count > 0 && count === maxByRole[r.short];
                                     return (
                                         <td key={r.key} className="px-3 py-3 text-center">
                                             {count > 0 ? (
@@ -90,18 +94,7 @@ const JobdeskFairnessBody = ({ report, roles, staff, summary, maxByRole, maxLoad
                                         </td>
                                     );
                                 })}
-                                <td className="px-3 py-3 text-center text-gray-500 dark:text-gray-400 text-xs">
-                                    {emp.multiJobdeskDays > 0 ? emp.multiJobdeskDays : <span className="text-gray-300 dark:text-gray-600">&ndash;</span>}
-                                </td>
                                 <td className="px-3 py-3 text-center text-gray-600 dark:text-gray-300 font-semibold">{emp.daysWorked}</td>
-                                <td className={`px-3 py-3 text-center font-semibold ${emp.loadPerDay === maxLoad ? 'text-red-600 dark:text-red-400' : 'text-gray-700 dark:text-gray-300'}`}>
-                                    {emp.loadPerDay}
-                                    {emp.daysWithoutJobdesk > 0 && (
-                                        <span className="block text-[10px] font-normal text-amber-600 dark:text-amber-400" title="Hari kerja tanpa jobdesk">
-                                            {emp.daysWithoutJobdesk} hari kosong
-                                        </span>
-                                    )}
-                                </td>
                             </tr>
                         ))}
                     </tbody>
@@ -148,10 +141,12 @@ const JobdeskFairnessBody = ({ report, roles, staff, summary, maxByRole, maxLoad
             )}
 
             <p className="text-xs text-gray-400 dark:text-gray-500">
-                &#128161; <b>Beban/hari</b> = rata-rata bobot jobdesk per hari kerja (A Main Cook = 5 paling berat, E Helper = 1 paling ringan).
-                Angka inilah pembanding keadilan yang sah &mdash; <b>bukan</b> jumlah hari, karena tiap staff jumlah hari kerjanya berbeda.
-                Lingkaran bergaris merah = paling sering mendapat jobdesk tersebut. Sebuah jobdesk ditandai <b>timpang</b> bila selisih
-                antar staff lebih dari {summary?.gapThreshold ?? 3} hari (JOB_DESK_KITCHEN.md &sect;4.4).
+                &#128161; Kolom huruf = stasiun, bukan nama jobdesk satu per satu:
+                <b> A</b> Main Cook, <b>B</b> Support Cook, <b>C</b> Checker / Stock + Plating + Dishwasher,
+                <b> D</b> Runner / Area + Helper / Floating. Satu hari dihitung <b>sekali</b> per huruf &mdash; sehari
+                &ldquo;Checker / Stock + Plating&rdquo; tetap 1x C karena Plating memang satu paket dengan Checker.
+                Lingkaran bergaris merah = paling sering mendapat stasiun tersebut. Sebuah stasiun ditandai <b>timpang</b> bila
+                selisih antar staff lebih dari {summary?.gapThreshold ?? 3} hari (JOB_DESK_KITCHEN.md &sect;4.4).
             </p>
 
         </>
@@ -195,13 +190,11 @@ const JobdeskFairnessPanel = ({ month, onMonthChange }) => {
     const staff = report?.staff || [];
     const summary = report?.summary;
 
-    // Nilai tertinggi tiap kolom jobdesk → ditandai merah (paling sering dapat).
+    // Nilai tertinggi tiap kolom huruf → ditandai merah (paling sering dapat).
     const maxByRole = {};
     for (const r of roles) {
-        maxByRole[r.key] = staff.length ? Math.max(...staff.map(s => s.counts?.[r.key] || 0)) : 0;
+        maxByRole[r.short] = staff.length ? Math.max(...staff.map(s => s.counts?.[r.short] || 0)) : 0;
     }
-    // Beban harian tertinggi → ditandai agar yang paling berat langsung terlihat.
-    const maxLoad = staff.length ? Math.max(...staff.map(s => s.loadPerDay || 0)) : 0;
 
     const highlightStyle = (type) => {
         if (type === 'success') return 'bg-green-50 text-green-800 border-green-200 dark:bg-green-900/20 dark:text-green-300 dark:border-green-800';
@@ -321,7 +314,6 @@ const JobdeskFairnessPanel = ({ month, onMonthChange }) => {
                             staff={staff}
                             summary={summary}
                             maxByRole={maxByRole}
-                            maxLoad={maxLoad}
                             highlightStyle={highlightStyle}
                             highlightIcon={highlightIcon}
                         />

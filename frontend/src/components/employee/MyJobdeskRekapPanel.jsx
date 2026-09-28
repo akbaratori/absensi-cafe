@@ -11,14 +11,15 @@ import { getMyJobdeskSummary } from '../../services/scheduleService';
  *
  * Sumber datanya SAMA PERSIS dengan rekap yang dilihat admin
  * (`user_schedules.kitchen_station` bulan terpilih), jadi angka di sini tidak
- * akan pernah beda dengan yang dilihat admin. Setiap nilai rangkap dihitung per
- * jobdesk ('Checker / Stock + Plating' = 1x Checker DAN 1x Plating).
+ * akan pernah beda dengan yang dilihat admin. Hitungannya per HURUF stasiun
+ * (A–D), sama seperti rekap admin: 'Checker / Stock + Plating' masuk kolom C
+ * satu kali — tidak ada lagi huruf "C+".
  *
  * Yang sengaja TIDAK ditampilkan: jobdesk rekan kerja. Untuk pembanding hanya
  * dipakai angka agregat tim (rata-rata beban harian), supaya halaman ini tidak
  * berubah jadi ajang saling mengintip jadwal orang lain.
  *
- * Beban/hari = rata-rata bobot jobdesk per hari kerja (A=5 … E=1). Ini
+ * Beban/hari = rata-rata bobot stasiun per hari kerja (A=5 … D=2). Ini
  * pembanding yang adil karena jumlah hari kerja tiap orang tidak sama.
  */
 
@@ -26,12 +27,10 @@ const ROLE_STYLE = {
     MAIN: { chip: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300', bar: 'bg-red-500' },
     SUPPORT: { chip: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300', bar: 'bg-orange-500' },
     CHECKER: { chip: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300', bar: 'bg-blue-500' },
-    PLATING: { chip: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300', bar: 'bg-indigo-500' },
     RUNNER: { chip: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300', bar: 'bg-green-500' },
-    HELPER: { chip: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300', bar: 'bg-purple-500' },
 };
 
-const roleStyle = (key) => ROLE_STYLE[key] || ROLE_STYLE.HELPER;
+const roleStyle = (key) => ROLE_STYLE[key] || ROLE_STYLE.RUNNER;
 
 const VERDICT_STYLE = {
     success: {
@@ -98,10 +97,11 @@ const MyJobdeskRekapPanel = ({ month }) => {
     }, [fetchData]);
 
     const roles = data?.roles || [];
+    const jobdeskCounts = data?.jobdeskCounts || {};
     const days = data?.days || {};
     // Pekerjaan yang benar-benar dipegang bulan ini (jumlah > 0), terberat dulu.
     const held = roles
-        .map((r) => ({ ...r, count: days[r.key] || 0 }))
+        .map((r) => ({ ...r, count: days[r.short] || 0 }))
         .filter((r) => r.count > 0)
         .sort((a, b) => b.weight - a.weight || b.count - a.count);
     const maxCount = held.length ? Math.max(...held.map((r) => r.count)) : 0;
@@ -131,7 +131,7 @@ const MyJobdeskRekapPanel = ({ month }) => {
                     <span className="min-w-0">
                         <span className="block font-semibold text-gray-900 dark:text-white">Rekap Jobdesk Saya</span>
                         <span className="block text-xs text-gray-500 dark:text-gray-400 truncate">
-                            Berapa kali kamu pegang tiap jobdesk &mdash; {monthLabel}
+                            Berapa kali kamu pegang tiap stasiun &mdash; {monthLabel}
                         </span>
                     </span>
                     <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform shrink-0 ${expanded ? 'rotate-180' : ''}`} />
@@ -185,14 +185,14 @@ const MyJobdeskRekapPanel = ({ month }) => {
                                     label="Hari kerja"
                                     value={data.daysWorked}
                                     sub={data.multiJobdeskDays > 0
-                                        ? `${data.multiJobdeskDays} hari rangkap jobdesk`
-                                        : 'tanpa rangkap jobdesk'}
+                                        ? `${data.multiJobdeskDays} hari rangkap stasiun`
+                                        : 'tanpa rangkap stasiun'}
                                 />
                                 <StatTile
                                     icon={<Layers className="w-3.5 h-3.5" />}
                                     label="Total jobdesk"
                                     value={totalJobdeskDays}
-                                    sub={`${held.length} jenis jobdesk`}
+                                    sub={`${held.length} jenis stasiun`}
                                 />
                                 <StatTile
                                     icon={<Scale className="w-3.5 h-3.5" />}
@@ -216,15 +216,16 @@ const MyJobdeskRekapPanel = ({ month }) => {
                             <div>
                                 <div className="flex items-baseline justify-between gap-2 flex-wrap">
                                     <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
-                                        Berapa kali kamu pegang tiap jobdesk
+                                        Berapa kali kamu pegang tiap stasiun
                                     </h3>
                                     <span className="text-xs text-gray-500 dark:text-gray-400">
                                         {monthLabel} &middot; {data.daysWorked} hari kerja
                                     </span>
                                 </div>
                                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                                    Dihitung per jobdesk: nilai rangkap seperti &ldquo;Checker / Stock + Plating&rdquo;
-                                    dihitung 1x Checker dan 1x Plating.
+                                    Dihitung per kolom huruf: <b>A</b> Main Cook, <b>B</b> Support Cook,
+                                    <b> C</b> Checker / Stock + Plating + Dishwasher, <b>D</b> Runner / Area + Helper.
+                                    Sehari &ldquo;Checker / Stock + Plating&rdquo; tetap 1x C karena Plating memang satu paket dengan Checker.
                                 </p>
                             </div>
                             {held.length === 0 ? (
@@ -249,12 +250,21 @@ const MyJobdeskRekapPanel = ({ month }) => {
                                                 </span>
                                                 <span className="w-24 shrink-0 text-right text-sm">
                                                     <b className="text-gray-900 dark:text-white">{r.count}</b>
-                                                    <span className="text-gray-400 dark:text-gray-500"> kali</span>
+                                                    <span className="text-gray-400 dark:text-gray-500"> hari</span>
                                                 </span>
                                             </div>
                                         );
                                     })}
                                 </div>
+                            )}
+                            {/* ── Rincian jobdesk yang menempel (Checker/Plating) ── */}
+                            {held.length > 0 && (
+                                <p className="text-[11px] text-gray-400 dark:text-gray-500">
+                                    Rincian dalam kolom C: Checker / Stock <b className="text-gray-600 dark:text-gray-300">{jobdeskCounts.CHECKER || 0}</b> hari,
+                                    Plating <b className="text-gray-600 dark:text-gray-300">{jobdeskCounts.PLATING || 0}</b> hari.
+                                    Rincian dalam kolom D: Runner / Area <b className="text-gray-600 dark:text-gray-300">{jobdeskCounts.RUNNER || 0}</b> hari,
+                                    Helper / Floating <b className="text-gray-600 dark:text-gray-300">{jobdeskCounts.HELPER || 0}</b> hari.
+                                </p>
                             )}
                             {/* ── Perbandingan tim (agregat saja) ─────────────── */}
                             {comparison && comparison.teamStaffCount > 1 && (
@@ -277,7 +287,7 @@ const MyJobdeskRekapPanel = ({ month }) => {
                                         </span>
                                     </div>
                                     <p className="mt-1 text-[11px] text-gray-400 dark:text-gray-500">
-                                        Pembandingnya beban per hari kerja (A=5 &hellip; E=1), karena jumlah hari kerja tiap orang tidak sama.
+                                        Pembandingnya beban per hari kerja (A=5 &hellip; D=2), karena jumlah hari kerja tiap orang tidak sama.
                                         Rekap rinci per orang hanya bisa dilihat admin.
                                     </p>
                                 </div>
@@ -297,7 +307,7 @@ const MyJobdeskRekapPanel = ({ month }) => {
 
                             <p className="text-[11px] text-gray-400 dark:text-gray-500 border-t border-gray-100 dark:border-gray-700 pt-3">
                                 Sumber data sama dengan rekap yang dipakai admin, jadi angkanya selalu cocok.
-                                Nilai rangkap dihitung per jobdesk &mdash; mis. &ldquo;Checker / Stock + Plating&rdquo; dihitung 1x Checker dan 1x Plating.
+                                Hitungannya per stasiun A&ndash;D &mdash; mis. &ldquo;Checker / Stock + Plating&rdquo; dihitung 1x kolom C.
                             </p>
                         </>
                     )}

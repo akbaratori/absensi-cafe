@@ -13,8 +13,9 @@ import { usePersistentToggle } from '../../hooks/usePersistentToggle';
  * Sumber datanya SAMA dengan "Rekap Keadilan Jobdesk" dan rekap milik staff
  * sendiri (`user_schedules.kitchen_station` bulan terpilih, dihitung lewat
  * helper yang sama di backend), jadi ketiga tampilan tidak bisa berbeda angka.
- * Setiap nilai rangkap dihitung per jobdesk
- * ('Checker / Stock + Plating' = 1x Checker DAN 1x Plating).
+ * Kolom hurufnya hanya EMPAT — A–D — karena jobdesk yang selalu menempel
+ * digabung: 'Checker / Stock + Plating' masuk kolom C, 'Runner + Helper'
+ * masuk kolom D. Tidak ada lagi huruf "C+".
  *
  * Bedanya dengan panel keadilan: panel itu membandingkan beban antar staff,
  * panel ini meringkas JUMLAH jobdesk per pegawai + sebaran tiap jobdesk.
@@ -24,12 +25,10 @@ const ROLE_HEADER_CLS = {
     MAIN: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
     SUPPORT: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
     CHECKER: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
-    PLATING: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300',
     RUNNER: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
-    HELPER: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
 };
 
-const roleHeaderCls = (key) => ROLE_HEADER_CLS[key] || ROLE_HEADER_CLS.HELPER;
+const roleHeaderCls = (key) => ROLE_HEADER_CLS[key] || ROLE_HEADER_CLS.RUNNER;
 
 const MONTH_ID = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
 
@@ -90,25 +89,23 @@ const StaffTableHead = ({ roles }) => (
     <thead>
         <tr className="bg-gray-50 dark:bg-gray-800">
             <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700">Pegawai</th>
-            <th className="px-3 py-3 text-center font-semibold text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700" title="Jumlah jobdesk yang dikerjakan bulan ini (nilai rangkap dihitung per jobdesk)">Total</th>
-            <th className="px-3 py-3 text-center font-semibold text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700" title="Berapa jenis jobdesk berbeda yang pernah dipegang">Jenis</th>
+            <th className="px-3 py-3 text-center font-semibold text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700" title="Jumlah hari stasiun yang dikerjakan bulan ini (satu hari = satu huruf)">Total</th>
+            <th className="px-3 py-3 text-center font-semibold text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700" title="Berapa stasiun (A–D) berbeda yang pernah dipegang">Jenis</th>
             {roles.map((r) => (
                 <th
                     key={r.key}
-                    title={`${r.label} (beban ${r.weight})`}
+                    title={`${r.short}: ${r.label}`}
                     className={`px-3 py-3 text-center font-semibold border-b border-gray-200 dark:border-gray-700 ${roleHeaderCls(r.key)}`}
                 >
                     {r.short}
                 </th>
             ))}
-            <th className="px-3 py-3 text-center font-semibold text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700" title="Hari kerja dengan lebih dari satu jobdesk">Rangkap</th>
             <th className="px-3 py-3 text-center font-semibold text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700">Hari kerja</th>
-            <th className="px-3 py-3 text-center font-semibold text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700" title="Rata-rata bobot beban jobdesk per hari kerja (A=5 ... E=1)">Beban/hari</th>
         </tr>
     </thead>
 );
 
-/** Satu baris pegawai: total, jenis, rincian per jobdesk, rangkap, beban. */
+/** Satu baris pegawai: total, jenis, rincian per huruf kolom, hari kerja. */
 const StaffTableRow = ({ emp, roles, maxByRole, idx }) => (
     <tr
         className={`
@@ -132,8 +129,10 @@ const StaffTableRow = ({ emp, roles, maxByRole, idx }) => (
         </td>
         <td className="px-3 py-3 text-center text-gray-600 dark:text-gray-300">{emp.jobdeskTypes}</td>
         {roles.map((r) => {
-            const count = emp.counts?.[r.key] || 0;
-            const isMax = count > 0 && count === maxByRole[r.key];
+            // Hitungan per HURUF kolom (A–D): untuk huruf C, Checker dan Plating
+            // dihitung satu kali saja per hari karena memang satu paket.
+            const count = emp.counts?.[r.short] || 0;
+            const isMax = count > 0 && count === maxByRole[r.short];
             return (
                 <td key={r.key} className="px-3 py-3 text-center">
                     {count > 0 ? (
@@ -146,11 +145,7 @@ const StaffTableRow = ({ emp, roles, maxByRole, idx }) => (
                 </td>
             );
         })}
-        <td className="px-3 py-3 text-center text-gray-500 dark:text-gray-400 text-xs">
-            {emp.multiJobdeskDays > 0 ? emp.multiJobdeskDays : <span className="text-gray-300 dark:text-gray-600">&ndash;</span>}
-        </td>
         <td className="px-3 py-3 text-center text-gray-600 dark:text-gray-300 font-semibold">{emp.daysWorked}</td>
-        <td className="px-3 py-3 text-center font-semibold text-gray-700 dark:text-gray-300">{emp.loadPerDay}</td>
     </tr>
 );
 
@@ -160,7 +155,7 @@ const JobdeskSpreadTable = ({ byJobdesk }) => (
         <table className="w-full text-sm">
             <thead>
                 <tr className="bg-gray-50 dark:bg-gray-800">
-                    <th className="px-4 py-2 text-left font-semibold text-gray-700 dark:text-gray-300">Sebaran per jobdesk</th>
+                    <th className="px-4 py-2 text-left font-semibold text-gray-700 dark:text-gray-300">Sebaran per stasiun</th>
                     <th className="px-3 py-2 text-center font-semibold text-gray-700 dark:text-gray-300">Total</th>
                     <th className="px-3 py-2 text-center font-semibold text-gray-700 dark:text-gray-300" title="Jumlah pegawai yang pernah memegang jobdesk ini">Pegawai</th>
                     <th className="px-3 py-2 text-center font-semibold text-gray-700 dark:text-gray-300">Paling banyak</th>
@@ -205,8 +200,8 @@ const JobdeskSummaryBody = ({ report }) => {
     // Nilai tertinggi tiap kolom jobdesk → ditandai (paling sering dapat).
     const maxByRole = {};
     for (const r of roles) {
-        maxByRole[r.key] = staff.length
-            ? Math.max(...staff.map((s) => s.counts?.[r.key] || 0))
+        maxByRole[r.short] = staff.length
+            ? Math.max(...staff.map((s) => s.counts?.[r.short] || 0))
             : 0;
     }
 
@@ -234,9 +229,12 @@ const JobdeskSummaryBody = ({ report }) => {
             {byJobdesk.length > 0 && <JobdeskSpreadTable byJobdesk={byJobdesk} />}
 
             <p className="text-xs text-gray-400 dark:text-gray-500">
-                &#128161; <b>Total</b> = berapa kali jobdesk dikerjakan bulan ini; nilai rangkap dihitung per jobdesk
-                (mis. &ldquo;Checker / Stock + Plating&rdquo; = 1x Checker + 1x Plating). Angka ini sama dengan yang
-                dilihat pegawai di halaman Jadwal Saya dan dengan panel Rekap Keadilan Jobdesk di atas.
+                &#128161; <b>Total</b> = berapa kali stasiun dikerjakan bulan ini. Huruf <b>A–D</b> adalah stasiun, bukan
+                jobdesk satu per satu: <b>A</b> Main Cook, <b>B</b> Support Cook,
+                <b>C</b> Checker / Stock + Plating + Dishwasher, <b>D</b> Runner / Area + Helper / Floating.
+                Satu hari dihitung <b>sekali</b> per huruf &mdash; sehari &ldquo;Checker / Stock + Plating&rdquo; tetap 1x C
+                karena Plating memang satu paket dengan Checker. Angka ini sama dengan yang dilihat pegawai
+                di halaman Jadwal Saya dan dengan panel Rekap Keadilan Jobdesk di atas.
             </p>
         </>
     );
