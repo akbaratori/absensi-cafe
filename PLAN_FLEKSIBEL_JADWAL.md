@@ -118,6 +118,49 @@ hanya kode di dalam berkas yang sudah ikut ter-bundle.
 | `attendanceRecap.test.js` | LULUS saat dijalankan ulang | Sekali gagal karena `P1001 Can't reach database server` (staging Aiven) — server DB-nya putus, bukan logika. Dijalankan ulang sendiri: 15/15 lulus. |
 | `shiftIdRecovery.test.js` | 5/6, **gagal sejak sebelum perubahan ini** | Dibuktikan dengan `git stash` semua perubahan lalu menjalankan suite ini di `main` bersih: tetap gagal 1. Jadi bukan regresi dari pekerjaan ini. |
 
+## Langkah 9 (permintaan user): perbaiki 504 di `POST /rotation/:id/generate-month`
+
+Gejala: menekan **Generate Jadwal** di produksi (Vercel) berakhir
+`504 Gateway Timeout`. Bukan bug logika — ongkos query-nya yang terlalu besar
+untuk batas 60 s function Vercel.
+
+Angka yang diukur (bukan dugaan) ke Aiven dari mesin lokal:
+
+| Tahap | Waktu |
+|---|---|
+| query pertama / cold start (SSL+TCP) | **1256 ms** |
+| query lanjutan (koneksi panas) | 71 ms |
+| satu tahap berurutan (mis. `getOffDayUserIds`) | 135 ms |
+
+`generateMonth` memanggil `generateWeek` untuk **tiap minggu** yang beririsan
+dengan bulan (5 minggu), dan tiap `generateWeek` ± 27 query berurutan →
+± **135 query satu bulan**. Dengan 135 ms/query itu ≈ 20–36 s sebelum cold
+start dan retry dari browser; di Vercel melewati 60 s → 504.
+
+- [x] Endpoint baru `POST /rotation/:id/generate-week-with-check` — satu minggu
+      (± 27 query, ± 2–7 s) sekaligus melaporkan kekurangan staff minggu itu.
+      `month` opsional ('YYYY-MM') agar tanggal yang dilaporkan dibatasi ke bulan
+      yang sedang dibuka admin, sama seperti `generateMonth`.
+- [x] UI memanggil endpoint itu **satu kali per minggu, berurutan** (bukan
+      paralel: tiap minggu mengubah `RotationState` dan minggu berikutnya
+      melanjutkan rotasi dari state itu). Progres tampil di tombol
+      (`Minggu 2/5...`) sehingga admin tidak menunggu tanpa tanda apa pun.
+- [x] Rumus kekurangan staff diangkat ke `_collectWeekUnderstaffed()` dan Senin
+      per bulan ke `_mondaysOverlappingMonth()`, lalu **dipakai bersama**
+      `generateMonth` — supaya jalur bulanan dan jalur per-minggu tidak pernah
+      menghasilkan laporan berbeda.
+- [x] `generateMonth` **tidak dihapus** (masih dipakai test dan bisa dipanggil
+      dari alat lain); isinya kini memakai dua helper di atas.
+- [x] Perbaikan jam: UI menghitung Senin dalam **UTC** (`mondayOfISO`, sama
+      seperti `getMonday` di backend). Sebelumnya campur lokal/UTC — di zona
+      WITA (UTC+8) itu bisa menggeser minggu yang diminta. Dicek untuk 36 bulan
+      (2025-01 s/d 2027-12): UI dan server menghasilkan daftar Senin identik.
+- [x] Kegagalan satu minggu tidak menghentikan minggu lain; kalender tetap
+      dimuat ulang dari server dan admin diberi tahu berapa minggu yang gagal.
+
+Verifikasi: `npx vite build` **4616 modul, exit 0**; `node --check` bersih untuk
+service, controller, route, dan test.
+
 ## Yang menunggu keputusan user
 
 Tidak ada lagi — langkah 6 sudah dikerjakan setelah user memilih

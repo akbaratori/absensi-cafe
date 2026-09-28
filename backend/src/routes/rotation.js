@@ -49,6 +49,10 @@ router.post('/:id/roster/remove', authorize('ADMIN'), rotationController.removeR
 
 // Schedule generation & viewing (ADMIN + EMPLOYEE can view)
 router.post('/:id/generate-week', authorize('ADMIN'), rotationController.generateWeek);
+// Satu minggu + laporan kekurangan staff minggu itu. Dipakai UI "Generate
+// Jadwal" per-minggu karena /generate-month (semua minggu sekaligus) melewati
+// batas 60 s function Vercel -> 504.
+router.post('/:id/generate-week-with-check', authorize('ADMIN'), rotationController.generateWeekWithCheck);
 router.post('/:id/generate-month', authorize('ADMIN'), rotationController.generateMonth);
 router.get('/:id/schedule', authorize('ADMIN', 'EMPLOYEE'), rotationController.getSchedule);
 router.get('/:id/schedules', authorize('ADMIN', 'EMPLOYEE'), rotationController.listSchedules);

@@ -39,6 +39,9 @@ describe('Rotation: generate jadwal per posisi', () => {
   let positionNormal;
   let positionAllWorking;
 
+  /** YYYY-MM-DD (UTC) — sama dengan toISO privat di rotationService. */
+  const isoOf = (d) => new Date(d).toISOString().slice(0, 10);
+
   /** Daftar userId per shiftNumber untuk satu minggu pada WeeklySchedule. */
   async function shiftMap(positionId, weekStart) {
     const rows = await prisma.weeklySchedule.findMany({
@@ -131,6 +134,55 @@ describe('Rotation: generate jadwal per posisi', () => {
 
     expect(second.s1).toEqual(first.s1);
     expect(second.s2).toEqual(first.s2);
+  });
+
+  it('generate per-minggu (jalur UI bebas 504) menghasilkan jadwal yang SAMA dengan generate-month', async () => {
+    // UI memanggil generate-week-with-check satu kali per minggu karena
+    // /generate-month melewati batas 60 s function Vercel. Kedua jalur wajib
+    // menghasilkan jadwal yang identik, kalau tidak admin melihat jadwal
+    // berbeda hanya karena UI-nya beda.
+    const nextWeek = new Date(WEEK.getTime() + 7 * day);
+
+    await rotationService.generateMonth(positionNormal.id, '2026-11');
+    const viaMonth = { this: await shiftMap(positionNormal.id, WEEK), next: await shiftMap(positionNormal.id, nextWeek) };
+
+    await rotationService.generateWeekWithCheck(positionNormal.id, isoOf(WEEK), '2026-11');
+    await rotationService.generateWeekWithCheck(positionNormal.id, isoOf(nextWeek), '2026-11');
+    const viaWeek = { this: await shiftMap(positionNormal.id, WEEK), next: await shiftMap(positionNormal.id, nextWeek) };
+
+    expect(viaWeek.this.s1).toEqual(viaMonth.this.s1);
+    expect(viaWeek.this.s2).toEqual(viaMonth.this.s2);
+    expect(viaWeek.next.s1).toEqual(viaMonth.next.s1);
+    expect(viaWeek.next.s2).toEqual(viaMonth.next.s2);
+  });
+
+  it('generate-week-with-check melaporkan kekurangan staff minggu itu saja, sama seperti generate-month', async () => {
+    const month = '2026-11';
+    const monday = WEEK;
+
+    const viaMonth = await rotationService.generateMonth(positionNormal.id, month);
+    const weekData = await rotationService.generateWeekWithCheck(
+      positionNormal.id,
+      isoOf(monday),
+      month,
+    );
+
+    // Hanya tanggal dalam minggu yang diminta — bukan tanggal minggu lain.
+    const weekDates = new Set(
+      Array.from({ length: 7 }, (_, i) => isoOf(new Date(monday.getTime() + i * day))),
+    );
+    const expected = viaMonth.understaffed.filter((u) => weekDates.has(u.date));
+
+    expect(weekData.weekStart).toBe(isoOf(monday));
+    expect(weekData.understaffed).toEqual(expected);
+    // Tanggal yang dilaporkan harus berada di minggu ini — bukan minggu lain.
+    expect(weekData.understaffed.every((u) => weekDates.has(u.date))).toBe(true);
+  });
+
+  it('generate-week-with-check menolak weekStart kosong', async () => {
+    await expect(rotationService.generateWeekWithCheck(positionNormal.id, null)).rejects.toThrow(
+      /weekStart/i,
+    );
   });
 
   it('generate bulan berikutnya TIDAK menggeser minggu di bulan sebelumnya', async () => {

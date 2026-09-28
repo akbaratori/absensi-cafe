@@ -323,6 +323,29 @@ class RotationController {
         }
     }
 
+    /**
+     * Generate satu minggu + laporkan kekurangan staff minggu itu.
+     *
+     * Dipakai UI "Generate Jadwal" per-minggu: satu request ke Vercel harus
+     * selesai jauh di bawah batas 60 s, dan satu minggu hanya ± 27 query.
+     * `month` opsional ('YYYY-MM') agar kekurangan staff yang dilaporkan
+     * dibatasi ke bulan yang sedang dibuka admin (perilaku generate-month).
+     */
+    async generateWeekWithCheck(req, res, next) {
+        try {
+            const { weekStart, month } = req.body;
+            if (!weekStart) throw missingFields();
+            const result = await rotationService.generateWeekWithCheck(
+                parseInt(req.params.id),
+                weekStart,
+                month || null
+            );
+            return successResponse(res, 200, result, 'Jadwal mingguan berhasil dibuat');
+        } catch (err) {
+            next(err);
+        }
+    }
+
     async getSchedule(req, res, next) {
         try {
             const { weekStart } = req.query;

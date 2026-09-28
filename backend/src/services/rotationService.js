@@ -2033,6 +2033,151 @@ class RotationService {
   }
 
   /**
+   * Semua Senin yang minggunya BERIRISAN dengan bulan `year`-`month` (month
+   * 0-based): mulai dari Senin minggu yang memuat tanggal 1, sampai Senin
+   * minggu yang memuat hari terakhir.
+   *
+   * Dipakai `generateMonth` dan `generateWeekWithCheck` supaya keduanya
+   * menghitung minggu dengan cara yang sama. Dihitung di UTC — kalau memakai
+   * waktu lokal, "Senin" bisa bergeser sehari di zona WITA dan jadwal satu
+   * minggu jadi terlewat.
+   */
+  _mondaysOverlappingMonth(year, month) {
+    const mondays = [];
+    const lastDayOfMonth = new Date(Date.UTC(year, month + 1, 0)); // hari terakhir bulan
+    const cursor = getMonday(new Date(Date.UTC(year, month, 1))); // Senin minggu tgl 1
+    while (cursor <= lastDayOfMonth) {
+      mondays.push(new Date(cursor));
+      cursor.setUTCDate(cursor.getUTCDate() + 7);
+    }
+    return mondays;
+  }
+
+  /**
+   * Kekurangan staff untuk SATU minggu (Senin `monday` s/d +6 hari).
+   *
+   * `onlyMonth` = { year, month } (month 0-based) untuk membatasi tanggal yang
+   * dilaporkan ke bulan yang diminta; `null` = laporkan ketujuh hari.
+   *
+   * Dipisah dari `generateMonth` supaya generate per-minggu (dipakai UI saat
+   * request sebulan kehabisan waktu 60s di Vercel) memakai rumus yang PERSIS
+   * sama — kalau rumusnya digandakan di dua tempat, cepat atau lambat hasilnya
+   * berbeda dan admin melihat "kekurangan staff" yang tidak ada.
+   */
+  async _collectWeekUnderstaffed(positionId, monday, shift1Capacity, shift2Capacity, onlyMonth = null) {
+    const weekDates = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(monday);
+      d.setUTCDate(d.getUTCDate() + i);
+      weekDates.push(d);
+    }
+
+    // Libur dari SEMUA sumber (manual, cuti, tukar libur, libur mingguan,
+    // libur nasional) — sumber yang sama dengan yang dipatuhi generateWeek.
+    const offMap = await this.getOffDayUserIds(positionId, weekDates);
+
+    // Baca jadwal yang BARU SAJA ditulis, supaya pembagian shift yang
+    // dibandingkan adalah pembagian yang benar-benar tersimpan.
+    const schedules = await prisma.weeklySchedule.findMany({
+      where: { positionId, weekStart: monday },
+      orderBy: [{ shiftNumber: 'asc' }, { userId: 'asc' }],
+    });
+
+    const out = [];
+    for (const date of weekDates) {
+      const iso = toISO(date);
+      // Tanggal di luar bulan yang diminta tetap digenerate, hanya tidak
+      // dilaporkan sebagai kekurangan bulan ini.
+      if (onlyMonth && (date.getUTCFullYear() !== onlyMonth.year || date.getUTCMonth() !== onlyMonth.month)) {
+        continue;
+      }
+      const offUserIds = new Set();
+      for (const [uid, set] of offMap.entries()) {
+        if (set.has(iso)) offUserIds.add(uid);
+      }
+
+      const shift1Users = schedules.filter((s) => s.shiftNumber === 1).map((s) => s.userId);
+      const shift2Users = schedules.filter((s) => s.shiftNumber === 2).map((s) => s.userId);
+
+      // Buang yang sedang libur dari tiap shift, lalu hitung sisanya.
+      const shift1Active = shift1Users.filter((u) => !offUserIds.has(u));
+      const shift2Active = shift2Users.filter((u) => !offUserIds.has(u));
+
+      if (shift1Active.length < shift1Capacity) {
+        out.push({
+          date: iso,
+          shiftNumber: 1,
+          needed: shift1Capacity,
+          available: shift1Active.length,
+          missing: shift1Capacity - shift1Active.length,
+          offUsers: shift1Users.filter((u) => offUserIds.has(u)),
+        });
+      }
+      if (shift2Active.length < shift2Capacity) {
+        out.push({
+          date: iso,
+          shiftNumber: 2,
+          needed: shift2Capacity,
+          available: shift2Active.length,
+          missing: shift2Capacity - shift2Active.length,
+          offUsers: shift2Users.filter((u) => offUserIds.has(u)),
+        });
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Generate SATU minggu sekaligus melaporkan kekurangan staff minggu itu.
+   *
+   * KENAPA ADA (dan kenapa UI memakainya, bukan generate-month):
+   * `generateMonth` menjalankan `generateWeek` untuk SETIAP minggu yang
+   * beririsan dengan bulan (± 5 minggu) secara berurutan, dan tiap
+   * `generateWeek` ± 27 query. Ke database remote (Aiven) satu query 70–135 ms,
+   * jadi satu bulan ≈ 135 query ≈ 20–35 s; di Vercel function di-kill pada 60 s
+   * dan admin menerima 504. Satu minggu jauh di bawah batas itu, sehingga UI
+   * memanggil endpoint ini per minggu dan menyatukan hasilnya.
+   *
+   * `monthISO` opsional ('YYYY-MM'): kalau diisi, kekurangan staff dilaporkan
+   * hanya untuk tanggal di bulan itu (perilaku generateMonth), sedangkan
+   * jadwalnya tetap digenerate untuk ketujuh hari.
+   */
+  async generateWeekWithCheck(positionId, weekStart, monthISO = null) {
+    if (!weekStart) {
+      throw new AppError('weekStart wajib diisi', 400, 'VALIDATION_ERROR');
+    }
+
+    let onlyMonth = null;
+    if (monthISO) {
+      const match = /^(\d{4})-(\d{2})$/.exec(monthISO);
+      if (!match) throw new AppError('Format bulan harus YYYY-MM', 400, 'VALIDATION_ERROR');
+      onlyMonth = { year: parseInt(match[1], 10), month: parseInt(match[2], 10) - 1 };
+    }
+
+    const monday = getMonday(weekStart);
+
+    // Kapasitas dibaca SEBELUM generateWeek supaya angka pembandingnya sama
+    // dengan yang dipakai generateMonth.
+    const position = await this.getPosition(positionId);
+    const { s1Count: shift1Capacity, s2Count: shift2Capacity } = this._shiftSplit(
+      position,
+      position.rosters.length,
+    );
+
+    await this.generateWeek(positionId, monday, { skipGetSchedule: true });
+
+    const understaffed = await this._collectWeekUnderstaffed(
+      positionId,
+      monday,
+      shift1Capacity,
+      shift2Capacity,
+      onlyMonth,
+    );
+
+    return { weekStart: toISO(monday), understaffed };
+  }
+
+  /**
    * Generate a full month's schedule by looping the weekly generator for each
    * Monday in the month, continuing the rotation state from the previous week.
    * Afterwards, detect understaffed day/shift caused by off-day sources and
@@ -2046,17 +2191,7 @@ class RotationService {
     const year = parseInt(match[1], 10);
     const month = parseInt(match[2], 10) - 1;
 
-    // Collect all Mondays whose week OVERLAPS with this month.
-    // Start from the Monday of the week containing the 1st of the month,
-    // and include all Mondays until the week that contains the last day of the month.
-    const mondays = [];
-    const firstDayOfMonth = new Date(Date.UTC(year, month, 1));
-    const lastDayOfMonth = new Date(Date.UTC(year, month + 1, 0)); // last day
-    let cursor = getMonday(firstDayOfMonth); // Monday of the week containing day 1
-    while (cursor <= lastDayOfMonth) {
-      mondays.push(new Date(cursor));
-      cursor.setUTCDate(cursor.getUTCDate() + 7);
-    }
+    const mondays = this._mondaysOverlappingMonth(year, month);
 
     const position = await this.getPosition(positionId);
     // Penuhi-perbandingkan dengan pembagian yang BENAR-BENAR ditulis generateWeek
@@ -2072,58 +2207,12 @@ class RotationService {
     for (const monday of mondays) {
       await this.generateWeek(positionId, monday, { skipGetSchedule: true });
 
-      // Off-day check for this week's 7 days
-      const weekDates = [];
-      for (let i = 0; i < 7; i++) {
-        const d = new Date(monday);
-        d.setUTCDate(d.getUTCDate() + i);
-        weekDates.push(d);
-      }
-      const offMap = await this.getOffDayUserIds(positionId, weekDates);
-
-      // Load generated weekly schedules to detect understaffing
-      const schedules = await prisma.weeklySchedule.findMany({
-        where: { positionId, weekStart: monday },
-        orderBy: [{ shiftNumber: 'asc' }, { userId: 'asc' }],
-      });
-
-      for (const date of weekDates) {
-        const iso = toISO(date);
-        // Only flag understaffing for dates actually within the requested month
-        if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month) continue;
-        const offUserIds = new Set();
-        for (const [uid, set] of offMap.entries()) {
-          if (set.has(iso)) offUserIds.add(uid);
-        }
-
-        const shift1Users = schedules.filter((s) => s.shiftNumber === 1).map((s) => s.userId);
-        const shift2Users = schedules.filter((s) => s.shiftNumber === 2).map((s) => s.userId);
-
-        // Remove off users from each shift, count remaining
-        const shift1Active = shift1Users.filter((u) => !offUserIds.has(u));
-        const shift2Active = shift2Users.filter((u) => !offUserIds.has(u));
-
-        if (shift1Active.length < shift1Capacity) {
-          understaffed.push({
-            date: iso,
-            shiftNumber: 1,
-            needed: shift1Capacity,
-            available: shift1Active.length,
-            missing: shift1Capacity - shift1Active.length,
-            offUsers: shift1Users.filter((u) => offUserIds.has(u)),
-          });
-        }
-        if (shift2Active.length < shift2Capacity) {
-          understaffed.push({
-            date: iso,
-            shiftNumber: 2,
-            needed: shift2Capacity,
-            available: shift2Active.length,
-            missing: shift2Capacity - shift2Active.length,
-            offUsers: shift2Users.filter((u) => offUserIds.has(u)),
-          });
-        }
-      }
+      understaffed.push(
+        ...(await this._collectWeekUnderstaffed(positionId, monday, shift1Capacity, shift2Capacity, {
+          year,
+          month,
+        })),
+      );
 
       generatedWeeks.push(toISO(monday));
     }

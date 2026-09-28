@@ -51,8 +51,35 @@ const listDaysISO = (startISO, endISO) => {
   return out;
 };
 
+/**
+ * Senin (YYYY-MM-DD) dari minggu yang memuat `iso`, DIHITUNG DI UTC.
+ *
+ * Sengaja UTC, bukan lokal: backend menghitung minggu dengan getMonday versi
+ * UTC, jadi kalau di sini memakai waktu lokal, di zona WITA (UTC+8) "Senin"
+ * bisa bergeser sehari dan minggu yang digenerate jadi minggu yang salah.
+ * Pola yang sama sudah dipakai modal "Ubah Shift" (addDaysISO).
+ */
+const mondayOfISO = (iso) => {
+  const d = new Date(`${iso}T00:00:00Z`);
+  const day = d.getUTCDay(); // 0=Sun, 1=Mon
+  d.setUTCDate(d.getUTCDate() - (day === 0 ? 6 : day - 1));
+  return d.toISOString().slice(0, 10);
+};
+
+/** Semua Senin yang minggunya beririsan dengan bulan `month` ('YYYY-MM'). */
+const mondaysOverlappingMonth = (month) => {
+  const [y, m] = month.split('-').map(Number);
+  const firstMonday = mondayOfISO(`${month}-01`);
+  const lastDayISO = `${month}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, '0')}`;
+
+  const mondays = [];
+  for (let cur = firstMonday; cur <= lastDayISO; cur = addDaysISO(cur, 7)) {
+    mondays.push(cur);
+  }
+  return mondays;
+};
+
 function getDaysInMonth(year, month) {
-  // month: 1-based
   const result = [];
   const days = new Date(year, month, 0).getDate();
   for (let d = 1; d <= days; d++) {
@@ -715,6 +742,7 @@ export default function RotationManagementPage() {
   });
   const [understaffed, setUnderstaffed] = useState(null); // null = belum generate, [] = sudah generate & tidak ada masalah
   const [generating, setGenerating] = useState(false);
+  const [genProgress, setGenProgress] = useState(null); // { done, total } saat generate per-minggu
 
   // Modals
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -925,24 +953,72 @@ export default function RotationManagementPage() {
     }
   };
 
+  /**
+   * Generate jadwal bulanan — TAPI per minggu, satu request tiap minggu.
+   *
+   * KENAPA BUKAN SATU REQUEST `generate-month`:
+   * generate-month mengerjakan semua minggu dalam bulan secara berurutan di
+   * satu request: ± 135 query ke database remote (Aiven). Di Vercel satu
+   * function di-kill pada 60 s, jadi request itu berakhir 504 dan admin tidak
+   * pernah menerima hasilnya. Satu minggu (± 27 query) selesai sekitar 2–7 s,
+   * aman. Jadi loop-nya dipindah ke sini dan admin melihat progres per minggu.
+   *
+   * Yang perlu dijaga: request berurutan (bukan paralel). Tiap minggu mengubah
+   * `RotationState`, dan minggu berikutnya melanjutkan rotasi dari state itu —
+   * kalau dikirim bersamaan, hasilnya bisa tidak sesuai urutan.
+   */
   const handleGenerateMonth = async () => {
     if (!month) return toast.error('Pilih bulan');
     if (!selectedPosition) return toast.error('Pilih posisi');
+
+    const mondays = mondaysOverlappingMonth(month);
     setGenerating(true);
+    setGenProgress({ done: 0, total: mondays.length });
+
+    const understaffedAll = [];
+    const failedWeeks = [];
+
     try {
-      const res = await rotationService.generateMonth(selectedPosition.id, month);
-      const data = res.data.data || {};
-      const us = data.understaffed || [];
-      setUnderstaffed(us);
-      // Muat jadwal bulanan (hasil generate) untuk ditampilkan & diedit di kalender.
+      for (let i = 0; i < mondays.length; i++) {
+        // Mutasi state SEBELUM await supaya label progres menunjuk minggu
+        // yang sedang dikerjakan, bukan yang barusan selesai.
+        setGenProgress({ done: i, total: mondays.length });
+        try {
+          const res = await rotationService.generateWeekWithCheck(
+            selectedPosition.id,
+            mondays[i],
+            month,
+          );
+          understaffedAll.push(...(res.data?.data?.understaffed || []));
+        } catch (err) {
+          failedWeeks.push(mondays[i]);
+          console.error('Generate minggu', mondays[i], err);
+        }
+      }
+
+      // Muat ulang jadwal bulanan apa pun yang terjadi: minggu-minggu yang
+      // berhasil sudah tersimpan di server, jadi admin tetap melihat hasilnya.
       try {
         const schedRes = await rotationService.getMonthSchedule(selectedPosition.id, month);
         setMonthSchedule(schedRes.data?.data || []);
       } catch {
         setMonthSchedule([]);
       }
-      if (us.length) {
-        toast(`⚠️ Jadwal dibuat, tapi ada ${us.length} shift kekurangan staff`, { icon: '⚠️', duration: 5000 });
+
+      setUnderstaffed(understaffedAll);
+
+      if (failedWeeks.length === mondays.length) {
+        toast.error('Gagal generate: seluruh minggu gagal diproses');
+      } else if (failedWeeks.length) {
+        toast.error(
+          `Sebagian minggu gagal (${failedWeeks.length} dari ${mondays.length}). Coba generate ulang.`,
+          { duration: 6000 },
+        );
+      } else if (understaffedAll.length) {
+        toast(`⚠️ Jadwal dibuat, tapi ada ${understaffedAll.length} shift kekurangan staff`, {
+          icon: '⚠️',
+          duration: 5000,
+        });
       } else {
         toast.success('Jadwal bulan berhasil dibuat, tidak ada kekurangan!');
       }
@@ -950,6 +1026,7 @@ export default function RotationManagementPage() {
       toast.error('Gagal generate: ' + (err.response?.data?.error?.message || err.response?.data?.message || err.message));
     } finally {
       setGenerating(false);
+      setGenProgress(null);
     }
   };
 
@@ -1385,10 +1462,17 @@ export default function RotationManagementPage() {
                     disabled={generating || !roster.length}
                     className="px-5 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium disabled:opacity-50 flex items-center gap-2"
                   >
-                    {generating ? <><span className="animate-spin">⟳</span> Memproses...</> : '📅 Generate Jadwal'}
+                    {generating
+                      ? <><span className="animate-spin">⟳</span> {genProgress ? `Minggu ${Math.min(genProgress.done + 1, genProgress.total)}/${genProgress.total}...` : 'Memproses...'}</>
+                      : '📅 Generate Jadwal'}
                   </button>
                   {!roster.length && (
                     <span className="text-xs text-amber-600 dark:text-amber-400">⚠️ Isi roster dulu</span>
+                  )}
+                  {generating && genProgress && (
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      Dikerjakan per minggu agar tidak melewati batas waktu server — jangan tutup halaman ini.
+                    </span>
                   )}
                 </div>
 

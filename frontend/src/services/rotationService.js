@@ -21,6 +21,11 @@ const rotationService = {
   // Jadwal
   generateWeek: (id, weekStart) =>
     api.post(`/rotation/${id}/generate-week`, { weekStart }),
+  // Satu minggu + laporan kekurangan staff minggu itu. Dipakai UI generate
+  // bulanan per-minggu karena /generate-month (semua minggu sekaligus) melewati
+  // batas waktu function Vercel -> 504.
+  generateWeekWithCheck: (id, weekStart, month) =>
+    api.post(`/rotation/${id}/generate-week-with-check`, { weekStart, month }),
   generateMonth: (id, month) =>
     api.post(`/rotation/${id}/generate-month`, { month }),
   getSchedule: (id, weekStart) =>
