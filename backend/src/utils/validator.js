@@ -134,6 +134,29 @@ const usersQuerySchema = Joi.object({
   search: Joi.string().max(100).optional().allow('', null),
 });
 
+/**
+ * Hapus pengguna sekaligus (bulk delete).
+ *
+ * `ids` dibatasi 100 per request: tiap id = 1 delete + 1 audit log, dan admin
+ * memilihnya dari UI yang hanya menampilkan satu halaman berisi. Pemanggil
+ * (admin) TIDAK dikirim dari body — diambil dari token di controller — supaya
+ * tidak ada cara menipu "siapa yang menghapus".
+ */
+const bulkDeleteUsersSchema = Joi.object({
+  ids: Joi.array()
+    .items(Joi.number().integer().positive())
+    .min(1)
+    .max(100)
+    .unique()
+    .required()
+    .messages({
+      'array.base': 'ids harus berupa daftar id pengguna',
+      'array.min': 'Pilih minimal satu pengguna',
+      'array.max': 'Maksimal 100 pengguna sekali hapus',
+      'array.unique': 'Ada id pengguna yang terduplikat',
+    }),
+});
+
 const reportQuerySchema = Joi.object({
   date: Joi.date().iso(),
   month: Joi.string().pattern(/^\d{4}-\d{2}$/).optional(),
@@ -258,6 +281,7 @@ module.exports = {
   fillMissingClockOutSchema,
   updateConfigSchema,
   usersQuerySchema,
+  bulkDeleteUsersSchema,
   reportQuerySchema,
   attendanceRecapQuerySchema,
   attendanceExportQuerySchema,

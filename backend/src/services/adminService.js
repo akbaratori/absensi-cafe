@@ -173,6 +173,106 @@ class AdminService {
   }
 
   /**
+   * Hapus BANYAK pengguna sekaligus (hard delete).
+   *
+   * Dipakai tombol "Hapus terpilih" di halaman Users. Aturan pengamanannya
+   * sama dengan hapus satuan, ditambah penjagaan khusus aksi massal:
+   *  - akun sendiri tidak boleh ikut terhapus (admin bisa mengunci dirinya);
+   *  - sisa minimal satu akun ADMIN wajib ada, dihitung setelah dikurangi
+   *    daftar yang akan dihapus (bukan sekadar "ada admin lain di daftar");
+   *  - id yang sudah tidak ada di DB dilewati tanpa error (bukan kegagalan).
+   *
+   * Eksekusinya dua tahap: coba SATU perintah `deleteMany` dulu. Kalau ada satu
+   * saja user yang masih ditahan foreign key (mis. `backup_assignments`, yang
+   * tidak punya onDelete Cascade), seluruh perintah gagal; pada percobaan kedua
+   * tiap user dihapus sendiri-sendiri supaya sisanya tetap terhapus dan yang
+   * gagal dilaporkan per user ke UI.
+   */
+  async bulkDeleteUsers(ids = [], adminId = null) {
+    const uniqueIds = [...new Set(ids.map((id) => parseInt(id, 10)).filter(Number.isInteger))];
+
+    if (uniqueIds.length === 0) {
+      throw ErrorCodes.USER_ERRORS.NO_USERS_SELECTED;
+    }
+
+    if (adminId && uniqueIds.includes(parseInt(adminId, 10))) {
+      throw ErrorCodes.USER_ERRORS.CANNOT_DELETE_SELF;
+    }
+
+    const users = await userRepository.findManyByIds(uniqueIds);
+
+    // Yang benar-benar dihapus = id yang masih ada di DB. Id yang tidak ketemu
+    // (mis. sudah dihapus di tab lain) dilaporkan sebagai skipped, bukan error —
+    // admin tidak perlu memikirkan data yang sudah hilang.
+    const foundIds = users.map((u) => u.id);
+    const targets = uniqueIds.filter((id) => foundIds.includes(id));
+    const skippedIds = uniqueIds.filter((id) => !foundIds.includes(id));
+
+    const adminTargets = targets.filter((id) => users.find((u) => u.id === id)?.role === 'ADMIN');
+
+    if (adminTargets.length > 0) {
+      const totalAdmins = await userRepository.countByRole('ADMIN');
+      if (totalAdmins - adminTargets.length < 1) {
+        throw ErrorCodes.USER_ERRORS.CANNOT_DELETE_LAST_ADMIN;
+      }
+    }
+
+    const deleted = [];
+    const failed = [];
+
+    // Tahap 1: satu perintah untuk semua. Dilewati kalau tidak ada target nyata
+    // (semua id sudah hilang) supaya tidak mengirim DELETE kosong ke DB.
+    if (targets.length > 0) {
+      try {
+        await userRepository.deleteManyByIds(targets);
+        targets.forEach((id) => {
+          const user = users.find((u) => u.id === id);
+          deleted.push({ id, username: user?.username, fullName: user?.fullName });
+        });
+      } catch (bulkError) {
+        // Tahap 2: ada yang ditahan FK — hapus satu per satu supaya sisanya jalan.
+        for (const id of targets) {
+          const user = users.find((u) => u.id === id);
+          try {
+            await userRepository.delete(id);
+            deleted.push({ id, username: user?.username, fullName: user?.fullName });
+          } catch (err) {
+            failed.push({
+              id,
+              username: user?.username,
+              fullName: user?.fullName,
+              reason: err.code === 'P2003'
+                ? 'Masih dipakai data lain (mis. riwayat backup) sehingga tidak dapat dihapus'
+                : err.message,
+            });
+          }
+        }
+
+        if (deleted.length === 0) {
+          // Semua gagal: jangan menelan errornya, admin harus tahu penyebabnya.
+          throw bulkError;
+        }
+      }
+    }
+
+    if (deleted.length > 0) {
+      await auditService.logUserChange(adminId, 'BULK_DELETE', deleted.map((u) => u.id).join(','), {
+        deletedCount: deleted.length,
+        deletedUsers: deleted,
+        requestedCount: uniqueIds.length,
+      });
+    }
+
+    return {
+      requestedCount: uniqueIds.length,
+      deletedCount: deleted.length,
+      deleted,
+      skippedIds,
+      failed,
+    };
+  }
+
+  /**
    * Get system configuration
    */
   async getConfig() {

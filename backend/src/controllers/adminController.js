@@ -69,6 +69,23 @@ class AdminController {
   });
 
   /**
+   * Hapus banyak pengguna sekaligus
+   * POST /api/v1/admin/users/bulk-delete
+   *
+   * Memakai POST (bukan DELETE ber-body) karena daftar id dikirim di body dan
+   * body pada DELETE tidak konsisten didukung proxy/klien.
+   */
+  bulkDeleteUsers = asyncHandler(async (req, res) => {
+    const result = await adminService.bulkDeleteUsers(req.body.ids, req.user.id);
+
+    const message = result.failed.length > 0
+      ? `${result.deletedCount} pengguna dihapus, ${result.failed.length} gagal`
+      : `${result.deletedCount} pengguna berhasil dihapus`;
+
+    return successResponse(res, 200, result, message);
+  });
+
+  /**
    * Get next available Employee ID
    * GET /api/v1/admin/users/next-id
    */

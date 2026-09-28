@@ -15,6 +15,7 @@ const {
   fillMissingClockOutSchema,
   updateConfigSchema,
   usersQuerySchema,
+  bulkDeleteUsersSchema,
   reportQuerySchema,
   attendanceRecapQuerySchema,
   attendanceExportQuerySchema,
@@ -41,6 +42,17 @@ router.get('/users', validateQuery(usersQuerySchema), adminController.listUsers)
  * @access  Private (Admin)
  */
 router.post('/users', validate(createUserSchema), adminController.createUser);
+
+/**
+ * @route   POST /api/v1/admin/users/bulk-delete
+ * @desc    Hapus beberapa pengguna sekaligus
+ * @access  Private (Admin)
+ *
+ * Didaftarkan SEBELUM `GET /users/:id` supaya `bulk-delete` tidak pernah
+ * ditangkap sebagai `:id`. Dikirim sebagai POST karena daftar id ada di body
+ * (body pada DELETE tidak konsisten didukung klien/proxy).
+ */
+router.post('/users/bulk-delete', validate(bulkDeleteUsersSchema), adminController.bulkDeleteUsers);
 
 /**
  * @route   GET /api/v1/admin/users/next-id

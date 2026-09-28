@@ -41,6 +41,17 @@ export const deleteUser = async (id) => {
 };
 
 /**
+ * Hapus BEBERAPA pengguna sekaligus
+ * POST /api/v1/admin/users/bulk-delete
+ * @param {number[]} ids daftar id pengguna yang dihapus (maks 100)
+ * @returns {{ deletedCount, failed, skippedIds }} ringkasan hasil per pengguna
+ */
+export const bulkDeleteUsers = async (ids) => {
+  const response = await api.post('/admin/users/bulk-delete', { ids });
+  return response.data;
+};
+
+/**
  * Get next available Employee ID
  */
 export const getNextEmployeeId = async (role = 'EMPLOYEE') => {

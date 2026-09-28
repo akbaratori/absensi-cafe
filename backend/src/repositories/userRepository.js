@@ -172,6 +172,51 @@ class UserRepository {
   }
 
   /**
+   * Ambil banyak user dalam SATU query (dipakai aksi massal).
+   *
+   * Dipisah dari `list()` karena aksi massal butuh lookup berdasarkan daftar id
+   * tanpa pagination — kalau memakai `findById()` berulang, 100 pengguna berarti
+   * 100 query ke DB remote dan request-nya bisa menyentuh batas waktu function.
+   */
+  async findManyByIds(ids) {
+    if (!ids || ids.length === 0) return [];
+
+    return await prisma.user.findMany({
+      where: { id: { in: ids } },
+      select: {
+        id: true,
+        username: true,
+        fullName: true,
+        role: true,
+        department: true,
+        isActive: true,
+      },
+    });
+  }
+
+  /**
+   * Hapus banyak user sekaligus dengan SATU perintah (fast path).
+   *
+   * Hanya boleh dipakai kalau tidak ada satu pun user di daftar yang ditahan FK
+   * — satu saja yang ditahan membuat seluruh perintah gagal (MySQL mem-rollback
+   * satu statement DELETE secara utuh). Cascade untuk attendance/leave/schedule/
+   * notifikasi/subscription/roster sudah `onDelete: Cascade` di schema, jadi DB
+   * yang membersihkannya.
+   */
+  async deleteManyByIds(ids) {
+    if (!ids || ids.length === 0) return { count: 0 };
+
+    return await prisma.user.deleteMany({ where: { id: { in: ids } } });
+  }
+
+  /**
+   * Hitung user aktif per role — dipakai untuk menjaga minimal satu ADMIN.
+   */
+  async countByRole(role) {
+    return await prisma.user.count({ where: { role } });
+  }
+
+  /**
    * List users with pagination and filters
    */
   async list(options = {}) {

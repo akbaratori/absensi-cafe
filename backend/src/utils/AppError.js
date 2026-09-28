@@ -45,6 +45,9 @@ class ErrorCodes {
     get DUPLICATE_USERNAME() { return new AppError('A user with this username already exists', 409, 'DUPLICATE_USERNAME'); },
     get DUPLICATE_EMAIL() { return new AppError('A user with this email already exists', 409, 'DUPLICATE_EMAIL'); },
     get DUPLICATE_EMPLOYEE_ID() { return new AppError('A user with this Employee ID already exists', 409, 'DUPLICATE_EMPLOYEE_ID'); },
+    get NO_USERS_SELECTED() { return new AppError('Pilih minimal satu pengguna untuk dihapus', 400, 'NO_USERS_SELECTED'); },
+    get CANNOT_DELETE_SELF() { return new AppError('Anda tidak dapat menghapus akun Anda sendiri', 400, 'CANNOT_DELETE_SELF'); },
+    get CANNOT_DELETE_LAST_ADMIN() { return new AppError('Minimal harus ada satu akun ADMIN yang tersisa', 400, 'CANNOT_DELETE_LAST_ADMIN'); },
   };
 
   static SHIFT_ERRORS = {
