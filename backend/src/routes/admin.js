@@ -17,6 +17,7 @@ const {
   usersQuerySchema,
   reportQuerySchema,
   attendanceRecapQuerySchema,
+  attendanceExportQuerySchema,
 } = require('../utils/validator');
 
 // All routes require authentication and admin role
@@ -172,10 +173,14 @@ router.get('/reports/recap', validateQuery(attendanceRecapQuerySchema), adminCon
 
 /**
  * @route   GET /api/v1/admin/reports/export
- * @desc    Export attendance as CSV
+ * @desc    Export attendance as CSV untuk rentang tanggal bebas
  * @access  Private (Admin)
+ *
+ * Skema khusus (bukan `reportQuerySchema`) karena `reportQuerySchema` tidak
+ * mengenal `startDate`/`endDate` dan `stripUnknown: true` akan membuangnya —
+ * lihat catatan di `attendanceExportQuerySchema`.
  */
-router.get('/reports/export', validateQuery(reportQuerySchema), adminController.exportReport);
+router.get('/reports/export', validateQuery(attendanceExportQuerySchema), adminController.exportReport);
 
 // Configuration Routes
 

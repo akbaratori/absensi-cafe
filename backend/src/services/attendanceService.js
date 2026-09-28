@@ -1105,9 +1105,14 @@ class AttendanceService {
   }
 
   /**
-   * Export attendance data as CSV
+   * Export attendance data as CSV.
+   *
+   * Dipakai bersama oleh halaman Laporan (lama) dan Rekap Absensi (baru).
+   * `startDate`/`endDate` WAJIB ikut — kalau tidak, repository memakai rentang
+   * default dan CSV berisi data yang salah. Nama file diamankan dari `undefined`
+   * supaya tidak menghasilkan `attendance_undefined_to_undefined.csv`.
    */
-  async exportToCsv(options) {
+  async exportToCsv(options = {}) {
     const { startDate, endDate } = options;
 
     const result = await attendanceRepository.findAll({
@@ -1115,7 +1120,8 @@ class AttendanceService {
       limit: 10000, // Higher limit for export
     });
 
-    // Build CSV
+    // Kolom disengaja sama persis dengan header lama (urutan & nama) supaya
+    // berkas yang sudah diolah tim lain tidak rusak.
     const headers = ['Date', 'Employee ID', 'Full Name', 'Clock In', 'Clock Out', 'Status', 'Total Hours', 'Location Map', 'Photo Evidence'];
 
     const rows = result.records.map((record) => {
@@ -1125,18 +1131,13 @@ class AttendanceService {
         mapLink = `https://www.google.com/maps?q=${lat},${lng}`;
       }
 
-      let photoLink = '';
-      if (record.clockInPhoto) {
-        // Assuming server URL is needed, but relative path works if served correctly or admin views it
-        // Ideally prepend API_URL
-        photoLink = record.clockInPhoto;
-      }
+      const photoLink = record.clockInPhoto || '';
 
       return [
         record.date.toISOString().split('T')[0],
         record.user.employeeId || '',
         record.user.fullName,
-        record.clockIn.toTimeString().slice(0, 5),
+        record.clockIn ? record.clockIn.toTimeString().slice(0, 5) : '',
         record.clockOut ? record.clockOut.toTimeString().slice(0, 5) : '',
         formatStatus(record.status),
         record.clockOut ? calculateTotalHours(record.clockIn, record.clockOut) : '',
@@ -1152,7 +1153,7 @@ class AttendanceService {
 
     return {
       content: csvContent,
-      filename: `attendance_${startDate}_to_${endDate}.csv`,
+      filename: `attendance_${startDate || 'awal'}_to_${endDate || 'akhir'}.csv`,
     };
   }
 
@@ -1181,6 +1182,9 @@ class AttendanceService {
 
     const userIdNum = userId ? Number(userId) : null;
     const dept = department ? String(department).trim() : null;
+    // Estimasi gaji hanya dihitung saat diminta — daftar pegawai 500 orang tidak
+    // perlu membawa tarif per jam kalau admin hanya melihat rekap kehadiran.
+    const includeSalary = options.includeSalary === true || options.includeSalary === 'true' || options.includeSalary === '1';
 
     const [users, records, leaves, holidays, shiftRows, graceCfg] = await Promise.all([
       prisma.user.findMany({
@@ -1191,7 +1195,11 @@ class AttendanceService {
           ...(userIdNum ? { id: userIdNum } : { isActive: true }),
           ...(dept ? { department: dept } : {}),
         },
-        select: { id: true, fullName: true, employeeId: true, department: true, isActive: true },
+        select: {
+          id: true, fullName: true, employeeId: true, department: true, isActive: true,
+          // Tarif per jam hanya diambil saat estimasi gaji diminta.
+          ...(includeSalary ? { hourlyRate: true } : {}),
+        },
         orderBy: { fullName: 'asc' },
       }),
       prisma.attendance.findMany({
@@ -1245,6 +1253,7 @@ class AttendanceService {
         employeeId: u.employeeId || '',
         department: u.department || '',
         isActive: u.isActive !== false,
+        ...(includeSalary ? { hourlyRate: Number(u.hourlyRate) || 0 } : {}),
         ...emptyCounts(),
         totalRecords: 0,
         totalHours: 0,
@@ -1476,6 +1485,25 @@ class AttendanceService {
       neverClockedIn: staffWithoutRecord.slice(0, 10).map((r) => ({ userId: r.userId, fullName: r.fullName })),
     };
 
+    // ── Estimasi gaji (opt-in via `includeSalary`) ────────────────────────
+    // Rumusnya SENGAJA sama dengan `/admin/reports/monthly`:
+    //   estimatedSalary = total jam ber-clockOut × hourlyRate
+    // dengan pembulatan ke rupiah penuh. Angka dari kedua halaman karena itu
+    // harus identik — kalau tidak, salah satunya yang salah.
+    if (includeSalary) {
+      let totalPayroll = 0;
+      let staffWithRate = 0;
+      for (const r of rows) {
+        const rate = Number(r.hourlyRate) || 0;
+        r.estimatedSalary = Math.round(r.totalHours * rate);
+        totalPayroll += r.estimatedSalary;
+        if (rate > 0) staffWithRate += 1;
+      }
+      summary.totalEstimatedSalary = totalPayroll;
+      summary.staffWithRate = staffWithRate;
+      summary.payrollNote = 'Estimasi = total jam kerja (hanya record yang punya clock-out) × tarif per jam pegawai. Bukan slip gaji final.';
+    }
+
     // Rincian telat: paling lama dulu, maksimal 50 baris. `counted: false`
     // berarti record itu berstatus bukan LATE sehingga menitnya TIDAK ikut
     // dijumlahkan ke kartu "Total telat" — data lama yang perlu dibersihkan,
@@ -1503,6 +1531,8 @@ class AttendanceService {
       })),
       lateGraceMinutes: Number(graceCfg?.value ?? 15) || 15,
       summary,
+      // Nilai mentah per pegawai. `hourlyRate` & `estimatedSalary` hanya ada
+      // kalau `includeSalary=true` diminta pemanggil.
       employees: rows,
       daily: dailyRows,
       lateDetail,

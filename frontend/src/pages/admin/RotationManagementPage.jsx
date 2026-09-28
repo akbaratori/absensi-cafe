@@ -23,6 +23,34 @@ const nextMondayISO = () => {
   return mondayISO(x);
 };
 
+/**
+ * Geser tanggal ISO sebanyak `n` hari.
+ * Memakai UTC supaya sama dengan cara modal "Ubah Shift" menghitung hari —
+ * kalau memakai waktu lokal, "1 s/d 7" bisa bergeser sehari di zona WITA.
+ */
+const addDaysISO = (iso, n) => {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
+
+/** Jumlah hari dalam rentang ISO (termasuk kedua ujung). 0 bila rentang tidak sah. */
+const countDaysISO = (startISO, endISO) => {
+  if (!startISO || !endISO) return 0;
+  const a = new Date(`${startISO}T00:00:00Z`).getTime();
+  const b = new Date(`${endISO}T00:00:00Z`).getTime();
+  if (Number.isNaN(a) || Number.isNaN(b) || b < a) return 0;
+  return Math.floor((b - a) / 86400000) + 1;
+};
+
+/** Daftar tanggal ISO dalam rentang (termasuk kedua ujung). */
+const listDaysISO = (startISO, endISO) => {
+  const out = [];
+  const total = countDaysISO(startISO, endISO);
+  for (let i = 0; i < total; i++) out.push(addDaysISO(startISO, i));
+  return out;
+};
+
 function getDaysInMonth(year, month) {
   // month: 1-based
   const result = [];
@@ -497,6 +525,181 @@ function EditScheduleModal({ date, assignments, roster, onClose, onSave, onReset
   );
 }
 
+// ─── Modal Ubah Shift Pegawai (rentang tanggal) ────────────────────────────────
+// Jalur cepat dari panel Roster: satu pegawai, satu shift tujuan, satu rentang
+// tanggal. Kenapa perlu, padahal kalender sudah bisa diklik per tanggal:
+//   - memindahkan seseorang untuk sepekan berarti 6-7 klik di kalender, dan
+//     mudah ada satu hari yang terlewat;
+//   - panel roster hanya menampilkan siapa di S1/S2 (baca-saja), jadi admin
+//     tidak punya cara "pindahkan Budi ke Shift 2 minggu depan" sekali jalan.
+//
+// Menulis lewat endpoint rotasi yang SAMA dengan klik tanggal di kalender
+// (`PUT /rotation/:id/schedule-assignment`), sehingga:
+//   - barisnya bertanda `isManualOverride` → tidak tertimpa saat generate ulang;
+//   - `temporaryDepartment` tetap diisi sesuai posisi (penting untuk Dapur, lihat
+//     catatan di RotationService.setScheduleAssignment) — endpoint
+//     `/schedules/user-shift-range` mengosongkan kolom itu;
+//   - jobdesk/stasiun yang sudah tersimpan untuk hari itu tidak dihapus.
+// Satu tanggal = satu request, jadi jumlah hari ditampilkan sebelum menyimpan.
+function ShiftRangeModal({ positionName, roster, defaultStart, defaultEnd, onClose, onSave }) {
+  const [userId, setUserId] = useState('');
+  const [mode, setMode] = useState('1'); // '1' | '2' | '0' (libur) | 'auto'
+  const [startDate, setStartDate] = useState(defaultStart || '');
+  const [endDate, setEndDate] = useState(defaultEnd || '');
+  const [saving, setSaving] = useState(false);
+
+  const dayCount = countDaysISO(startDate, endDate);
+  const selected = roster.find((r) => String(r.userId) === String(userId));
+  const targetLabel = mode === 'auto'
+    ? 'kembali ke rotasi otomatis'
+    : mode === '0'
+    ? 'libur (OFF)'
+    : `Shift ${mode}`;
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!userId) return toast.error('Pilih pegawai dulu');
+    if (!dayCount) return toast.error('Rentang tanggal belum benar');
+    setSaving(true);
+    try {
+      await onSave({ userId: Number(userId), mode, startDate, endDate });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <form
+        onSubmit={submit}
+        className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-6 w-full max-w-md max-h-[85vh] overflow-y-auto"
+      >
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-semibold text-gray-800 dark:text-gray-100">
+            Ubah Shift Pegawai — {positionName}
+          </h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none"
+          >
+            ×
+          </button>
+        </div>
+
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
+          Pilih pegawai, shift tujuan, lalu rentang tanggalnya. Perubahan disimpan langsung, ditandai
+          <b> manual ✎</b>, dan <b>tidak tertimpa</b> saat generate ulang. Pilih <b>Auto</b> untuk
+          membatalkan dan kembali ke jadwal rotasi.
+        </p>
+
+        {roster.length === 0 ? (
+          <div className="text-sm text-gray-500 dark:text-gray-400 text-center py-8">
+            Roster masih kosong. Isi roster posisi terlebih dahulu.
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">
+                Pegawai
+              </label>
+              <select
+                value={userId}
+                onChange={(e) => setUserId(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100"
+              >
+                <option value="">-- Pilih pegawai --</option>
+                {roster.map((r) => (
+                  <option key={r.userId} value={r.userId}>
+                    {getUserName(r.user)}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">
+                Shift Tujuan
+              </label>
+              <select
+                value={mode}
+                onChange={(e) => setMode(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100"
+              >
+                <option value="1">Shift 1</option>
+                <option value="2">Shift 2</option>
+                <option value="0">Libur (OFF)</option>
+                <option value="auto">Auto — ikut rotasi otomatis</option>
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">
+                  Dari Tanggal
+                </label>
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">
+                  Sampai Tanggal
+                </label>
+                <input
+                  type="date"
+                  value={endDate}
+                  min={startDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100"
+                />
+              </div>
+            </div>
+
+            {/* Ringkasan ini penting: satu kali simpan bisa mengubah puluhan hari,
+                jadi admin harus tahu berapa hari dan menjadi apa SEBELUM klik. */}
+            <div className="text-xs text-gray-600 dark:text-gray-300 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+              {dayCount > 0 ? (
+                <>
+                  <b>{dayCount} hari</b> akan diubah
+                  {selected ? ` untuk ${getUserName(selected.user)}` : ''} menjadi{' '}
+                  <b>{targetLabel}</b>.
+                </>
+              ) : (
+                'Rentang tanggal belum lengkap.'
+              )}
+            </div>
+
+            <p className="text-[11px] text-amber-600 dark:text-amber-400">
+              Hari yang masih bertanda libur di panel “Atur Hari Libur” tetap dihitung libur saat
+              pembagian jobdesk. Hapus dulu tanda liburnya bila pegawai memang masuk.
+            </p>
+          </div>
+        )}
+
+        <div className="mt-4 flex justify-end gap-2 border-t border-gray-200 dark:border-gray-700 pt-4">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg text-sm hover:bg-gray-300 dark:hover:bg-gray-600 font-medium"
+          >
+            Batal
+          </button>
+          <button
+            type="submit"
+            disabled={saving || roster.length === 0}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 font-medium disabled:opacity-50"
+          >
+            {saving ? 'Menyimpan...' : 'Simpan'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function RotationManagementPage() {
   const [positions, setPositions] = useState([]);
@@ -524,6 +727,7 @@ export default function RotationManagementPage() {
   const [editDate, setEditDate] = useState(null); // tanggal yang sedang diedit (string YYYY-MM-DD)
   const [previewWeek, setPreviewWeek] = useState(() => mondayISO(new Date())); // Senin minggu pratinjau
   const [rosterDraft, setRosterDraft] = useState([]); // urutan rotasi di modal (belum disimpan)
+  const [shiftRangeModal, setShiftRangeModal] = useState(false); // modal "Ubah Shift" (rentang tanggal)
 
   // Current step detection
   const currentStep = !positions.length ? 1
@@ -777,6 +981,69 @@ export default function RotationManagementPage() {
     }
   };
 
+  /**
+   * Ubah shift SATU pegawai untuk RENTANG tanggal dari panel roster.
+   *
+   * Dikerjakan satu tanggal = satu request (bukan endpoint rentang di
+   * /schedules) karena hanya jalur rotasi ini yang mengisi
+   * `temporaryDepartment` sesuai posisi. Kolom itu WAJIB untuk Dapur: distaff
+   * yang ditandai departemen lain akan dilewati saat distribusi jobdesk kitchen
+   * (lihat catatan panjang di RotationService.setScheduleAssignment).
+   *
+   * `mode === 'auto'` = batalkan override, kembali ke hasil rotasi otomatis.
+   * Kegagalan di tengah rentang tidak menghentikan sisa hari: yang sudah
+   * tersimpan tetap tersimpan dan jumlahnya dilaporkan apa adanya, supaya admin
+   * tahu hari mana yang perlu diulang alih-alih menebak.
+   */
+  const handleSaveShiftRange = async ({ userId, mode, startDate, endDate }) => {
+    if (!selectedPosition) return;
+    const days = listDaysISO(startDate, endDate);
+    if (!days.length) return toast.error('Rentang tanggal belum benar');
+    // Satu hari = satu request. Batas ini menjaga admin tidak tanpa sengaja
+    // mengirim ratusan request (mis. rentang setahun) dari salah pilih tanggal.
+    if (days.length > 62) return toast.error('Rentang terlalu panjang (maks. 62 hari). Perpendek rentangnya.');
+
+    let ok = 0;
+    const failed = [];
+    for (const date of days) {
+      try {
+        if (mode === 'auto') {
+          await rotationService.removeScheduleAssignment(selectedPosition.id, { date, userId });
+        } else {
+          await rotationService.setScheduleAssignment(selectedPosition.id, {
+            date,
+            userId,
+            shiftNumber: mode === '0' ? 0 : Number(mode),
+          });
+        }
+        ok += 1;
+      } catch {
+        failed.push(date);
+      }
+    }
+
+    const person = getUserName(roster.find((r) => r.userId === userId)?.user);
+    const what = mode === 'auto' ? 'dikembalikan ke rotasi otomatis' : mode === '0' ? 'diliburkan' : `dipindah ke Shift ${mode}`;
+
+    if (failed.length === 0) {
+      toast.success(`${person}: ${ok} hari ${what}`);
+      setShiftRangeModal(false);
+    } else if (ok === 0) {
+      toast.error(`Gagal menyimpan ${failed.length} hari. Coba lagi.`);
+    } else {
+      toast.error(`${ok} hari tersimpan, ${failed.length} hari gagal (${failed[0]}${failed.length > 1 ? ', …' : ''})`);
+    }
+
+    // Muat ulang hasil bulanan dari server supaya kalender menampilkan apa yang
+    // BENAR-BENAR tersimpan, bukan tebakan dari state lokal.
+    try {
+      const res = await rotationService.getMonthSchedule(selectedPosition.id, month);
+      setMonthSchedule(res.data?.data || []);
+    } catch {
+      // Gagal memuat ulang bukan alasan menggagalkan penyimpanan yang sudah sukses.
+    }
+  };
+
   const addToRoster = (user) => {
     if (roster.find((r) => r.userId === user.id)) return toast.error('User sudah ada di roster');
     // Ditempel di AKHIR urutan rotasi: paling belakang artinya paling akhir
@@ -912,12 +1179,21 @@ export default function RotationManagementPage() {
                     Roster — {selectedPosition.name}
                     <span className="text-xs font-normal text-gray-500">({roster.length} anggota)</span>
                   </h2>
-                  <button
-                    onClick={() => setRosterModal(true)}
-                    className="px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 text-xs font-medium"
-                  >
-                    ✏️ Atur Roster
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => setShiftRangeModal(true)}
+                      className="px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-xs font-medium"
+                      title="Ubah shift satu pegawai untuk beberapa tanggal sekaligus"
+                    >
+                      🔁 Ubah Shift
+                    </button>
+                    <button
+                      onClick={() => setRosterModal(true)}
+                      className="px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 text-xs font-medium"
+                    >
+                      ✏️ Atur Roster
+                    </button>
+                  </div>
                 </div>
 
                 {roster.length === 0 ? (
@@ -956,6 +1232,15 @@ export default function RotationManagementPage() {
                     </div>
                   </div>
                 )}
+
+                {/* Pembagian di atas adalah hasil rotasi otomatis untuk minggu
+                    pratinjau. Tanpa keterangan ini admin mengira daftar S1/S2
+                    bersifat tetap dan tidak tahu bisa dipindah. */}
+                <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-2">
+                  Pembagian di atas hasil rotasi otomatis minggu {previewWeek}. Untuk memindahkan
+                  pegawai ke shift lain, pakai <b>🔁 Ubah Shift</b> (bisa beberapa tanggal sekaligus)
+                  atau klik tanggal di kalender di bawah.
+                </p>
               </div>
 
               {/* ─── Pratinjau rotasi (minggu ini / depan) ─── */}
@@ -1384,6 +1669,20 @@ export default function RotationManagementPage() {
             // Remove solved understaffed
             setUnderstaffed((prev) => prev.filter((u) => u.date !== backupModal.date));
           }}
+        />
+      )}
+
+      {/* ─── Modal Ubah Shift (rentang tanggal) ─── */}
+      {shiftRangeModal && (
+        <ShiftRangeModal
+          positionName={selectedPosition?.name}
+          roster={roster}
+          // Default = minggu pratinjau yang sedang ditampilkan panel Roster,
+          // supaya admin tidak perlu mengetik tanggal dari nol.
+          defaultStart={previewWeek}
+          defaultEnd={addDaysISO(previewWeek, 6)}
+          onClose={() => setShiftRangeModal(false)}
+          onSave={handleSaveShiftRange}
         />
       )}
 

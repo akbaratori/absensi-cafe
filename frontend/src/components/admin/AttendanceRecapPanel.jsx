@@ -2,9 +2,9 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import {
     CalendarRange, RefreshCw, AlertTriangle, Users, Clock, Timer,
     TrendingUp, CalendarDays, Download, ArrowUpDown, Info, Ban,
-    ChevronDown, CalendarCheck,
+    ChevronDown, CalendarCheck, Wallet, FileSpreadsheet,
 } from 'lucide-react';
-import { getAttendanceRecap } from '../../services/attendanceService';
+import { getAttendanceRecap, exportReport } from '../../services/attendanceService';
 
 /**
  * Rekap Absensi Seluruh Pegawai (admin) — periode FLEKSIBEL.
@@ -137,15 +137,26 @@ const AttendanceRecapPanel = () => {
     const [sortDir, setSortDir] = useState('desc');
     const [expandedId, setExpandedId] = useState(null);
     const [showAllDaily, setShowAllDaily] = useState(false);
+    const [exportingDetail, setExportingDetail] = useState(false);
+    // Pesan singkat setelah tombol export ditekan (berhasil/gagal) — supaya
+    // admin tidak menebak-nebak apakah berkasnya jadi diunduh.
+    const [exportNote, setExportNote] = useState(null);
     // Opsi dropdown "diingat": respons yang sudah difilter hanya berisi
     // departemen/pegawai yang lolos filter, sehingga tanpa penggabungan ini
     // pilihan lain akan hilang dan admin tidak bisa kembali memilihnya.
     const [deptOptions, setDeptOptions] = useState([]);
     const [staffOptions, setStaffOptions] = useState([]);
 
-    /** Terjemahkan preset + filter jadi query untuk backend. */
+    /**
+     * Terjemahkan preset + filter jadi query untuk backend.
+     *
+     * `includeSalary` selalu diminta: kartu Estimasi Gaji harus berisi angka
+     * yang sama di setiap kombinasi filter, jadi tidak ada mode yang diam-diam
+     * menyembunyikannya. Kalau tarif pegawai belum diisi, kartunya yang
+     * menjelaskan, bukan angkanya menghilang.
+     */
     const buildParams = useCallback(() => {
-        const base = {};
+        const base = { includeSalary: true };
         if (department) base.department = department;
         if (userId) base.userId = userId;
 
@@ -186,8 +197,7 @@ const AttendanceRecapPanel = () => {
         try {
             const response = await getAttendanceRecap(buildParams());
             // Service mengembalikan SELURUH body respons ({ success, data }),
-            // jadi payload rekap ada di response.data — sama seperti
-            // getDailyReport/getMonthlyReport di ReportsPage.
+            // jadi payload rekap ada di response.data.
             const data = response?.data || {};
             setReport(data);
             const freshDepts = data?.departments || [];
@@ -282,6 +292,49 @@ const AttendanceRecapPanel = () => {
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
+    };
+
+    /**
+     * Export RINCIAN absensi (satu baris = satu absensi) dari server, dengan
+     * rentang & filter yang persis sama seperti tabel rekap di atas.
+     *
+     * Dipindahkan dari halaman Laporan yang dihapus. Rentang diambil dari
+     * `report.period` (bukan dari state preset) supaya "yang diunduh" selalu
+     * sama dengan "yang dihitung backend" — termasuk bentuk `month` yang
+     * backend perluas sendiri jadi tanggal awal/akhir.
+     */
+    const handleExportDetailCsv = async () => {
+        if (!report?.period) return;
+        setExportingDetail(true);
+        setExportNote(null);
+        try {
+            const params = {
+                startDate: report.period.start,
+                endDate: report.period.end,
+            };
+            if (userId) params.userId = Number(userId);
+            if (department) params.department = department;
+
+            const response = await exportReport(params);
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `rincian-absensi_${params.startDate}_${params.endDate}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(url);
+            setExportNote({ ok: true, text: `Rincian absensi ${params.startDate} s/d ${params.endDate} berhasil diunduh.` });
+        } catch (err) {
+            setExportNote({
+                ok: false,
+                text: err?.response?.data?.error?.message
+                    || err?.response?.data?.message
+                    || 'Gagal mengunduh rincian absensi.',
+            });
+        } finally {
+            setExportingDetail(false);
+        }
     };
 
     const sortIcon = (key) => (
@@ -393,9 +446,23 @@ const AttendanceRecapPanel = () => {
                         <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
                         Muat ulang
                     </button>
-                    <button onClick={handleExportCsv} disabled={!employees.length} className={btnCls}>
+                    <button
+                        onClick={handleExportCsv}
+                        disabled={!employees.length}
+                        className={btnCls}
+                        title="Rekap per pegawai (satu baris = satu pegawai) — dibuat di browser dari tabel yang tampil"
+                    >
                         <Download className="w-4 h-4" />
                         CSV
+                    </button>
+                    <button
+                        onClick={handleExportDetailCsv}
+                        disabled={exportingDetail || !report?.period}
+                        className={btnCls}
+                        title="Rincian per absensi (tanggal, jam masuk/pulang, lokasi, bukti foto) untuk rentang yang sedang dipilih"
+                    >
+                        <FileSpreadsheet className={`w-4 h-4 ${exportingDetail ? 'animate-pulse' : ''}`} />
+                        {exportingDetail ? 'Mengunduh...' : 'Rincian CSV'}
                     </button>
                 </div>
             </div>
@@ -473,6 +540,21 @@ const AttendanceRecapPanel = () => {
                     <span>{error}</span>
                 </div>
             )}
+            {exportNote && (
+                <div className={`rounded-lg p-3 text-sm flex items-start gap-2 ${exportNote.ok
+                    ? 'bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300'
+                    : 'bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-700 text-red-700 dark:text-red-300'}`}>
+                    <FileSpreadsheet className="w-4 h-4 mt-0.5 shrink-0" />
+                    <span className="flex-1">{exportNote.text}</span>
+                    <button
+                        type="button"
+                        onClick={() => setExportNote(null)}
+                        className="text-xs underline shrink-0"
+                    >
+                        Tutup
+                    </button>
+                </div>
+            )}
             {loading && !report ? (
                 <div className="flex items-center justify-center py-14 text-gray-400">
                     <RefreshCw className="w-5 h-5 animate-spin mr-2" />
@@ -531,6 +613,38 @@ const AttendanceRecapPanel = () => {
                             border="border-purple-200 dark:border-purple-800"
                         />
                     </div>
+                    {/* ── Estimasi gaji ────────────────────────────────
+                        Dipindahkan dari halaman Laporan yang dihapus. Rumusnya
+                        sama dengan `/admin/reports/monthly`:
+                        total jam ber-clockOut × tarif per jam pegawai. */}
+                    {typeof summary.totalEstimatedSalary === 'number' && (
+                        <div className="rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-900/20 p-4">
+                            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+                                <Wallet className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                                Estimasi Gaji
+                            </h3>
+                            <p className="mt-1.5 text-2xl font-bold text-blue-700 dark:text-blue-300">
+                                Rp {num(summary.totalEstimatedSalary)}
+                            </p>
+                            <p className="text-xs text-gray-600 dark:text-gray-300 mt-1">
+                                {userId
+                                    ? `Untuk ${staffOptions.find((s) => String(s.userId) === String(userId))?.fullName || 'pegawai terpilih'}`
+                                    : `${num(summary.staffWithRate)} pegawai sudah punya tarif per jam`}
+                                {' · '}{dec(summary.totalHours)} jam kerja × tarif per jam.
+                            </p>
+                            {summary.staffWithRate === 0 && (
+                                <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">
+                                    Belum ada pegawai dengan tarif per jam, jadi nilainya Rp 0. Isi tarif di halaman Pengguna.
+                                </p>
+                            )}
+                            {summary.payrollNote && (
+                                <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1.5 flex items-start gap-1">
+                                    <Info className="w-3 h-3 mt-0.5 shrink-0" />
+                                    {summary.payrollNote}
+                                </p>
+                            )}
+                        </div>
+                    )}
                     {/* ── Aturan penilaian telat ─────────────────────── */}
                     <div className="rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-900/20 p-4">
                         <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">

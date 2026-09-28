@@ -25,16 +25,18 @@ frontend/
 │   ├── pages/
 │   │   ├── auth/             # Login page
 │   │   ├── employee/         # Employee pages (dashboard, attendance)
-│   │   └── admin/            # Admin pages (users, reports)
+│   │   └── admin/            # Admin pages (users, data absensi, rekap absensi, jadwal)
 │   ├── services/             # API service layer
 │   │   ├── api.js            # Axios instance with interceptors
 │   │   ├── authService.js    # Auth API calls
 │   │   ├── attendanceService.js  # Attendance API calls
+│   │   ├── scheduleService.js    # Jadwal & shift pegawai (termasuk rentang tanggal)
 │   │   └── adminService.js   # Admin API calls
 │   ├── contexts/             # React contexts
 │   │   └── AuthContext.jsx   # Authentication state
 │   ├── hooks/                # Custom hooks
 │   │   ├── useAsync.js       # Async state management
+│   │   ├── usePersistentToggle.js  # Buka/tutup panel yang diingat per perangkat
 │   │   └── useToast.js       # Toast notifications
 │   ├── utils/                # Utility functions
 │   │   ├── formatters.js     # Date/time/status formatters

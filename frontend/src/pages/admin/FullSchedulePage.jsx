@@ -4,9 +4,11 @@ import { Clock, Calendar, ChefHat, User, Check, X, Edit2, AlertCircle } from 'lu
 import rotationService from '../../services/rotationService';
 import { getAllShifts } from '../../services/shiftService';
 import { updateUserScheduleCell } from '../../services/scheduleService';
+import { getUsers } from '../../services/adminService';
 import BackupPanel from '../../components/admin/BackupPanel';
 import JobdeskFairnessPanel from '../../components/admin/JobdeskFairnessPanel';
 import JobdeskEmployeeSummaryPanel from '../../components/admin/JobdeskEmployeeSummaryPanel';
+import EmployeeShiftEditor from '../../components/admin/EmployeeShiftEditor';
 import Modal from '../../components/shared/Modal';
 import Button from '../../components/shared/Button';
 import { showSuccess, showError } from '../../hooks/useToast';
@@ -165,6 +167,11 @@ export default function FullSchedulePage() {
   // Quick cell edit modal state
   const [allShifts, setAllShifts] = useState([]);
   const [showEditCellModal, setShowEditCellModal] = useState(false);
+  // Dipakai dropdown "Pegawai" saat modal dibuka dari sel kosong. Di-fetch saat
+  // modal pertama kali dibuka, bukan saat halaman dimuat, supaya tidak menambah
+  // beban halaman jadwal.
+  const [employees, setEmployees] = useState([]);
+  const [employeesLoading, setEmployeesLoading] = useState(false);
   const [editCellData, setEditCellData] = useState({
     userId: null,
     userName: '',
@@ -185,10 +192,38 @@ export default function FullSchedulePage() {
     }).catch(() => {});
   }, []);
 
+  useEffect(() => {
+    if (!showEditCellModal || editCellData.userId || employees.length) return;
+    setEmployeesLoading(true);
+    getUsers({ limit: 500, status: 'active', role: 'EMPLOYEE' })
+      .then(res => setEmployees(res?.data?.users || []))
+      .catch(() => showError('Gagal memuat daftar pegawai'))
+      .finally(() => setEmployeesLoading(false));
+  }, [showEditCellModal, editCellData.userId, employees.length]);
+
   const activeMonth = useMemo(() => {
     if (viewMode === 'month') return monthView;
     const d = new Date(`${weekStart}T00:00:00Z`);
     return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+  }, [viewMode, weekStart, monthView]);
+
+  /**
+   * Rentang tanggal yang sedang tampil — dipakai sebagai nilai awal form
+   * "Ubah Shift Pegawai". Mingguan = Senin s/d Minggu, bulanan = tanggal 1 s/d
+   * akhir bulan. Dihitung UTC supaya sama dengan grid jadwal.
+   */
+  const visibleRange = useMemo(() => {
+    if (viewMode === 'week') {
+      const dates = getWeekDates(weekStart);
+      return { start: dates[0], end: dates[dates.length - 1] };
+    }
+    const [y, m] = monthView.split('-').map(Number);
+    if (!y || !m) return { start: '', end: '' };
+    const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    return {
+      start: `${monthView}-01`,
+      end: `${monthView}-${String(lastDay).padStart(2, '0')}`,
+    };
   }, [viewMode, weekStart, monthView]);
 
   useEffect(() => {
@@ -317,8 +352,44 @@ export default function FullSchedulePage() {
     setShowEditCellModal(true);
   };
 
+  /**
+   * Buka modal tambah jadwal dari sel KOSONG.
+   *
+   * Klik pada nama pegawai (`handleCellClick`) selalu tahu shift-nya karena
+   * pegawai itu sudah punya baris jadwal. Di sel kosong tidak ada baris apa pun,
+   * jadi shift diisi dari jumlah slot posisi: posisi dengan 2 kapasitas (atau
+   * tanpa formasi) mengikuti baris "Shift {n}" yang diklik, selebihnya memakai
+   * shift default pegawai sesuai formasi rotasi posisi ini.
+   */
+  const openAddCellModal = (dateISO, position, shiftNum) => {
+    const rosterSize = position.rosters?.length || 0;
+    const defaultShiftNum = rosterSize === 0 || rosterSize === 2 ? shiftNum : null;
+    let foundShiftId = '';
+
+    if (defaultShiftNum && allShifts.length > 0) {
+      const match = allShifts.find(s => s.name.includes(String(defaultShiftNum)));
+      if (match) foundShiftId = match.id;
+    }
+    if (!foundShiftId && allShifts.length > 0) foundShiftId = allShifts[0].id;
+
+    setEditCellData({
+      userId: null,
+      userName: 'Belum dipilih',
+      dateISO,
+      positionId: position.id,
+      positionName: position.name,
+      currentShiftId: foundShiftId || '',
+      currentJobdesk: '',
+      isOff: false,
+      temporaryDepartment: '',
+      jobdesksList: position.jobdesks || [],
+    });
+    setShowEditCellModal(true);
+  };
+
   const handleSaveCell = async (e) => {
     e.preventDefault();
+    if (!editCellData.userId) { showError('Pilih pegawai terlebih dahulu'); return; }
     setSaveLoading(true);
     try {
       await updateUserScheduleCell({
@@ -448,7 +519,19 @@ export default function FullSchedulePage() {
                               <Edit2 className="w-3 h-3 opacity-0 group-hover/cell:opacity-100 text-orange-600 ml-1 flex-shrink-0" />
                             </li>
                           ))}</ul>}
-                          {working.length === 0 && offDay.length === 0 && deployedElsewhere.length === 0 && movedToOtherShift.length === 0 && absent.length === 0 && <span className="text-gray-400 text-xs">&mdash;</span>}
+                          {working.length === 0 && offDay.length === 0 && deployedElsewhere.length === 0 && movedToOtherShift.length === 0 && absent.length === 0 && (
+                            <button
+                              type="button"
+                              onClick={() => openAddCellModal(dl.date, position, shiftNum)}
+                              className="w-full text-left text-gray-300 dark:text-gray-600 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50/60 dark:hover:bg-blue-900/20 rounded px-1 py-0.5 text-xs transition-colors group/add"
+                              title="Tambah jadwal pegawai di hari ini"
+                            >
+                              <span className="inline-flex items-center gap-1">
+                                <span className="text-base leading-none">+</span>
+                                <span className="opacity-0 group-hover/add:opacity-100 whitespace-nowrap">Tambah jadwal</span>
+                              </span>
+                            </button>
+                          )}
                         </td>
                       );
                     })}
@@ -741,6 +824,15 @@ export default function FullSchedulePage() {
           className="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium shadow-sm transition-colors">
           {exporting ? '⏳ Membuat gambar...' : '🖼️ Download Gambar HD'}
         </button>
+        <EmployeeShiftEditor
+          shifts={allShifts}
+          rangeStart={visibleRange.start}
+          rangeEnd={visibleRange.end}
+          onSaved={() => {
+            if (viewMode === 'week') fetchWeek(); else fetchMonth();
+            fetchOffDays(activeMonth);
+          }}
+        />
       </div>
       <div className="flex items-center gap-2 mb-6">
         {viewMode === 'week' ? (
@@ -808,11 +900,14 @@ export default function FullSchedulePage() {
         />
       )}
 
-      {/* Modal Quick Edit Cell Schedule */}
+      {/* Modal Quick Edit Cell Schedule — sekaligus dipakai untuk MENAMBAH
+          jadwal dari sel kosong (saat `editCellData.userId` masih null). */}
       <Modal
         isOpen={showEditCellModal}
         onClose={() => setShowEditCellModal(false)}
-        title={`Edit Jadwal & Stasiun (${editCellData.positionName})`}
+        title={editCellData.userId
+          ? `Edit Jadwal & Stasiun (${editCellData.positionName})`
+          : `Tambah Jadwal (${editCellData.positionName})`}
       >
         <form onSubmit={handleSaveCell} className="space-y-4">
           <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg text-sm">
@@ -821,6 +916,41 @@ export default function FullSchedulePage() {
               Tanggal: <span className="font-mono font-medium">{editCellData.dateISO}</span> &middot; Posisi: <span className="font-medium">{editCellData.positionName}</span>
             </div>
           </div>
+
+          {/* Muncul hanya saat modal dibuka dari sel KOSONG: belum ada pegawai
+              yang bisa ditebak, jadi admin memilihnya di sini. */}
+          {!editCellData.userId && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Pegawai
+              </label>
+              <select
+                value={editCellData.userId || ''}
+                onChange={(e) => {
+                  const id = e.target.value ? Number(e.target.value) : null;
+                  const u = employees.find((x) => String(x.id) === String(id));
+                  setEditCellData({
+                    ...editCellData,
+                    userId: id,
+                    userName: u?.fullName || 'Belum dipilih',
+                    currentJobdesk: '',
+                  });
+                }}
+                className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 focus:border-blue-500 focus:ring-blue-500 text-sm"
+                required
+              >
+                <option value="">{employeesLoading ? 'Memuat pegawai...' : '-- Pilih Pegawai --'}</option>
+                {employees.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.fullName}{u.shift?.name ? ` — ${u.shift.name}` : ''}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                Pegawai ini belum punya jadwal di tanggal tersebut, jadi barisnya akan dibuat baru.
+              </p>
+            </div>
+          )}
 
           <div className="flex items-center gap-2">
             <input

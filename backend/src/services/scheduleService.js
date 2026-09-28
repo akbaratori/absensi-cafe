@@ -4,6 +4,16 @@ const prisma = require('../utils/database');
 /** Format Date → "YYYY-MM-DD" (UTC), dipakai untuk tanggal murni. */
 const toDateStr = (d) => new Date(d).toISOString().slice(0, 10);
 
+/**
+ * Format Date → "YYYY-MM-DD" menurut zona WITA (UTC+8).
+ *
+ * Tanggal jadwal disimpan sebagai tengah malam UTC dari tanggal WITA
+ * (lihat `upsertSingleSchedule`), jadi membaca balik dengan `toISOString()`
+ * masih benar — tapi untuk data lama yang tersimpan tengah malam lokal,
+ * konversi ke WITA ini yang menjaga tanggalnya tidak bergeser sehari.
+ */
+const toWitaDateStr = (d) => new Date(new Date(d).getTime() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
 /** Format (year, month) → "YYYY-MM". */
 const toMonthStr = (year, mon) => `${year}-${String(mon).padStart(2, '0')}`;
 
@@ -759,6 +769,98 @@ class ScheduleService {
                 shift: true
             }
         });
+    }
+
+    /**
+     * Ubah shift/user untuk RENTANG tanggal (dipakai tombol "Ubah shift beberapa
+     * hari" di halaman Jadwal Lengkap).
+     *
+     * Berbeda dari `upsertSingleSchedule` yang memproses satu tanggal:
+     *  - semua tanggal dihitung sebagai hari WITA, jadi rentang "1 s/d 7"
+     *    berarti 7 hari kalender — bukan bergeser karena UTC;
+     *  - tanggal TANPA baris jadwal tetap dibuat, supaya admin bisa menambah
+     *    orang di tanggal yang belum ter-generate tanpa generate ulang;
+     *  - `offDaysSkipped` dihitung HANYA sebagai laporan (mis. "3 hari tetap
+     *    libur"), bukan penghalang perubahan shift.
+     *
+     * @returns {Promise<{updated: number, daysAffected: number, created: number,
+     *   skipped: string[], offDaysSkipped: string[]}>}
+     */
+    async updateUserShiftRange({ userId, startDate, endDate, shiftId, isOffDay }) {
+        const dates = [];
+        const cur = new Date(`${startDate}T00:00:00Z`);
+        const last = new Date(`${endDate}T00:00:00Z`);
+        while (cur <= last) {
+            dates.push(cur.toISOString().slice(0, 10));
+            cur.setUTCDate(cur.getUTCDate() + 1);
+        }
+
+        const first = new Date(`${dates[0]}T00:00:00.000Z`);
+        const lastBoundary = new Date(`${dates[dates.length - 1]}T23:59:59.999Z`);
+
+        const [existing, manualOffDays] = await Promise.all([
+            prisma.userSchedule.findMany({
+                where: { userId, date: { gte: first, lte: lastBoundary } },
+                select: { date: true },
+            }),
+            prisma.manualOffDay.findMany({
+                where: { userId, date: { gte: first, lte: lastBoundary } },
+                select: { date: true },
+            }),
+        ]);
+
+        const existingKeys = new Set(existing.map((r) => toWitaDateStr(r.date)));
+        const manualOffKeys = new Set(manualOffDays.map((r) => toWitaDateStr(r.date)));
+
+        const payload = {
+            shiftId: isOffDay ? null : (shiftId ? parseInt(shiftId) : null),
+            isOffDay: Boolean(isOffDay),
+            kitchenStation: null,
+            isManualOverride: true,
+            temporaryDepartment: null,
+        };
+        if (isOffDay) payload.kitchenStation = null;
+
+        let updated = 0;
+        let created = 0;
+        const offDaysSkipped = [];
+
+        await prisma.$transaction(async (tx) => {
+            for (const dateStr of dates) {
+                if (manualOffKeys.has(dateStr)) offDaysSkipped.push(dateStr);
+
+                // Menandai masuk berarti tanda libur manual untuk hari itu dicabut.
+                if (!isOffDay && manualOffKeys.has(dateStr)) {
+                    await tx.manualOffDay.deleteMany({
+                        where: { userId, date: new Date(`${dateStr}T00:00:00.000Z`) },
+                    });
+                }
+
+                const date = new Date(`${dateStr}T00:00:00.000Z`);
+                if (existingKeys.has(dateStr)) {
+                    // updateMany (bukan update) supaya tetap aman walau ada
+                    // baris ganda akibat data lama.
+                    await tx.userSchedule.updateMany({
+                        where: { userId, date },
+                        data: payload,
+                    });
+                    updated += 1;
+                } else {
+                    await tx.userSchedule.create({
+                        data: { userId, date, ...payload },
+                    });
+                    created += 1;
+                }
+            }
+        });
+
+        return {
+            updated,
+            created,
+            daysAffected: dates.length,
+            skipped: [],
+            offDaysSkipped,
+        };
     }
 
     async checkConflicts(userId, startDateStr, months, options = {}) {

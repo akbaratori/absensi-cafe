@@ -155,6 +155,31 @@ const attendanceRecapQuerySchema = Joi.object({
   date: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).optional(),
   userId: Joi.number().integer().positive().optional(),
   department: Joi.string().trim().max(50).optional().allow('', null),
+  // Opt-in: baru saat ini `hourlyRate`/`estimatedSalary` per pegawai dihitung
+  // dan dikirim. Pola `month` + `userId` sengaja sama dengan
+  // `/admin/reports/monthly`, supaya hasil kedua halaman bisa dibandingkan
+  // angka-per-angka saat migrasi dari halaman Laporan.
+  includeSalary: Joi.boolean().truthy('1', 'true').falsy('0', 'false').optional(),
+});
+
+/**
+ * Export CSV absensi (server-side) untuk rentang tanggal bebas.
+ *
+ * Dipakai tombol export di halaman Rekap Absensi. Nama parameternya
+ * (`startDate`/`endDate`/`userId`) sengaja dipertahankan persis seperti
+ * `/admin/reports/export` supaya pemanggil lama tidak berubah arti.
+ *
+ * CATATAN BUG YANG DIPERBAIKI: route lama memakai `reportQuerySchema`, yang
+ * hanya mengenal `date`/`month`/`userId` dan `stripUnknown: true` — jadi
+ * `startDate`/`endDate` yang dikirim halaman Laporan DIBUANG sebelum sampai ke
+ * `exportToCsv`, dan CSV-nya berisi rentang default, bukan rentang yang dipilih
+ * admin. Skema ini menerima keduanya.
+ */
+const attendanceExportQuerySchema = Joi.object({
+  startDate: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  endDate: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  userId: Joi.number().integer().positive().optional(),
+  department: Joi.string().trim().max(50).optional().allow('', null),
 });
 
 // Validation Middleware Factory
@@ -235,6 +260,7 @@ module.exports = {
   usersQuerySchema,
   reportQuerySchema,
   attendanceRecapQuerySchema,
+  attendanceExportQuerySchema,
   validate,
   validateQuery,
 };

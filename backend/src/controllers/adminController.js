@@ -211,7 +211,7 @@ class AdminController {
    * Rekap absensi seluruh pegawai untuk periode fleksibel
    * GET /api/v1/admin/reports/recap?start=YYYY-MM-DD&end=YYYY-MM-DD
    *                              ?month=YYYY-MM  |  ?date=YYYY-MM-DD
-   *                              &userId=&department=
+   *                              &userId=&department=&includeSalary=1
    */
   getAttendanceRecap = asyncHandler(async (req, res) => {
     const result = await attendanceService.getRecap(req.query);

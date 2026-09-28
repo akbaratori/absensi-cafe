@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { BarChart2, ChevronDown, RefreshCw, AlertTriangle, CheckCircle2, Info } from 'lucide-react';
+import { BarChart2, ChevronDown, RefreshCw, AlertTriangle, CheckCircle2, Info, Eye, EyeOff } from 'lucide-react';
 import { getJobdeskFairness } from '../../services/scheduleService';
+import { usePersistentToggle } from '../../hooks/usePersistentToggle';
 
 /**
  * Rekap Keadilan Jobdesk — "staff A sudah berapa kali dapat jobdesk A/B/C/D/E".
@@ -161,7 +162,13 @@ const JobdeskFairnessPanel = ({ month, onMonthChange }) => {
     const [report, setReport] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
-    const [expanded, setExpanded] = useState(true);
+    // Panel ini sengaja bisa ditutup karena tabelnya lebar dan tidak selalu
+    // dibutuhkan saat admin sedang menyusun jadwal. Pilihannya diingat per
+    // perangkat, jadi cukup ditutup sekali — tidak perlu ditutup tiap kunjungan.
+    const [expanded, toggleExpanded] = usePersistentToggle('schedule.panel.jobdeskFairness', true);
+    // Disembunyikan total (bukan sekadar tertutup): kartunya hilang dari halaman
+    // dan hanya menyisakan satu tombol kecil untuk memunculkannya kembali.
+    const [hidden, , setHidden] = usePersistentToggle('schedule.panel.jobdeskFairness.hidden', false);
 
     const fetchReport = useCallback(async () => {
         if (!month) return;
@@ -182,7 +189,7 @@ const JobdeskFairnessPanel = ({ month, onMonthChange }) => {
         }
     }, [month]);
 
-    useEffect(() => { fetchReport(); }, [fetchReport]);
+    useEffect(() => { if (!hidden) fetchReport(); }, [fetchReport, hidden]);
 
     const roles = report?.roles || [];
     const staff = report?.staff || [];
@@ -214,27 +221,56 @@ const JobdeskFairnessPanel = ({ month, onMonthChange }) => {
             ? { label: 'Belum merata', cls: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300' }
             : { label: 'Sudah merata', cls: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300' };
 
-    return (
-        <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
+    // Keadaan disembunyikan: sisakan satu tombol tipis supaya panel ini TIDAK
+    // pernah hilang permanen — admin bisa memunculkannya sendiri tanpa perlu
+    // siapa pun mengubah kode.
+    if (hidden) {
+        return (
             <button
                 type="button"
-                className="w-full flex items-center justify-between px-5 py-4 bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors"
-                onClick={() => setExpanded(v => !v)}
+                onClick={() => setHidden(false)}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2 text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800/40 hover:bg-gray-100 dark:hover:bg-gray-700/50 border border-dashed border-gray-300 dark:border-gray-600 rounded-xl transition-colors"
+                title="Tampilkan kembali Rekap Keadilan Jobdesk"
             >
-                <div className="flex items-center gap-2 flex-wrap">
-                    <BarChart2 className="w-5 h-5 text-primary-500" />
-                    <span className="font-semibold text-gray-900 dark:text-white">Rekap Keadilan Jobdesk</span>
-                    <span className="text-xs text-gray-500 dark:text-gray-400">
-                        {month} · {staff.length} staff Dapur
-                    </span>
-                    {verdict && (
-                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${verdict.cls}`}>
-                            {verdict.label}
-                        </span>
-                    )}
-                </div>
-                <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+                <Eye className="w-3.5 h-3.5" />
+                Tampilkan Rekap Keadilan Jobdesk
             </button>
+        );
+    }
+
+    return (
+        <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
+            <div className="w-full flex items-center justify-between px-5 py-4 bg-gray-50 dark:bg-gray-800/50">
+                <button
+                    type="button"
+                    className="flex-1 flex items-center justify-between gap-2 text-left hover:opacity-80 transition-opacity"
+                    onClick={toggleExpanded}
+                >
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <BarChart2 className="w-5 h-5 text-primary-500" />
+                        <span className="font-semibold text-gray-900 dark:text-white">Rekap Keadilan Jobdesk</span>
+                        <span className="text-xs text-gray-500 dark:text-gray-400">
+                            {month} · {staff.length} staff Dapur
+                        </span>
+                        {verdict && (
+                            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${verdict.cls}`}>
+                                {verdict.label}
+                            </span>
+                        )}
+                    </div>
+                    <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+                </button>
+                {/* Sembunyikan total — beda dari tombol judul (yang hanya melipat). */}
+                <button
+                    type="button"
+                    onClick={() => setHidden(true)}
+                    className="ml-3 p-1.5 rounded-lg text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                    title="Sembunyikan panel ini dari halaman"
+                    aria-label="Sembunyikan panel Rekap Keadilan Jobdesk"
+                >
+                    <EyeOff className="w-4 h-4" />
+                </button>
+            </div>
 
             {expanded && (
                 <div className="p-4 space-y-4">

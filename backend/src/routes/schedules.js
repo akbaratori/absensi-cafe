@@ -44,6 +44,9 @@ router.post('/closing-config', authorize('ADMIN'), asyncHandler(async (req, res)
 // Update single schedule cell by user & date (Admin only)
 router.put('/user-schedule-cell', authorize('ADMIN'), scheduleController.updateUserScheduleCell);
 
+// Ubah shift satu pegawai untuk RENTANG tanggal (Admin only)
+router.put('/user-shift-range', authorize('ADMIN'), scheduleController.updateUserShiftRange);
+
 // Manual update schedule (Admin only)
 router.put('/:id', authorize('ADMIN'), scheduleController.updateSchedule);
 

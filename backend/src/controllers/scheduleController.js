@@ -212,6 +212,80 @@ class ScheduleController {
         }
     }
 
+    /**
+     * Ubah jadwal SATU pegawai untuk RENTANG tanggal sekaligus.
+     *
+     * Dipakai halaman Jadwal Lengkap: daripada admin mengklik satu sel per hari
+     * (dan lupa salah satu), pilih pegawai → pilih shift → pilih rentang.
+     *
+     * PUT /api/v1/schedules/user-shift-range
+     * body: { userId, startDate, endDate, shiftId, isOffDay }
+     *
+     * Aturan yang dijaga:
+     *  - Tanggal diperlakukan sebagai hari WITA (UTC+8), sama seperti kalender
+     *    yang dilihat admin, supaya "1-7" tidak bergeser sehari.
+     *  - Hari yang DITANDAI LIBUR manual (`manual_off_days`) bisa ditimpa shift,
+     *    karena admin memang sedang menyatakan orangnya masuk. Ini sejalan
+     *    dengan `upsertSingleSchedule` yang menghapus tanda libur saat diberi shift.
+     *  - `shiftId` wajib (kecuali `isOffDay`), supaya tidak ada jadwal menggantung.
+     *  - Tanggal yang jadwalnya belum ada akan DIBUAT, jadi admin tidak perlu
+     *    generate ulang hanya untuk menambah satu orang di tanggal tertentu.
+     */
+    async updateUserShiftRange(req, res, next) {
+        try {
+            const { userId, startDate, endDate, shiftId, isOffDay } = req.body;
+
+            if (!userId || !startDate) {
+                return res.status(400).json({ success: false, message: 'userId dan startDate wajib diisi' });
+            }
+
+            const off = Boolean(isOffDay);
+            if (!off && !shiftId) {
+                return res.status(400).json({ success: false, message: 'shiftId wajib diisi bila tidak menandai libur' });
+            }
+
+            const lastDate = endDate || startDate;
+            if (lastDate < startDate) {
+                return res.status(400).json({ success: false, message: 'endDate tidak boleh sebelum startDate' });
+            }
+
+            const result = await scheduleService.updateUserShiftRange({
+                userId: parseInt(userId),
+                startDate,
+                endDate: lastDate,
+                shiftId: off ? null : parseInt(shiftId),
+                isOffDay: off,
+            });
+
+            // Audit trail — satu catatan untuk satu aksi rentang, bukan per hari,
+            // supaya riwayat perubahan tetap mudah dibaca.
+            const auditService = require('../services/auditService');
+            await auditService.log({
+                userId: req.user.id,
+                action: 'UPDATE',
+                entityType: 'SCHEDULE_RANGE',
+                entityId: String(userId),
+                details: {
+                    userId,
+                    startDate,
+                    endDate: lastDate,
+                    shiftId: off ? null : parseInt(shiftId),
+                    isOffDay: off,
+                    daysAffected: result.daysAffected,
+                },
+            });
+
+            return successResponse(
+                res,
+                200,
+                result,
+                `Jadwal ${result.daysAffected} hari berhasil diperbarui`
+            );
+        } catch (err) {
+            next(err);
+        }
+    }
+
     async deleteSchedule(req, res, next) {
         try {
             const { id } = req.params;

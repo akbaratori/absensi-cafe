@@ -1,26 +1,5 @@
 import api from './api';
 
-export const generateSchedule = async (data) => {
-    const response = await api.post('/schedules/generate', data);
-    return response.data;
-};
-
-export const checkConflicts = async (data) => {
-    const response = await api.post('/schedules/check-conflicts', data);
-    return response.data;
-};
-
-export const distributeKitchenShifts = async (month) => {
-    console.log('[Frontend] distributeKitchenShifts payload:', { month });
-    // Send in both Query and Body to be safe against proxy stripping
-    const response = await api.post(`/schedules/distribute-kitchen?month=${month}`, { month }, {
-        headers: {
-            'Content-Type': 'application/json'
-        }
-    });
-    return response.data;
-};
-
 export const updateSchedule = async (id, data) => {
     const response = await api.put(`/schedules/${id}`, data);
     return response.data;
@@ -38,6 +17,27 @@ export const upsertSingleSchedule = async (data) => {
 
 export const updateUserScheduleCell = async (data) => {
     const response = await api.put('/schedules/user-schedule-cell', data);
+    return response.data;
+};
+
+/**
+ * Ubah shift satu pegawai untuk RENTANG tanggal sekaligus.
+ *
+ * Dipakai tombol "Ubah shift beberapa hari" di halaman Jadwal Lengkap, supaya
+ * admin tidak perlu mengklik satu sel per hari. Tanggal yang belum punya baris
+ * jadwal tetap dibuat di backend, jadi tidak perlu generate ulang.
+ *
+ * @param {Object} data
+ * @param {number} data.userId
+ * @param {string} data.startDate - "YYYY-MM-DD"
+ * @param {string} data.endDate   - "YYYY-MM-DD" (boleh sama dengan startDate)
+ * @param {number} [data.shiftId] - wajib bila `isOffDay` tidak diisi
+ * @param {boolean} [data.isOffDay]
+ * @returns {Promise<{success: boolean, data: {updated: number, created: number,
+ *   daysAffected: number, offDaysSkipped: string[]}}>}
+ */
+export const updateUserShiftRange = async (data) => {
+    const response = await api.put('/schedules/user-shift-range', data);
     return response.data;
 };
 

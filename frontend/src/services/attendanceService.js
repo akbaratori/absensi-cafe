@@ -119,6 +119,11 @@ export const updateAttendance = async (id, data) => {
 
 /**
  * Get daily report (admin)
+ *
+ * Dipakai halaman Laporan dulu; setelah halaman itu dihapus, tidak ada UI yang
+ * memanggilnya lagi. Sengaja TIDAK dihapus supaya kontrak endpoint backend
+ * (`GET /admin/reports/daily`) tetap punya pembungkus di sisi frontend dan
+ * tidak perlu ditulis ulang kalau nanti dipakai lagi.
  */
 export const getDailyReport = async (params = {}) => {
   const response = await api.get('/admin/reports/daily', { params });
@@ -126,7 +131,7 @@ export const getDailyReport = async (params = {}) => {
 };
 
 /**
- * Get monthly report (admin)
+ * Get monthly report (admin) — alasan sama dengan `getDailyReport` di atas.
  */
 export const getMonthlyReport = async (params = {}) => {
   const response = await api.get('/admin/reports/monthly', { params });
@@ -143,12 +148,16 @@ export const getMonthlyReport = async (params = {}) => {
  * @param {string} [params.date]  - "YYYY-MM-DD" preset satu hari
  * @param {number} [params.userId]     - filter satu pegawai
  * @param {string} [params.department] - filter satu departemen
+ * @param {boolean} [params.includeSalary] - true = minta `hourlyRate` +
+ *   `estimatedSalary` per pegawai dan `summary.totalEstimatedSalary` (default
+ *   tidak dikirim, supaya rekap besar tidak membawa data tarif per jam).
  * @returns {Promise<{success: boolean, data: {period, summary, employees, daily,
  *   holidays, departments, staffOptions}}>} seluruh body respons — payload ada
  *   di `.data`, konsisten dengan getDailyReport/getMonthlyReport.
  */
 export const getAttendanceRecap = async (params = {}) => {
   // Buang key kosong/undefined supaya axios tidak mengirim "?start=undefined".
+  // `false` sengaja TIDAK dibuang supaya `includeSalary=false` tetap eksplisit.
   const clean = Object.fromEntries(
     Object.entries(params).filter(([, v]) => v !== '' && v !== null && v !== undefined)
   );
@@ -157,7 +166,18 @@ export const getAttendanceRecap = async (params = {}) => {
 };
 
 /**
- * Export report as CSV (admin)
+ * Export rincian absensi (per record) sebagai CSV dari server (admin).
+ *
+ * Berbeda dari tombol CSV di `AttendanceRecapPanel` yang menyusun CSV di
+ * browser dari tabel rekap: fungsi ini mengambil baris MENTAH tiap absensi
+ * (tanggal, jam masuk/pulang, lokasi peta, bukti foto) untuk rentang & filter
+ * yang sama. Dipindahkan dari halaman Laporan yang dihapus.
+ *
+ * @param {Object} params
+ * @param {string} [params.startDate] - "YYYY-MM-DD"
+ * @param {string} [params.endDate]   - "YYYY-MM-DD"
+ * @param {number} [params.userId]    - filter satu pegawai
+ * @param {string} [params.department] - filter satu departemen
  */
 export const exportReport = async (params = {}) => {
   const response = await api.get('/admin/reports/export', {

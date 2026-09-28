@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { Home, Users, FileText, BarChart3, Settings, LogOut, Clock, Brain, Sparkles, Calendar, CheckSquare, DollarSign, Timer, CalendarRange } from 'lucide-react';
+import { Home, Users, FileText, Settings, LogOut, Clock, Brain, Sparkles, Calendar, CheckSquare, DollarSign, Timer, CalendarRange } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useState } from 'react';
 
@@ -51,6 +51,8 @@ const Sidebar = ({ isOpen, onClose }) => {
       icon: FileText,
     },
     {
+      // Menu "Laporan" (/admin/reports) dihapus — kartu Estimasi Gaji dan
+      // tombol "Rincian CSV" sekarang ada di halaman ini.
       name: 'Rekap Absensi',
       path: '/admin/attendance-recap',
       icon: CalendarRange,
@@ -59,11 +61,6 @@ const Sidebar = ({ isOpen, onClose }) => {
       name: 'Persetujuan Cuti',
       path: '/admin/leaves',
       icon: CheckSquare,
-    },
-    {
-      name: 'Laporan',
-      path: '/admin/reports',
-      icon: BarChart3,
     },
     {
       name: 'Payroll (Gaji)',

@@ -21,7 +21,6 @@ import UsersPage from './pages/admin/UsersPage';
 import AttendanceAdminPage from './pages/admin/AttendanceAdminPage';
 import AttendanceRecapPage from './pages/admin/AttendanceRecapPage';
 import LeaveApprovalPage from './pages/admin/LeaveApprovalPage';
-import ReportsPage from './pages/admin/ReportsPage';
 import SettingsPage from './pages/admin/SettingsPage';
 
 import ShiftManagementPage from './pages/admin/ShiftManagementPage';
@@ -194,14 +193,10 @@ function App() {
               }
             />
 
-            <Route
-              path="/admin/reports"
-              element={
-                <AdminRoute>
-                  <ReportsPage />
-                </AdminRoute>
-              }
-            />
+            {/* Halaman Laporan (`/admin/reports`) dihapus: isinya sudah pindah ke
+                Rekap Absensi (kartu Estimasi Gaji + tombol "Rincian CSV").
+                Endpoint `/admin/reports/*` di backend tetap ada karena masih
+                dipakai Rekap Absensi dan test. */}
 
             <Route
               path="/admin/settings"

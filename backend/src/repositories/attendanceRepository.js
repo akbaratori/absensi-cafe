@@ -228,7 +228,7 @@ class AttendanceRepository {
    * Get all attendance records (admin) with filters
    */
   async findAll(options = {}) {
-    const { page = 1, limit = 50, date, userId, status, startDate, endDate } = options;
+    const { page = 1, limit = 50, date, userId, status, startDate, endDate, department } = options;
 
     const skip = (page - 1) * limit;
 
@@ -249,6 +249,9 @@ class AttendanceRepository {
         },
       }),
       ...(status && { status }),
+      // `department` datang sebagai filter yang sudah tervalidasi (bukan
+      // masukan bebas), jadi aman diteruskan langsung ke relasi user.
+      ...(department && { user: { department } }),
     };
 
     const [records, total] = await Promise.all([

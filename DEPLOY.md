@@ -116,6 +116,51 @@ Endpoint: `GET /api/v1/admin/reports/recap` — **hanya ADMIN** (401 tanpa token
 Filter opsional: `userId` (satu pegawai) dan `department` (satu departemen). Presedensi bila
 beberapa parameter diisi bersamaan: `start`/`end` → `month` → `date`.
 
+### Estimasi Gaji di Rekap Absensi
+
+Halaman ini juga menjadi **rumah** kartu **Estimasi Gaji**, yang dulu hanya ada di halaman
+Laporan (`/admin/reports`) — halaman itu sudah dihapus karena tabelnya menduplikasi
+`Data Absensi` dan `Rekap Absensi` (lihat bagian 9b).
+
+Kirim `includeSalary=true` untuk memanggunya dari API:
+
+| Parameter        | Efek                                                                 |
+| ---------------- | -------------------------------------------------------------------- |
+| `includeSalary=1`/`true` | Menambahkan `hourlyRate` + `estimatedSalary` di tiap `employees[]`, plus `summary.totalEstimatedSalary`, `summary.staffWithRate`, `summary.payrollNote` |
+| (tidak dikirim)  | Tidak ada data tarif per jam di respons — hemat bandwidth untuk rekap besar |
+
+Rumusnya **sengaja identik** dengan `GET /admin/reports/monthly?userId=…`:
+
+```
+estimatedSalary = round(total jam yang PUNYA clockOut × hourlyRate)
+```
+
+Hanya hari yang sudah absen pulang yang dihitung — hari tanpa `clockOut` tidak "ditagih"
+jamnya. `summary.totalEstimatedSalary` = jumlah `estimatedSalary` seluruh pegawai dalam
+filter, jadi kalau `userId` diisi hasilnya persis satu pegawai itu. Pegawai tanpa
+`hourlyRate` dihitung `0`, dan UI menampilkan peringatan bila `summary.staffWithRate === 0`.
+
+`salary`/`hourlyRate` tidak pernah dikirim tanpa `includeSalary=true`, jadi endpoint rekap
+yang lama tidak berubah bentuk untuk pemanggil yang sudah ada.
+
+## 9b. Export CSV dari Rekap Absensi
+
+Ada **dua** tombol CSV di halaman Rekap Absensi, dan keduanya memang berbeda:
+
+| Tombol        | Sumber data | Isinya | Cocok untuk |
+| ------------- | ----------- | ------ | ----------- |
+| **CSV**       | dibuat di browser dari tabel yang tampil | satu baris = satu **pegawai** + angka rekapnya | kirim rekap ringkas ke atasan |
+| **Rincian CSV** | `GET /api/v1/admin/reports/export` (server) | satu baris = satu **absensi** (tanggal, jam masuk/pulang, status, jam kerja, tautan peta, bukti foto) | telusuri satu per satu / audit |
+
+Keduanya memakai rentang & filter yang **sedang aktif** di panel (departemen, pegawai).
+`GET /api/v1/admin/reports/export` menerima `startDate`, `endDate`, `userId`, `department`.
+
+> **Bug yang diperbaiki:** route export dulu divalidasi `reportQuerySchema`, yang hanya
+> mengenal `date`/`month`/`userId` sementara validator memakai `stripUnknown: true`. Akibatnya
+> `startDate`/`endDate` dari UI **dibuang sebelum** sampai ke service, sehingga CSV yang
+> diunduh selalu berisi rentang default. Sekarang dipakai `attendanceExportQuerySchema` yang
+> menerima `startDate`/`endDate`.
+
 Isi balasan (`data`):
 
 - `period` — `{ start, end, days }`, tepi rentang **inklusif**;
@@ -161,6 +206,24 @@ sehingga `summary` selalu `undefined` dan seluruh halaman `Rekap Absensi` mati d
 ditangkap `ErrorBoundary` menjadi layar "Terjadi Kesalahan". Halaman lain yang lupa
 `.data` akan gagal dengan pola yang sama — selalu cek `res.body.data` di tes
 (mis. `backend/tests/attendanceRecap.test.js`) sebagai acuan bentuk yang benar.
+
+## 9b. Export CSV dari Rekap Absensi
+
+Ada **dua** tombol CSV di halaman Rekap Absensi, dan keduanya memang berbeda:
+
+| Tombol        | Sumber data | Isinya | Cocok untuk |
+| ------------- | ----------- | ------ | ----------- |
+| **CSV**       | dibuat di browser dari tabel yang tampil | satu baris = satu **pegawai** + angka rekapnya | kirim rekap ringkas ke atasan |
+| **Rincian CSV** | `GET /api/v1/admin/reports/export` (server) | satu baris = satu **absensi** (tanggal, jam masuk/pulang, status, jam kerja, tautan peta, bukti foto) | telusuri satu per satu / audit |
+
+Keduanya memakai rentang & filter yang **sedang aktif** di panel (departemen, pegawai).
+`GET /api/v1/admin/reports/export` menerima `startDate`, `endDate`, `userId`, `department`.
+
+> **Bug yang diperbaiki:** route export dulu divalidasi `reportQuerySchema`, yang hanya
+> mengenal `date`/`month`/`userId` sementara validator memakai `stripUnknown: true`. Akibatnya
+> `startDate`/`endDate` dari UI **dibuang sebelum** sampai ke service, sehingga CSV yang
+> diunduh selalu berisi rentang default. Sekarang dipakai `attendanceExportQuerySchema` yang
+> menerima `startDate`/`endDate`.
 
 ## 10. Ikon PWA
 
