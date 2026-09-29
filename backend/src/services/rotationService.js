@@ -750,12 +750,15 @@ class RotationService {
         where: {
           OR: pairs.map((p) => ({ userId: p.userId, date: p.date })),
         },
-        select: { userId: true, date: true, isManualOverride: true },
+        select: { userId: true, date: true, isManualOverride: true, kitchenStation: true },
       });
-      const overrideSet = new Set(
+      // Staff yang jobdesknya dikunci admin: jadwal TIDAK ditimpa, dan log
+      // wajib berisi nilai admin itu (bukan nilai auto), supaya laporan
+      // selalu sama dengan jadwal yang benar-benar dipakai staf.
+      const overrideSet = new Map(
         existingRows
           .filter((r) => r.isManualOverride)
-          .map((r) => `${r.userId}_${r.date.toISOString()}`),
+          .map((r) => [`${r.userId}_${r.date.toISOString()}`, r.kitchenStation]),
       );
 
       // Hapus baris auto minggu ini: (a) milik anggota roster saat ini, dan
@@ -859,9 +862,14 @@ class RotationService {
 
         const logs = [];
         for (const p of pairs) {
+          const keyOv = `${p.userId}_${p.date.toISOString()}`;
           const dateISO = toISO(p.date);
-          const station = jobdeskByKey.get(`${p.userId}_${dateISO}`);
-          if (!station) continue; // hari libur / tidak dapat jobdesk → tidak dicatat
+          // Manual override: pakai jobdesk hasil admin, bukan hasil rotasi.
+          // Nilai null (admin menandai libur) -> tidak dicatat sama sekali.
+          const station = overrideSet.has(keyOv)
+            ? overrideSet.get(keyOv)
+            : jobdeskByKey.get(`${p.userId}_${dateISO}`);
+          if (!station) continue;
           logs.push(this._kitchenLogRow(
             p.date,
             p.userId,

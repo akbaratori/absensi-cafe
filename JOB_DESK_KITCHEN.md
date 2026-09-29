@@ -128,6 +128,11 @@ Empat hal yang perlu diketahui admin:
    kini hari libur ikut menghapus log lamanya, supaya tidak ada "hari hantu":
    staf dihitung memegang huruf padahal sedang libur.
 
+   **Manual override** (`isManualOverride = true`): jadwalnya tidak pernah
+   ditimpa generator, dan log-nya ditulis dengan **nilai yang admin atur**
+   (bukan nilai hasil rotasi) — jadi laporan selalu sama dengan jadwal. Kalau
+   admin menandai staf libur lewat manual override, tidak ada log hari itu.
+
 > Jadwal yang terlanjur tidak cocok dengan laporan cukup diperbaiki dengan
 > menjalankan ulang **Admin → Jadwal → Generate Bulanan** untuk bulan terkait.
 > Proses ini menimpa jadwal dan log periode itu secara idempoten.

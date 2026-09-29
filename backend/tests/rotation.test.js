@@ -170,6 +170,21 @@ describe('Fairness rotasi jobdesk Kitchen (huruf A-D)', () => {
     expect(body).toContain('kitchenJobdeskLog.deleteMany');
   });
 
+  // Bug kelas sama, jalur ketiga: staf yang jobdesknya DIKUNCI admin
+  // (isManualOverride) jadwalnya tidak ditimpa. Dulu log-nya ditulis pakai
+  // nilai AUTO, sehingga laporan melaporkan huruf yang tidak pernah mereka
+  // pegang (terukur: 6 baris log menyimpang dari jadwal, Okt 2026). Sekarang
+  // log manual override memakai nilai ADMIN (kitchenStation) -> laporan =
+  // jadwal persis; nilai admin null (ditandai libur) tidak dicatat.
+  it('generateWeek menulis log manual override dengan nilai admin', () => {
+    const srcService = fs.readFileSync(require.resolve('../src/services/rotationService'), 'utf8');
+    const start = srcService.indexOf('Catat log keputusan jobdesk Kitchen');
+    expect(start).toBeGreaterThan(-1);
+    const block = srcService.slice(start, srcService.indexOf('if (logs.length', start));
+    expect(block).toContain('overrideSet.has');
+    expect(block).toContain('overrideSet.get');
+  });
+
   it('_kitchenLogRow membentuk baris log sesuai kolom laporan', () => {
     const date = new Date(Date.UTC(2026, 9, 5));
     const row = rotationService._kitchenLogRow(date, 101, 'Main Cook / Support Cook + Runner', 4);
