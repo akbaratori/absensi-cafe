@@ -3,6 +3,136 @@ const rotationService = require('../src/services/rotationService');
 const { AppError } = require('../src/utils/AppError');
 const { parseShiftNumber, loadShiftMapByNumber } = require('../src/utils/shiftResolver');
 
+/**
+ * Fairness rotasi jobdesk Kitchen (huruf A–D) — pengganti rotasi
+ * `dayOffset % jumlah staff yang masuk`.
+ *
+ * Bug yang dijaga di sini (terukur di laporan bulanan jobdesk Kitchen):
+ *   1. Rotasi lama memakai `dayOffset % n` dengan n = jumlah staff HARI ITU.
+ *      Setiap n berubah (3 ↔ 4 ↔ 5 karena libur/sakit), fase rotasi teracak
+ *      dan satu orang bisa menumpuk satu huruf: Oktober 2026 (kehadiran 4
+ *      staff identik) menghasilkan A=10 vs D=6 pada orang yang sama — gap 4,
+ *      di atas ambang FAIRNESS_GAP_THRESHOLD = 3.
+ *   2. Sort prioritas setelah rotasi paket membatalkan geseran paket, jadi
+ *      "rotasi paket" lama tidak pernah benar-benar berputar.
+ *   3. Saat jumlah staff > jumlah paket (5 masuk, 4 paket), staf ke-5 dapat
+ *      potongan kosong → bekerja tanpa jobdesk sama sekali (roleCode '').
+ *
+ * Sekarang: setiap paket diberikan ke staff yang jumlah huruf paket itu
+ * paling sedikit di riwayat periode (bulan) — rotasi tetap jalan sebagai
+ * tie-break. Tes di bawah memakai kehadiran BERGANTI-GANTI (4/5/4/5/4),
+ * skenario terburuk September, dan menuntut gap ≤ 3 tiap staff.
+ */
+describe('Fairness rotasi jobdesk Kitchen (huruf A-D)', () => {
+  const JOBDESKS = ['Main Cook / Support Cook', 'Support Cook', 'Checker + Plating + Dishwasher', 'Runner + Helper'];
+  const STAFF = [101, 102, 103, 104, 105];
+  const QUEUE = new Map([
+    [101, { userId: 101, queueIndex: 0 }],
+    [102, { userId: 102, queueIndex: 1 }],
+    [103, { userId: 103, queueIndex: 2 }],
+    [104, { userId: 104, queueIndex: 3 }],
+    [105, { userId: 105, queueIndex: 4 }],
+  ]);
+  const ROSTER = new Map(STAFF.map((u, i) => [u, i]));
+  const blank = () => ({ A: 0, B: 0, C: 0, D: 0, total: 0 });
+  const dayOffsetEpoch = (d) => Math.floor(d.getTime() / 86400000);
+  // Dedup per huruf: sehari 'Checker + Plating' = 1x C, sama seperti laporan.
+  const countLetters = (agg, roleCode) => {
+    for (const L of rotationService._kitchenLettersOfRoleCode(roleCode)) agg[L] += 1;
+  };
+
+  /** Jumlahkan huruf tiap staff setelah N hari sesuai pola kehadiran.
+   * opts.resetAtDay = indeks hari saat guard periode bulanan menyegarkan
+   * counts (mimik `_kitchenPeriodKey` di generateWeek) — agg pun direset
+   * supaya pengukuran hanya mencakup huruf bulan baru. */
+  const runDays = (pattern, nDays, opts = {}) => {
+    const { resetAtDay = -1 } = opts;
+    let counts = new Map(STAFF.map((u) => [u, blank()]));
+    let agg = new Map(STAFF.map((u) => [u, blank()]));
+    const t0 = Date.UTC(2026, 10, 2); // Senin 2026-11-02
+    for (let i = 0; i < nDays; i += 1) {
+      if (i === resetAtDay) {
+        counts = new Map(STAFF.map((u) => [u, blank()]));
+        agg = new Map(STAFF.map((u) => [u, blank()]));
+      }
+      const dateObj = new Date(t0 + i * 86400000);
+      const present = pattern(i);
+      if (!present.length) continue;
+      const assign = rotationService._assignKitchenByQueue(
+        JOBDESKS, present, QUEUE, ROSTER, dayOffsetEpoch(dateObj), counts
+      );
+      rotationService._applyKitchenDayToCounts(counts, assign);
+      for (const uid of present) {
+        countLetters(agg.get(uid), assign.get(uid)?.roleCode || '');
+      }
+    }
+    return agg;
+  };
+
+  const gapOf = (a) => Math.max(a.A, a.B, a.C, a.D) - Math.min(a.A, a.B, a.C, a.D);
+
+  it('kehadiran berubah-ubah (4/5/4/5/4) tetap merata: gap maks ≤ 3 per staff', () => {
+    const pattern = (i) => STAFF.slice(0, i % 2 === 0 ? 4 : 5);
+    const agg = runDays(pattern, 20);
+    for (const uid of STAFF) {
+      const a = agg.get(uid);
+      expect(gapOf(a)).toBeLessThanOrEqual(3);
+    }
+    // Staf ke-5 (hanya masuk saat 5 orang) tetap kebagian jobdesk.
+    expect(agg.get(105).A + agg.get(105).B + agg.get(105).C + agg.get(105).D).toBeGreaterThan(0);
+  });
+
+  it('5 staff & 4 paket: SEMUA staff dapat jobdesk (tidak ada roleCode kosong)', () => {
+    const counts = new Map(STAFF.map((u) => [u, blank()]));
+    for (let i = 0; i < 12; i += 1) {
+      const assign = rotationService._assignKitchenByQueue(
+        JOBDESKS, STAFF, QUEUE, ROSTER, dayOffsetEpoch(new Date(Date.UTC(2026, 10, 2 + i))), counts
+      );
+      rotationService._applyKitchenDayToCounts(counts, assign);
+      for (const uid of STAFF) {
+        expect(String(assign.get(uid)?.roleCode || '').length).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it('semua staff masuk tiap hari: gap maks ≤ 2 dalam sebulan', () => {
+    const agg = runDays(() => STAFF.slice(0, 4), 28);
+    for (const uid of STAFF.slice(0, 4)) {
+      expect(gapOf(agg.get(uid))).toBeLessThanOrEqual(2);
+    }
+  });
+
+  it('musim libur: 3 staff, tidak ada yang menumpuk satu huruf', () => {
+    const agg = runDays(() => STAFF.slice(0, 3), 28);
+    for (const uid of STAFF.slice(0, 3)) {
+      expect(gapOf(agg.get(uid))).toBeLessThanOrEqual(3);
+    }
+  });
+
+  it('kunci periode bulanan berubah saat ganti bulan (guard reset counts)', () => {
+    const key = (d) => rotationService._kitchenPeriodKey(d);
+    expect(key(new Date(Date.UTC(2026, 9, 1)))).toBe('2026-10');
+    expect(key(new Date(Date.UTC(2026, 9, 31)))).toBe('2026-10');
+    expect(key(new Date(Date.UTC(2026, 10, 1)))).toBe('2026-11');
+    expect(key(new Date(Date.UTC(2026, 10, 1)))).not.toBe(key(new Date(Date.UTC(2026, 9, 31))));
+    // String ISO dan Date harus menghasilkan kunci yang sama.
+    expect(key('2026-11-02')).toBe(key(new Date(Date.UTC(2026, 10, 2))));
+  });
+
+  it('bulan baru mulai dari nol: huruf bulan lama tidak terbawa', () => {
+    // 10 hari = "akhir bulan", lalu guard periode menyegarkan counts,
+    // lalu 20 hari bulan baru yang diukur tersendiri.
+    const agg = runDays((i) => STAFF.slice(0, i % 2 === 0 ? 4 : 5), 30, { resetAtDay: 10 });
+    for (const uid of STAFF) {
+      const a = agg.get(uid);
+      expect(gapOf(a)).toBeLessThanOrEqual(3);
+      // 20 hari bulan baru => tak ada huruf yang bisa melebihi ~6 hari.
+      expect(Math.max(a.A, a.B, a.C, a.D)).toBeLessThanOrEqual(8);
+    }
+  });
+});
+
+
 // DB test ini remote (Aiven), jadi satu test bisa butuh puluhan detik:
 // `generateMonth` menulis ratusan baris satu per satu. Batas bawaan Jest 5 detik
 // membuat test idempotensi gagal karena WAKTU, bukan karena logika rotasi.

@@ -26,6 +26,14 @@ const { loadShiftMapByNumber } = require('../utils/shiftResolver');
  *
  * `roster.shiftNumber` TIDAK dipakai untuk menentukan shift hasil generate —
  * hanya sebagai catatan pengaturan admin. Lihat dokumentasi di generateWeek().
+ *
+ * CATATAN: ini berlaku untuk rotasi SHIFT. Rotasi JOBDESK Kitchen (huruf A–D)
+ * memakai aturan terpisah — TIDAK `dayOffset % n`. Karena n (staff yang masuk
+ * hari itu) berubah-ubah, pola `n` itu mengacak fase dan satu huruf menumpuk
+ * pada orang yang sama (terukur: Oktober 2026, 4 staff komposisi identik →
+ * A=10 vs D=6, gap 4). Sekarang tiap staff mengambil paket jobdesk yang
+ * hurufnya paling jarang ia pegang dalam BULAN berjalan; `dayOffset` hanya
+ * tie-break terakhir. Detail: _assignKitchenByQueue() & _spreadKitchenPackages().
  */
 
 function toDateOnly(date) {
@@ -787,24 +795,41 @@ class RotationService {
           : new Map();
         const rank = new Map(allRosterIds.map((uid, i) => [uid, i]));
 
-        weekDates.forEach((dateObj, dayIdx) => {
+        // Jumlah huruf A–D per staff dalam BULAN berjalan — dasar pemerataan di
+        // _spreadKitchenPackages. Dimuat dari log setiap bulan berganti, lalu
+        // diakumulasi per hari supaya keputusan hari ini melihat hasil hari
+        // sebelumnya di periode yang sama (satu minggu tidak perlu tunggu DB).
+        let kitchenPeriodKey = null;
+        let kitchenCounts = new Map();
+
+        for (const [dayIdx, dateObj] of weekDates.entries()) {
           const dateISO = toISO(dateObj);
           // Staff yang bekerja hari ini (tidak libur).
           const working = assignments
             .filter((a) => !isOffOn(a.userId, dateObj))
             .map((a) => a.userId);
-          if (!working.length) return;
+          if (!working.length) continue;
+
+          if (isKitchenPos) {
+            const key = this._kitchenPeriodKey(dateObj);
+            if (key !== kitchenPeriodKey) {
+              kitchenPeriodKey = key;
+              kitchenCounts = await this._kitchenLetterCounts(allRosterIds, dateObj);
+            }
+          }
 
           const assign = isKitchenPos
-            ? this._assignKitchenByQueue(jobdeskList, working, stateMap, rank, dayOffsetEpoch(dateObj))
+            ? this._assignKitchenByQueue(jobdeskList, working, stateMap, rank, dayOffsetEpoch(dateObj), kitchenCounts)
             : this.assignKitchenStations(jobdeskList, this._sortKitchenByQueue(working, new Map(), rank), dayIdx);
+
+          if (isKitchenPos) this._applyKitchenDayToCounts(kitchenCounts, assign);
 
           working.forEach((uid) => {
             const entry = assign.get(uid);
             const jobs = Array.isArray(entry) ? entry : entry?.jobs || [];
             if (jobs.length) jobdeskByKey.set(`${uid}_${dateISO}`, jobs.join(' + '));
           });
-        });
+        }
       }
 
       // ---- Catat log keputusan jobdesk Kitchen (untuk laporan bulanan) ----
@@ -1044,11 +1069,21 @@ class RotationService {
 
         // Antrian tetap Kitchen (queueIndex) — sama seperti yang dipakai generateWeek.
         const stateMap = await this._getOrSeedKitchenStates(position.id, rosterUserIds);
+        // Jumlah huruf A–D per BULAN (periode pemerataan) — dasar pemerataan,
+        // sama dengan generateWeek. Dimuat ulang setiap bulan berganti.
+        let kitchenPeriodKey = null;
+        let kitchenCounts = new Map();
 
         for (const rawDate of dateObjs) {
           const dateObj = new Date(rawDate);
           if (isNaN(dateObj.getTime())) continue;
           dateObj.setUTCHours(0, 0, 0, 0);
+
+          const periodKey = this._kitchenPeriodKey(dateObj);
+          if (periodKey !== kitchenPeriodKey) {
+            kitchenPeriodKey = periodKey;
+            kitchenCounts = await this._kitchenLetterCounts(rosterUserIds, dateObj);
+          }
 
           const userSchedules = await prisma.userSchedule.findMany({
             where: {
@@ -1098,8 +1133,10 @@ class RotationService {
             working,
             stateMap,
             rosterOrder,
-            dayOffsetEpoch(dateObj)
+            dayOffsetEpoch(dateObj),
+            kitchenCounts
           );
+          this._applyKitchenDayToCounts(kitchenCounts, assign);
 
           // Tulis ke DB
           for (const uid of working) {
@@ -2771,24 +2808,140 @@ class RotationService {
   }
 
   /**
+   * Huruf rekap A–D dari sebuah roleCode ('CHECKER+PLATING' → ['C']).
+   *
+   * SATU hari dihitung SEKALI per huruf, sama persis dengan pengelompokan
+   * laporan (JOBDESK_ROLES.group di scheduleService): 'Checker + Plating +
+   * Dishwasher' menyumbang 1x C, bukan 3x. Ini metrik yang diukur laporan
+   * bulanan, jadi rotasi harus mengincar angka yang sama.
+   *
+   * @param {String} roleCode - hasil _kitchenPackagesAssigned(), dipisah '+'
+   * @returns {String[]} huruf unik, urutan A,B,C,D
+   */
+  _kitchenLettersOfRoleCode(roleCode) {
+    const LETTER = {
+      MAIN: 'A',
+      SUPPORT: 'B',
+      CHECKER: 'C',
+      PLATING: 'C',
+      DISHWASHER: 'C',
+      RUNNER: 'D',
+      HELPER: 'D',
+    };
+    const set = new Set();
+    for (const code of String(roleCode || '').split('+').filter(Boolean)) {
+      if (LETTER[code]) set.add(LETTER[code]);
+    }
+    return ['A', 'B', 'C', 'D'].filter((L) => set.has(L));
+  }
+
+  /** Huruf A–D dari satu paket jobdesk (lihat _kitchenLettersOfRoleCode). */
+  _kitchenLettersOfPack(pack) {
+    return this._kitchenLettersOfRoleCode(this._kitchenPackagesAssigned(pack));
+  }
+
+  /**
+   * Kunci periode pemerataan untuk sebuah tanggal = bulan kalender 'YYYY-MM'.
+   * Sama dengan jendela laporan bulanan (getKitchenJobdeskMonthlyReport).
+   */
+  _kitchenPeriodKey(dateObj) {
+    const d = dateObj instanceof Date ? dateObj : new Date(dateObj);
+    if (isNaN(d.getTime())) return null;
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+  }
+
+  /**
+   * Jumlah huruf A–D yang sudah dipegang tiap staff di DALAM bulan yang sama
+   * dengan `beforeDate` (sebelum tanggal itu), dibaca dari KitchenJobdeskLog.
+   *
+   * Inilah yang membuat rotasi tahan terhadap perubahan kehadiran. Sebelumnya
+   * rotasi hanya memakai aritmetika tanggal (dayOffset % jumlah staff yang
+   * masuk), sehingga setiap perubahan jumlah staff (3 ↔ 4 ↔ 5) mengacak fase
+   * dan huruf tertentu menumpuk pada orang yang sama — terbukti pada data
+   * Oktober 2026: kehadiran 4 staff identik, tetap menghasilkan A=10 vs D=6.
+   *
+   * Dibatasi satu bulan dengan sengaja: yang dinilai laporan adalah selisih
+   * antar huruf DALAM satu bulan, jadi kompensasi terhadap ketimpangan bulan
+   * lalu justru memunculkan ketimpangan baru di bulan berjalan.
+   *
+   * @param {Number[]} userIds
+   * @param {Date|null} beforeDate - hitung log STRICTLY sebelum tanggal ini
+   * @returns {Map} userId -> { A, B, C, D, total }
+   */
+  async _kitchenLetterCounts(userIds, beforeDate) {
+    const blank = () => ({ A: 0, B: 0, C: 0, D: 0, total: 0 });
+    const counts = new Map((userIds || []).map((u) => [u, blank()]));
+    if (!counts.size || !beforeDate) return counts;
+
+    try {
+      const ref = beforeDate instanceof Date ? beforeDate : new Date(beforeDate);
+      const periodStart = new Date(Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth(), 1));
+      const logs = await prisma.kitchenJobdeskLog.findMany({
+        where: {
+          userId: { in: [...counts.keys()] },
+          date: { gte: periodStart, lt: toDateOnly(ref) },
+        },
+        select: { userId: true, roleCode: true },
+      });
+      for (const log of logs) {
+        const c = counts.get(log.userId);
+        if (!c) continue;
+        const letters = this._kitchenLettersOfRoleCode(log.roleCode);
+        for (const L of letters) c[L] += 1;
+        c.total += letters.length;
+      }
+    } catch (err) {
+      console.warn('[rotation] Gagal baca jumlah huruf jobdesk dari log:', err?.message);
+    }
+    return counts;
+  }
+
+  /**
+   * Tambah `counts` dengan keputusan satu hari. Dipakai saat men-generate
+   * beberapa hari sekaligus supaya hari berikutnya melihat hasil hari
+   * sebelumnya (menjamin merata DI DALAM minggu yang sama, bukan hanya
+   * antar-minggu).
+   *
+   * @param {Map} counts - userId -> { A, B, C, D, total }
+   * @param {Map} assign - hasil _assignKitchenByQueue untuk satu hari
+   */
+  _applyKitchenDayToCounts(counts, assign) {
+    const blank = () => ({ A: 0, B: 0, C: 0, D: 0, total: 0 });
+    for (const [uid, entry] of assign || []) {
+      const c = counts.get(uid) || blank();
+      const letters = this._kitchenLettersOfRoleCode(entry?.roleCode || '');
+      for (const L of letters) c[L] = (c[L] || 0) + 1;
+      c.total = (c.total || 0) + letters.length;
+      counts.set(uid, c);
+    }
+    return counts;
+  }
+
+  /**
    * Tentukan siapa dapat jobdesk apa untuk satu hari, memakai antrian tetap.
    *
-   * Aturan:
+   * Aturan (v3 — pemerataan huruf A–D):
    *   1. Staff diurutkan menurut `queueIndex` (permanent) — kehadiran orang lain
    *      TIDAK mengubah urutan ini.
-   *   2. Paket yang tersedia hari itu diurutkan menurut KITCHEN_PRIORITY_ORDER.
-   *   3. Paket dibagikan ke staff, tetapi urutan penerimaannya dirotasi tiap hari
-   *      (`dayOffset`) sehingga yang paling diutamakan bergilir — bukan selalu
-   *      orang yang sama.
-   *   4. Antar-staff, urutan penerimaan dirotasi menurut beban historis
-   *      (`loadMap`) supaya akumulasi jobdesk berat merata dalam jangka panjang.
+   *   2. Paket yang tersedia hari itu diurutkan menurut KITCHEN_PRIORITY_ORDER
+   *      (hanya untuk penamaan pelaporan; BUKAN penentu siapa-dapat-apa).
+   *   3. Setiap staff mengambil paket yang HURUFNYA paling jarang ia pegang
+   *      dalam periode berjalan (`counts`). Yang paling timpang dilayani dulu.
+   *      Ini menggantikan `dayOffset % jumlah staff` lama: rotasi lama kacau
+   *      setiap kali jumlah staff berubah (3 ↔ 4 ↔ 5 karena libur/sakit) dan
+   *      membuat satu huruf menumpuk pada orang yang sama.
+   *   4. `dayOffset` tetap dipakai, tapi HANYA sebagai tie-break terakhir
+   *      (giliran duduk), supaya keputusan tetap deterministik dan berputar.
+   *   5. Staff berlebih (mis. 5 staff, 4 paket) ikut paket PENUH, bukan
+   *      potongan kosong — tidak ada lagi staff bekerja tanpa jobdesk.
    *
    * @param {String[]} jobdeskList - nama jobdesk posisi (urut orderIndex)
    * @param {Number[]} workingUserIds - staff yang MASUK KERJA hari itu
    * @param {Map} stateMap - userId -> { queueIndex }
    * @param {Map} rosterOrderMap - userId -> orderIndex roster (cadangan urutan)
    * @param {Number} dayOffset - penghitung rotasi harian (mis. indeks hari)
-   * @param {Map} loadMap - userId -> bobot historis (opsional)
+   * @param {Map} counts - userId -> { A, B, C, D, total } huruf yang sudah
+   *   dipikul tiap staff dalam periode berjalan (lihat _kitchenLetterCounts)
    * @returns {Map} userId -> { jobs: String[], roleCode: String }
    */
   _assignKitchenByQueue(
@@ -2797,7 +2950,7 @@ class RotationService {
     stateMap,
     rosterOrderMap = new Map(),
     dayOffset = 0,
-    loadMap = new Map()
+    counts = new Map()
   ) {
     const result = new Map();
     if (!workingUserIds.length) return result;
@@ -2815,84 +2968,116 @@ class RotationService {
       );
       return result;
     }
-    return this._spreadKitchenPackages(ordered, packages, dayOffset, result);
+    return this._spreadKitchenPackages(ordered, packages, dayOffset, result, counts);
   }
 
   /**
    * Bagikan paket jobdesk ke staff (dipisah agar mudah diuji & dibaca).
    *
-   * Prinsip (penting, jangan diubah tanpa uji):
-   *   - ROTASI ditentukan MURNI oleh antrian tetap + hari. Staff ke-i dalam
-   *     antrian selalu menerima paket ke-(i + hari) dari daftar paket yang
-   *     dirotasi. Jadi rotasi TIDAK PERNAH bisa dibekukan oleh faktor lain.
-   *   - Paket diurutkan menurut KITCHEN_PRIORITY_ORDER supaya slot 0 selalu
-   *     berarti "jobdesk paling utama" — dipakai untuk pelaporan, bukan untuk
-   *     menentukan siapa dapat apa.
+   * Strategi "greedy pemerataan huruf":
+   *   - Paket diurutkan menurut KITCHEN_PRIORITY_ORDER (slot 0 = jobdesk
+   *     paling utama) — dipakai untuk penamaan pelaporan, bukan penentu
+   *     siapa-dapat-apa.
+   *   - Setiap paket diberikan ke staff yang jumlah huruf paket itu paling
+   *     SEDIKIT di riwayat (`counts`). Imbang → total huruf terkecil → urutan
+   *     rotasi harian. Dengan kata lain rotasi tetap jalan, tapi hanya sebagai
+   *     TIE-BREAK, bukan penentu — sehingga perubahan jumlah staff yang masuk
+   *     (3 ↔ 4 ↔ 5) tidak lagi mengacak fase dan menumpuk huruf pada satu orang.
+   *   - Staff berlebih (mis. 5 staff, 4 paket): sisa staff ikut paket yang
+   *     hurufnya paling kurang mereka pegang, memegang paket PENUH — bukan
+   *     potongan kosong (bug lama membuat staff ke-5 tanpa jobdesk sama sekali).
+   *
+   * @param {Array} ordered - userId terurut antrian (_sortKitchenByQueue)
+   * @param {Array} packages - hasil buildKitchenPackages (belum prioritas)
+   * @param {Number} dayOffset
+   * @param {Map} result - diisi userId -> { jobs, roleCode }
+   * @param {Map} counts - userId -> { A, B, C, D, total }
    */
-  _spreadKitchenPackages(ordered, packages, dayOffset, result) {
-    const n = ordered.length;
-    const m = packages.length;
-    const wOf = (pack) => this._kitchenPackageWeight(pack);
-
-    // 1. Rotasi paket per hari: paket digeser agar slot 0 bukan selalu paket
-    //    yang sama → yang memegang jobdesk utama bergilir tiap hari.
-    const shift = ((dayOffset % m) + m) % m;
-    const rotated = [...packages.slice(shift), ...packages.slice(0, shift)];
-
-    // 2. Urutkan paket yang sudah dirotasi menurut KITCHEN_PRIORITY_ORDER
-    //    supaya penamaan slot konsisten (slot 0 = jobdesk paling utama).
+  _spreadKitchenPackages(ordered, packages, dayOffset, result, counts = new Map()) {
     const priority = this._kitchenPriorityOrder();
     const rankOf = (pack) => {
       const first = (pack || []).map((x) => this._kitchenRoleOf(x)).find(Boolean);
       const idx = priority.indexOf(first);
       return idx === -1 ? priority.length : idx;
     };
-    const slotPacks = [...rotated].sort((x, y) => rankOf(x) - rankOf(y));
 
-    // 3. Susun urutan staff penerima. Basis: antrian tetap (rotasi pasti jalan).
-    //    Perataan beban HANYA menggeser urutan di antara staff yang bebannya
-    //    berbeda, dan hanya untuk paket yang bobotnya sama — tidak pernah
-    //    mengubah giliran paket utama.
-    const rot = ((dayOffset % n) + n) % n;
-    const queueOrder = [...ordered.slice(rot), ...ordered.slice(0, rot)];
+    const slotPacks = [...packages].sort((x, y) => rankOf(x) - rankOf(y));
+    if (!slotPacks.length) return result;
 
-    // Rotasi paket per-slot untuk staff: staff ke-k menerima slotPacks ke-k,
-    // lalu slot dirotasi per hari agar tidak macet.
-    const nPack = slotPacks.length;
+    const zero = () => ({ A: 0, B: 0, C: 0, D: 0, total: 0 });
+    const counterOf = (uid) => counts.get(uid) || zero();
+    const n = ordered.length || 1;
+    const seatOf = new Map(ordered.map((uid, i) => [uid, i]));
+    const turnOf = (uid) => {
+      const seat = seatOf.get(uid);
+      return seat == null ? Number.MAX_SAFE_INTEGER : ((seat - dayOffset) % n + n) % n;
+    };
+    // Banding dua kunci greedy: [puncak huruf, jumlah huruf tujuan, total, giliran].
+    const better = (a, b) => {
+      for (let i = 0; i < a.length; i += 1) {
+        if (a[i] !== b[i]) return a[i] - b[i];
+      }
+      return 0;
+    };
 
-    // Staff tambahan (bila staff > paket) ditempelkan ke paket terbesar.
-    const extras = queueOrder.slice(nPack);
-
-    queueOrder.slice(0, nPack).forEach((uid, k) => {
-      const pack = slotPacks[k] || [];
-      result.set(uid, { jobs: pack, roleCode: this._kitchenPackagesAssigned(pack) });
+    // Staff yang paling timpang (max huruf tertinggi) diisi lebih dulu, lalu
+    // tiap staff mengambil paket yang hurufnya paling JARANG mereka pegang.
+    // Dengan begitu staff yang jarang masuk (kehadiran lebih sedikit) TIDAK
+    // menumpuk di slot awal (Main/Support) gara-gara total harinya kecil —
+    // mereka tetap mendapat campuran A–D.
+    const behindOf = (uid) => {
+      const c = counterOf(uid);
+      return Math.max(c.A || 0, c.B || 0, c.C || 0, c.D || 0);
+    };
+    const pool = [...ordered].sort((a, b) => {
+      const da = behindOf(a);
+      const db = behindOf(b);
+      if (da !== db) return db - da;
+      const ta = counterOf(a).total || 0;
+      const tb = counterOf(b).total || 0;
+      if (ta !== tb) return tb - ta;
+      return turnOf(a) - turnOf(b);
     });
+    const pickPack = (uid, candidates) => {
+      const c = counterOf(uid);
+      let bestPack = candidates[0];
+      let bestKey = null;
+      for (let k = 0; k < candidates.length; k += 1) {
+        const pack = candidates[k];
+        const letters = this._kitchenLettersOfPack(pack);
+        const key = [
+          letters.length ? Math.max(...letters.map((L) => c[L] || 0)) : 0,
+          letters.reduce((s, L) => s + (c[L] || 0), 0),
+          rankOf(pack),
+        ];
+        if (bestKey === null || better(key, bestKey) < 0) {
+          bestKey = key;
+          bestPack = pack;
+        }
+      }
+      return bestPack;
+    };
 
-    if (!extras.length) return result;
-
-    // Cari paket terberat untuk dibagi dengan staff berlebih.
-    let hostIdx = 0;
-    for (let k = 1; k < nPack; k++) {
-      if (wOf(slotPacks[k]) > wOf(slotPacks[hostIdx])) hostIdx = k;
+    const assigned = new Map(); // uid -> pack
+    const remaining = [...slotPacks];
+    for (const uid of pool) {
+      if (!remaining.length) break;
+      const pack = pickPack(uid, remaining);
+      remaining.splice(remaining.indexOf(pack), 1);
+      assigned.set(uid, pack);
     }
-    const hostUid = queueOrder[hostIdx];
-    const hostEntry = result.get(hostUid);
-    if (!hostEntry) return result;
+    for (const [uid, pack] of assigned) {
+      result.set(uid, { jobs: pack, roleCode: this._kitchenPackagesAssigned(pack) });
+    }
 
-    const jobs = hostEntry.jobs;
-    const groups = Math.min(extras.length + 1, Math.max(jobs.length, 2));
-    const per = Math.max(1, Math.ceil(jobs.length / groups));
-
-    hostEntry.jobs = jobs.slice(0, per);
-    hostEntry.roleCode = this._kitchenPackagesAssigned(hostEntry.jobs);
-
-    extras.forEach((uid, i) => {
-      const slice = jobs.slice(per * (i + 1), per * (i + 2));
-      result.set(uid, {
-        jobs: slice,
-        roleCode: this._kitchenPackagesAssigned(slice),
-      });
-    });
+    // Staff berlebih (mis. 5 staff, 4 paket): ambil paket PENUH yang hurufnya
+    // paling jarang mereka pegang, bukan potongan kosong (bug lama: staff ke-5
+    // bekerja tanpa jobdesk sama sekali).
+    for (const uid of pool) {
+      if (assigned.has(uid)) continue;
+      const bestPack = pickPack(uid, slotPacks);
+      result.set(uid, { jobs: bestPack, roleCode: this._kitchenPackagesAssigned(bestPack) });
+    }
 
     return result;
   }
