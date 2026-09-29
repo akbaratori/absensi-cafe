@@ -65,8 +65,9 @@ dipakai oleh `generateWeek()` (generate mingguan) dan
    `Checker / Stock + Plating` pada orang yang sama — tidak pernah dipecah.
    Kalau `Plating` dihapus dari daftar jobdesk, tugas plating tetap bagian
    dari Checker (lihat panduan role C di halaman Jadwal staf).
-4. **Pemegang paket berputar tiap hari** (`dayIdx`), jadi tidak ada orang yang
-   pegang jobdesk berat terus-menerus.
+4. **Pemegang paket berputar tiap hari**, dan **fase rotasinya di-reset setiap
+   tanggal 1** (lihat § 2c). Tidak ada orang yang pegang jobdesk berat
+   terus-menerus, dan tiap bulan mulai dari fase yang sama.
 5. **Baris dengan `isManualOverride = true` tidak pernah ditimpa** — jobdesk yang
    diatur manual oleh admin dipertahankan.
 
@@ -90,6 +91,46 @@ memegang stasiun itu:
    stok) — sistem otomatis melewatinya ke kandidat adil berikutnya.
 4. **Maksimal 1 peran kontrol per orang per hari** (PIC Stok / Shift PIC /
    Sanitasi tidak boleh menumpuk di satu orang).
+
+---
+
+## 2c. Fase Rotasi Bulanan (berlaku sejak Oktober 2026)
+
+Pembagian jobdesk Kitchen dihitung **per bulan kalender dan berdiri sendiri**.
+Empat hal yang perlu diketahui admin:
+
+1. **Fase di-reset tiap tanggal 1.** `dayOffset` = `tanggal − 1` (tanggal 1 → 0,
+   tanggal 15 → 14, tanggal 31 → 30), bukan jumlah hari sejak epoch. Efeknya: dua
+   bulan dengan komposisi kehadiran identik menghasilkan **peta huruf yang
+   identik**; fase tidak lagi bergeser sendiri saat ganti bulan.
+2. **Tidak ada koreksi antar bulan.** Kalau seorang staf menumpuk satu huruf di
+   akhir Oktober, November mulai dengan hitungan nol — November tidak "membayar
+   utang" Oktober. Ini disengaja, supaya rekap bisa dinilai per periode gajian.
+3. **`queueIndex` (posisi antrian) tetap permanen, tidak ikut di-reset.** Nilainya
+   ada di tabel `KitchenJobdeskState` dan hanya berubah lewat endpoint rotasi
+   (dihitung ulang dari roster). Perubahan fase di § ini **tidak butuh migrasi
+   database**.
+4. **Dua sumber angka, keduanya wajib ditulis bersamaan.** Jadwal yang dipakai
+   staf ada di `user_schedules.kitchen_station` (dibaca panel rekap admin &
+   rekap personal staff), sedangkan laporan rotasi bulanan
+   (`getKitchenJobdeskMonthlyReport`) membaca tabel `kitchenJobdeskLog` —
+   angka di sana diambil apa adanya saat generate, tidak dihitung ulang saat
+   dibaca, jadi laporan lama tetap sah walau algoritma berganti. Kalau hanya
+   salah satu yang ditulis, dua tampilan itu pasti berbeda. Semua jalur
+   penulis jadwal karena itu WAJIB menulis keduanya:
+
+   - `generateWeek` (generate mingguan/bulanan)
+   - `distributeKitchenJobdesksForDates` (setelah swap shift / off-day)
+
+   Jalur kedua dulu hanya menulis jadwal tanpa log — itu sebabnya laporan
+   Oktober 2026 sempat melapor sebaran huruf yang berbeda dari jadwal yang
+   benar-benar dipakai (selisih 5 kemunculan huruf pada 1–4 Oktober). Sekaligus
+   kini hari libur ikut menghapus log lamanya, supaya tidak ada "hari hantu":
+   staf dihitung memegang huruf padahal sedang libur.
+
+> Jadwal yang terlanjur tidak cocok dengan laporan cukup diperbaiki dengan
+> menjalankan ulang **Admin → Jadwal → Generate Bulanan** untuk bulan terkait.
+> Proses ini menimpa jadwal dan log periode itu secara idempoten.
 
 ---
 

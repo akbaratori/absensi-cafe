@@ -1,3 +1,4 @@
+const fs = require('fs');
 const prisma = require('../src/utils/database');
 const rotationService = require('../src/services/rotationService');
 const { AppError } = require('../src/utils/AppError');
@@ -35,7 +36,7 @@ describe('Fairness rotasi jobdesk Kitchen (huruf A-D)', () => {
   ]);
   const ROSTER = new Map(STAFF.map((u, i) => [u, i]));
   const blank = () => ({ A: 0, B: 0, C: 0, D: 0, total: 0 });
-  const dayOffsetEpoch = (d) => Math.floor(d.getTime() / 86400000);
+  const dayOffset = rotationService.dayOffsetOfMonth; // fase reset tiap tanggal 1
   // Dedup per huruf: sehari 'Checker + Plating' = 1x C, sama seperti laporan.
   const countLetters = (agg, roleCode) => {
     for (const L of rotationService._kitchenLettersOfRoleCode(roleCode)) agg[L] += 1;
@@ -59,7 +60,7 @@ describe('Fairness rotasi jobdesk Kitchen (huruf A-D)', () => {
       const present = pattern(i);
       if (!present.length) continue;
       const assign = rotationService._assignKitchenByQueue(
-        JOBDESKS, present, QUEUE, ROSTER, dayOffsetEpoch(dateObj), counts
+        JOBDESKS, present, QUEUE, ROSTER, dayOffset(dateObj), counts
       );
       rotationService._applyKitchenDayToCounts(counts, assign);
       for (const uid of present) {
@@ -86,7 +87,7 @@ describe('Fairness rotasi jobdesk Kitchen (huruf A-D)', () => {
     const counts = new Map(STAFF.map((u) => [u, blank()]));
     for (let i = 0; i < 12; i += 1) {
       const assign = rotationService._assignKitchenByQueue(
-        JOBDESKS, STAFF, QUEUE, ROSTER, dayOffsetEpoch(new Date(Date.UTC(2026, 10, 2 + i))), counts
+        JOBDESKS, STAFF, QUEUE, ROSTER, dayOffset(new Date(Date.UTC(2026, 10, 2 + i))), counts
       );
       rotationService._applyKitchenDayToCounts(counts, assign);
       for (const uid of STAFF) {
@@ -129,6 +130,57 @@ describe('Fairness rotasi jobdesk Kitchen (huruf A-D)', () => {
       // 20 hari bulan baru => tak ada huruf yang bisa melebihi ~6 hari.
       expect(Math.max(a.A, a.B, a.C, a.D)).toBeLessThanOrEqual(8);
     }
+  });
+
+  it('fase antrian direset setiap tanggal 1 (bukan berlanjut dari bulan lama)', () => {
+    // dayOffset HANYA tie-break, tapi dulu ia angka epoch yang terus naik.
+    // Sekarang tanggal 1 selalu 0, tanggal 2 selalu 1, dst.
+    expect(dayOffset(new Date(Date.UTC(2026, 9, 1)))).toBe(0);
+    expect(dayOffset(new Date(Date.UTC(2026, 9, 15)))).toBe(14);
+    expect(dayOffset(new Date(Date.UTC(2026, 9, 31)))).toBe(30);
+    expect(dayOffset(new Date(Date.UTC(2026, 10, 1)))).toBe(0); // ganti bulan -> 0 lagi
+    // String ISO harus sama hasilnya dengan Date.
+    expect(dayOffset('2026-11-01')).toBe(0);
+  });
+
+  it('komposisi bulan identik -> distribusi huruf identik (fase tidak lompat)', () => {
+    // Regresi bug skew Oktober: dulu fase bergeser tiap ganti bulan karena
+    // offset epoch. Dengan offset per-bulan, dua bulan dengan kehadiran &
+    // antrian sama persis menghasilkan PETA huruf yang sama persis.
+    const monthA = runDays((i) => STAFF.slice(0, i % 2 === 0 ? 4 : 5), 20);
+    const monthB = runDays((i) => STAFF.slice(0, i % 2 === 0 ? 4 : 5), 20);
+    for (const uid of STAFF) {
+      expect(monthB.get(uid)).toEqual(monthA.get(uid));
+    }
+  });
+
+  // ---- Laporan jobdesk membaca tabel log, jadi SEMUA jalur penulis jadwal
+  // harus menulis log. Sebelum perbaikan ini, redistribusi (swap/off-day)
+  // hanya menulis userSchedule.kitchenStation sehingga laporan selisih
+  // dengan jadwal aktual (terukur: 5 selisih huruf pada 1-4 Okt 2026).
+  it('redistribusi kitchen ikut menulis kitchenJobdeskLog', () => {
+    const srcService = fs.readFileSync(require.resolve('../src/services/rotationService'), 'utf8');
+    const start = srcService.indexOf('async distributeKitchenJobdesksForDates');
+    expect(start).toBeGreaterThan(-1);
+    // badan fungsi redistribusi, sampai method berikutnya
+    const body = srcService.slice(start, srcService.indexOf('\n  async ', start + 10));
+    expect(body).toContain('_writeKitchenJobdeskLogs');
+    expect(body).toContain('_kitchenLogRow');
+    // hari libur: log lama ikut DIHAPUS, bukan ditinggal jadi "hari hantu"
+    expect(body).toContain('kitchenJobdeskLog.deleteMany');
+  });
+
+  it('_kitchenLogRow membentuk baris log sesuai kolom laporan', () => {
+    const date = new Date(Date.UTC(2026, 9, 5));
+    const row = rotationService._kitchenLogRow(date, 101, 'Main Cook / Support Cook + Runner', 4);
+    expect(row).toEqual({
+      date,
+      userId: 101,
+      roleCode: 'MAIN+RUNNER',
+      packagesAssigned: 'Main Cook / Support Cook + Runner',
+      workingCount: 4,
+      rotationVersion: 2,
+    });
   });
 });
 

@@ -28,12 +28,13 @@ const { loadShiftMapByNumber } = require('../utils/shiftResolver');
  * hanya sebagai catatan pengaturan admin. Lihat dokumentasi di generateWeek().
  *
  * CATATAN: ini berlaku untuk rotasi SHIFT. Rotasi JOBDESK Kitchen (huruf A–D)
- * memakai aturan terpisah — TIDAK `dayOffset % n`. Karena n (staff yang masuk
- * hari itu) berubah-ubah, pola `n` itu mengacak fase dan satu huruf menumpuk
- * pada orang yang sama (terukur: Oktober 2026, 4 staff komposisi identik →
- * A=10 vs D=6, gap 4). Sekarang tiap staff mengambil paket jobdesk yang
- * hurufnya paling jarang ia pegang dalam BULAN berjalan; `dayOffset` hanya
- * tie-break terakhir. Detail: _assignKitchenByQueue() & _spreadKitchenPackages().
+ * memakai aturan terpisah — TIDAK `dayOffset % n`. Fase antrian di-RESET setiap
+ * tanggal 1 supaya tiap bulan berdiri sendiri (tidak ada koreksi antar bulan).
+ * Karena n (staff masuk hari itu) berubah-ubah, pola `n` itu mengacak fase dan
+ * satu huruf menumpuk pada orang yang sama (terukur: Oktober 2026, 4 staff
+ * komposisi identik → A=10 vs D=6, gap 4). Sekarang tiap staff mengambil paket
+ * jobdesk yang hurufnya paling jarang ia pegang dalam BULAN berjalan; `dayOffset`
+ * hanya tie-break terakhir. Detail: _assignKitchenByQueue() & _spreadKitchenPackages().
  */
 
 function toDateOnly(date) {
@@ -89,14 +90,26 @@ function mod(n, m) {
   return ((n % m) + m) % m;
 }
 
+
 /**
- * Indeks hari sejak epoch (1970-01-01 UTC). Dipakai sebagai `dayOffset` rotasi
- * Kitchen agar hasilnya KONSISTEN di semua jalur pemanggil: menghasilkan
- * jobdesk yang sama untuk tanggal yang sama, tak peduli minggu mana yang
- * sedang digenerate maupun urutan tanggal yang diproses.
+ * Indeks hari DALAM bulan berjalan (tanggal 1 = 0), dipakai sebagai `dayOffset`
+ * rotasi jobdesk Kitchen.
+ *
+ * Berbeda dari hitungan "hari sejak epoch" yang terus berlanjut ke bulan
+ * berikutnya, nilai ini di-RESET setiap tanggal 1: fase antrian jobdesk mulai
+ * dari nol lagi tiap bulan. Karena penghitung huruf A–D juga di-reset per bulan
+ * (_kitchenPeriodKey), satu bulan sepenuhnya berdiri sendiri — tidak ada
+ * koreksi otomatis dari ketimpangan bulan sebelumnya, sesuai keputusan desain.
+ *
+ * Konsekuensi yang disengaja: staff yang menumpuk satu huruf di akhir bulan
+ * tidak mendapat kompensasi di bulan depan. Sebagai gantinya, pola rotasi tiap
+ * bulan bisa diprediksi dan dinilai berdiri sendiri per periode gajian.
+ *
+ * Tetap murni fungsi dari tanggal (tidak menyimpan state), jadi generate ulang
+ * tanggal yang sama selalu menghasilkan jobdesk yang sama.
  */
-function dayOffsetEpoch(date) {
-  return Math.floor(toDateOnly(date).getTime() / 86400000);
+function dayOffsetOfMonth(date) {
+  return toDateOnly(date).getUTCDate() - 1;
 }
 
 class RotationService {
@@ -819,7 +832,7 @@ class RotationService {
           }
 
           const assign = isKitchenPos
-            ? this._assignKitchenByQueue(jobdeskList, working, stateMap, rank, dayOffsetEpoch(dateObj), kitchenCounts)
+            ? this._assignKitchenByQueue(jobdeskList, working, stateMap, rank, dayOffsetOfMonth(dateObj), kitchenCounts)
             : this.assignKitchenStations(jobdeskList, this._sortKitchenByQueue(working, new Map(), rank), dayIdx);
 
           if (isKitchenPos) this._applyKitchenDayToCounts(kitchenCounts, assign);
@@ -849,18 +862,12 @@ class RotationService {
           const dateISO = toISO(p.date);
           const station = jobdeskByKey.get(`${p.userId}_${dateISO}`);
           if (!station) continue; // hari libur / tidak dapat jobdesk → tidak dicatat
-          logs.push({
-            date: p.date,
-            userId: p.userId,
-            roleCode: station
-              .split(' + ')
-              .map((name) => this._kitchenRoleOf(name))
-              .filter(Boolean)
-              .join('+'),
-            packagesAssigned: station,
-            workingCount: assignments.filter((a) => !isOffOn(a.userId, p.date)).length,
-            rotationVersion: 2,
-          });
+          logs.push(this._kitchenLogRow(
+            p.date,
+            p.userId,
+            station,
+            assignments.filter((a) => !isOffOn(a.userId, p.date)).length
+          ));
         }
 
         if (logs.length && logDateFrom && logDateTo) {
@@ -868,10 +875,7 @@ class RotationService {
           // menjalankan ulang minggu yang sama menimpa, bukan menggandakan.
           // Log lama (rotationVersion=1, pra-antrian) tidak tersentuh karena
           // tanggalnya di luar rentang yang digenerate.
-          await prisma.kitchenJobdeskLog.deleteMany({
-            where: { date: { gte: logDateFrom, lte: logDateTo } },
-          });
-          await prisma.kitchenJobdeskLog.createMany({ data: logs });
+          await this._writeKitchenJobdeskLogs(logs, { gte: logDateFrom, lte: logDateTo });
         }
       }
 
@@ -1101,11 +1105,21 @@ class RotationService {
             userSchedules.filter((s) => s.isManualOverride).map((s) => s.userId)
           );
 
-          const off = userSchedules.filter((s) => s.isOffDay).map((s) => s.userId);
+          // Staff libur hari ini: jobdesk dinolkan. Manual override tidak
+          // boleh disentuh (keputusan admin), jadi disaring di sini.
+          const off = userSchedules
+            .filter((s) => s.isOffDay && !s.isManualOverride)
+            .map((s) => s.userId);
           if (off.length) {
             await prisma.userSchedule.updateMany({
               where: { date: dateObj, userId: { in: off }, isManualOverride: false },
               data: { kitchenStation: null },
+            });
+            // Log hari itu HARUS ikut dihapus. generateWeek tidak mencatat
+            // hari libur, jadi meninggalkan baris lamanya = hari hantu di
+            // laporan bulanan (staf dihitung pegang huruf padahal sedang libur).
+            await prisma.kitchenJobdeskLog.deleteMany({
+              where: { date: dateObj, userId: { in: off } },
             });
           }
 
@@ -1125,20 +1139,32 @@ class RotationService {
 
           if (!working.length) continue;
 
-          // Rotasi harian memakai indeks hari sejak epoch — SAMA dengan
-          // generateWeek, supaya kedua jalur menghasilkan jobdesk identik
-          // untuk tanggal yang sama.
+          // Fase rotasi = hari-dalam-bulan, SAMA seperti generateWeek, supaya
+          // kedua jalur menghasilkan jobdesk identik untuk tanggal yang sama
+          // dengan komposisi staf & antrian yang sama.
           const assign = this._assignKitchenByQueue(
             jobdeskList,
             working,
             stateMap,
             rosterOrder,
-            dayOffsetEpoch(dateObj),
+            dayOffsetOfMonth(dateObj),
             kitchenCounts
           );
           this._applyKitchenDayToCounts(kitchenCounts, assign);
 
-          // Tulis ke DB
+          // Tulis ke DB: jadwal (userSchedule.kitchenStation) DAN log laporan
+          // bulanan (kitchenJobdeskLog) WAJIB sinkron. Kalau hanya jadwal yang
+          // ditulis, laporan membaca keputusan rotasi yang berbeda dari yang
+          // benar-benar dipakai staff — persis selisih yang pernah terlihat di
+          // 1-4 Okt 2026 setelah swap/off-day.
+          //
+          // onDuty = staff masuk kerja hari itu, termasuk yang jobdesknya
+          // terkunci manual (generateWeek menghitungnya juga lewat isOffOn).
+          const onDuty = userSchedules.filter(
+            (s) => !s.isOffDay && KITCHEN_DEPTS.has(s.temporaryDepartment)
+          ).length;
+
+          const dayLogs = [];
           for (const uid of working) {
             const entry = assign.get(uid);
             const jobs = Array.isArray(entry) ? entry : entry?.jobs || [];
@@ -1147,7 +1173,16 @@ class RotationService {
               where: { date: dateObj, userId: uid, isManualOverride: false },
               data: { kitchenStation: stationStr },
             });
+            if (stationStr) {
+              dayLogs.push(this._kitchenLogRow(dateObj, uid, stationStr, onDuty));
+            }
           }
+
+          // Hapus log hari ini HANYA untuk staff yang jobdesknya ditulis ulang
+          // di atas, lalu tulis ulang. Staff manual override tidak tersentuh
+          // (jobdesknya terkunci manual), dan hari tanpa paket → log dihapus
+          // supaya tidak ada baris yatim di laporan.
+          await this._writeKitchenJobdeskLogs(dayLogs, dateObj, working);
         }
       }
     } catch (err) {
@@ -2918,6 +2953,55 @@ class RotationService {
   }
 
   /**
+   * Bentuk satu baris log keputusan jobdesk Kitchen; dipakai bersama oleh
+   * generateWeek (mingguan) dan distributeKitchenJobdesksForDates (swap/off-day)
+   * supaya kedua jalur penulis jadwal menulis log dengan bentuk identik.
+   *
+   * @param {Date} date - tanggal kerja (UTC midnight)
+   * @param {Number} userId
+   * @param {String} station - nama jobdesk gabungan
+   * @param {Number} workingCount - berapa staff masuk kerja hari itu
+   * @returns {Object} baris siap createMany()
+   */
+  _kitchenLogRow(date, userId, station, workingCount = 0) {
+    return {
+      date,
+      userId,
+      roleCode: station
+        .split(' + ')
+        .map((name) => this._kitchenRoleOf(name))
+        .filter(Boolean)
+        .join('+'),
+      packagesAssigned: station,
+      workingCount,
+      rotationVersion: 2,
+    };
+  }
+
+  /**
+   * Tulis log jobdesk Kitchen secara idempoten: hapus log lama pada rentang
+   * sama, lalu tulis ulang (generate ulang menimpa, bukan menggandakan).
+   *
+   * Dua pemanggil wajib: generateWeek (rentang penuh/minggu) dan
+   * distributeKitchenJobdesksForDates (per tanggal, dibatasi userIds yang
+   * jobdesknya ditulis ulang, supaya log staff manual override tidak terhapus).
+   *
+   * @param {Object[]} logs - baris dari _kitchenLogRow()
+   * @param {Date|Object} dateFilter - satu Date, atau { gte, lte } / { in }
+   * @param {Number[]|null} userIds - batasi penghapusan ke user ini saja
+   * @returns {Number} jumlah baris yang ditulis
+   */
+  async _writeKitchenJobdeskLogs(logs, dateFilter, userIds = null) {
+    const where = { date: dateFilter };
+    if (userIds) where.userId = { in: userIds };
+    await prisma.kitchenJobdeskLog.deleteMany({ where });
+    if (logs && logs.length) {
+      await prisma.kitchenJobdeskLog.createMany({ data: logs });
+    }
+    return logs ? logs.length : 0;
+  }
+
+  /**
    * Tentukan siapa dapat jobdesk apa untuk satu hari, memakai antrian tetap.
    *
    * Aturan (v3 — pemerataan huruf A–D):
@@ -2939,7 +3023,9 @@ class RotationService {
    * @param {Number[]} workingUserIds - staff yang MASUK KERJA hari itu
    * @param {Map} stateMap - userId -> { queueIndex }
    * @param {Map} rosterOrderMap - userId -> orderIndex roster (cadangan urutan)
-   * @param {Number} dayOffset - penghitung rotasi harian (mis. indeks hari)
+   * @param {Number} dayOffset - hari-dalam-bulan (tanggal − 1, lihat
+   *   dayOffsetOfMonth) — direset tiap tanggal 1; HANYA tie-break, bukan
+   *   penentu utama siapa-dapat-apa
    * @param {Map} counts - userId -> { A, B, C, D, total } huruf yang sudah
    *   dipikul tiap staff dalam periode berjalan (lihat _kitchenLetterCounts)
    * @returns {Map} userId -> { jobs: String[], roleCode: String }
@@ -3084,6 +3170,10 @@ class RotationService {
 }
 
 module.exports = new RotationService();
+
+// Diekspor supaya tes & pemanggil luar bisa memverifikasi fase antrian Kitchen
+// benar-benar di-reset setiap tanggal 1 (lihat dayOffsetOfMonth).
+module.exports.dayOffsetOfMonth = dayOffsetOfMonth;
 
 /**
  * Urutan prioritas jobdesk Kitchen — dipakai untuk menentukan staff mana
