@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { BarChart2, ChevronDown, RefreshCw, AlertTriangle, CheckCircle2, Info, Eye, EyeOff } from 'lucide-react';
-import { getJobdeskFairness } from '../../services/scheduleService';
+import { BarChart2, ChevronDown, RefreshCw, AlertTriangle, CheckCircle2, Info, Eye, EyeOff, Pencil, X, Save } from 'lucide-react';
+import { getJobdeskFairness, adjustJobdeskFairness } from '../../services/scheduleService';
 import { usePersistentToggle } from '../../hooks/usePersistentToggle';
 
 /**
@@ -21,7 +21,11 @@ import { usePersistentToggle } from '../../hooks/usePersistentToggle';
  * Isi rekap: sorotan, tabel staff × jobdesk, dan baris ringkasan per jobdesk.
  * Dipisah dari panel agar bagian fetch dan bagian tampilan tidak menumpuk.
  */
-const JobdeskFairnessBody = ({ report, roles, staff, summary, maxByRole, highlightStyle, highlightIcon }) => {
+const JobdeskFairnessBody = ({
+    report, roles, staff, summary, maxByRole, highlightStyle, highlightIcon,
+    editingUserId, draft, saving, draftValid, draftTotal,
+    onStartEdit, onCancelEdit, onDraftChange, onSaveEdit,
+}) => {
     const byJobdesk = report.byJobdesk || [];
 
     // Warna kolom mengikuti tingkat beban: A merah (terberat) → D hijau.
@@ -63,10 +67,17 @@ const JobdeskFairnessBody = ({ report, roles, staff, summary, maxByRole, highlig
                                 Rangkap
                             </th>
                             <th className="px-3 py-3 text-center font-semibold text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700">Hari Kerja</th>
+                            <th className="px-3 py-3 text-center font-semibold text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700" title="Ubah angka A–D. Jadwal harian staf otomatis menyesuaikan supaya total kolom = hari kerja. Hari rangkap tidak bisa dipindah dari sini.">Aksi</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {staff.map((emp, idx) => (
+                        {staff.map((emp, idx) => {
+                            // Baris yang sedang diedit: kolom A–D jadi input angka.
+                            const isEditing = editingUserId === emp.userId;
+                            // Total kolom = penjumlahan input admin. Harus sama dengan
+                            // hari kerja yang SUDAH punya jobdesk (hari kosong tidak dihitung).
+                            const editableTarget = emp.daysWorked - (emp.daysWithoutJobdesk || 0);
+                            return (
                             <tr
                                 key={emp.userId}
                                 className={`
@@ -88,6 +99,25 @@ const JobdeskFairnessBody = ({ report, roles, staff, summary, maxByRole, highlig
                                     // Plating' dihitung satu kali di kolom C.
                                     const count = emp.counts?.[r.short] || 0;
                                     const isMax = count > 0 && count === maxByRole[r.short];
+
+                                    // Mode edit: kolom A–D jadi input angka; total
+                                    // mengikuti penjumlahan yang diinput admin.
+                                    if (isEditing) {
+                                        return (
+                                            <td key={r.key} className="px-2 py-2 text-center">
+                                                <input
+                                                    type="number"
+                                                    min={0}
+                                                    step={1}
+                                                    value={draft?.[r.short] ?? ''}
+                                                    onChange={(e) => onDraftChange(r.short, e.target.value)}
+                                                    className="w-14 px-2 py-1 text-center text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                                                    aria-label={`Jumlah hari stasiun ${r.short} untuk ${emp.fullName}`}
+                                                />
+                                            </td>
+                                        );
+                                    }
+
                                     return (
                                         <td key={r.key} className="px-3 py-3 text-center">
                                             {count > 0 ? (
@@ -110,8 +140,52 @@ const JobdeskFairnessBody = ({ report, roles, staff, summary, maxByRole, highlig
                                     )}
                                 </td>
                                 <td className="px-3 py-3 text-center text-gray-600 dark:text-gray-300 font-semibold">{emp.daysWorked}</td>
+                                <td className="px-3 py-2 text-center whitespace-nowrap">
+                                    {isEditing ? (
+                                        <div className="flex flex-col items-center gap-1">
+                                            {/* Σ live: admin lihat langsung apakah total kolom sudah cocok */}
+                                            <span className={`text-[11px] font-semibold ${draftTotal === editableTarget ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                                                Σ {draftTotal} / {editableTarget}
+                                            </span>
+                                            <div className="inline-flex items-center gap-1">
+                                            <button
+                                                type="button"
+                                                onClick={() => onSaveEdit(emp, draft)}
+                                                disabled={saving || !draftValid}
+                                                title={draftValid
+                                                    ? `Simpan: jadwal ${emp.fullName} disesuaikan (${draftTotal} hari)`
+                                                    : `Jumlah A–D harus ${emp.daysWorked - (emp.daysWithoutJobdesk || 0)} (sama dengan hari kerja berjobdesk)`}
+                                                className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                            >
+                                                <Save size={13} />
+                                                Simpan
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={onCancelEdit}
+                                                disabled={saving}
+                                                className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md bg-gray-200 text-gray-700 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 disabled:opacity-50"
+                                            >
+                                                <X size={13} />
+                                                Batal
+                                            </button>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <button
+                                            type="button"
+                                            onClick={() => onStartEdit(emp)}
+                                            className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md border border-gray-300 text-gray-600 hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+                                            title={`Ubah angka A–D ${emp.fullName} — jadwal ikut menyesuaikan`}
+                                        >
+                                            <Pencil size={13} />
+                                            Edit
+                                        </button>
+                                    )}
+                                </td>
                             </tr>
-                        ))}
+                            );
+                        })}
                     </tbody>
                 </table>
             </div>
@@ -207,6 +281,74 @@ const JobdeskFairnessPanel = ({ month, onMonthChange }) => {
     const roles = report?.roles || [];
     const staff = report?.staff || [];
     const summary = report?.summary;
+
+    // ── Mode edit angka A–D ────────────────────────────────────────────────
+    // Yang diedit: hitungan per huruf. Yang membuat angka itu benar: jadwal
+    // harian di backend ikut bergeser sampai total kolom = input admin.
+    const [editingUserId, setEditingUserId] = useState(null);
+    const [draft, setDraft] = useState({});
+    const [saving, setSaving] = useState(false);
+    const [editError, setEditError] = useState(null);
+    const [editResult, setEditResult] = useState(null);
+
+    const startEdit = useCallback((emp) => {
+        setEditingUserId(emp.userId);
+        setDraft({ ...(emp.counts || {}) });
+        setEditError(null);
+        setEditResult(null);
+    }, []);
+
+    const cancelEdit = useCallback(() => {
+        setEditingUserId(null);
+        setDraft({});
+        setEditError(null);
+    }, []);
+
+    const changeDraft = useCallback((short, value) => {
+        // Input kosong = belum diisi; backend menolak nilai bukan bilangan bulat.
+        setDraft((prev) => ({ ...prev, [short]: value === '' ? '' : Math.max(0, parseInt(value, 10) || 0) }));
+    }, []);
+
+    // Σ kolom harus sama dengan hari kerja yang sudah berjobdesk.
+    const draftTotal = roles.reduce((sum, r) => sum + (Number(draft[r.short]) || 0), 0);
+    const editingStaff = editingUserId != null
+        ? staff.find((s) => s.userId === editingUserId)
+        : null;
+    const draftTarget = editingStaff
+        ? editingStaff.daysWorked - (editingStaff.daysWithoutJobdesk || 0)
+        : 0;
+    const draftValid = editingStaff != null
+        && roles.every((r) => Number.isInteger(Number(draft[r.short])) && Number(draft[r.short]) >= 0)
+        && draftTotal === draftTarget;
+
+    const saveEdit = useCallback(async (emp, targets) => {
+        if (!month) return;
+        setSaving(true);
+        setEditError(null);
+        setEditResult(null);
+        try {
+            const res = await adjustJobdeskFairness({
+                month,
+                userId: emp.userId,
+                targets: Object.fromEntries(
+                    Object.entries(targets).map(([k, v]) => [k, Number(v) || 0])
+                ),
+            });
+            setEditResult(res?.data || null);
+            setEditingUserId(null);
+            setDraft({});
+            // Muat ulang supaya angka di tabel = jadwal yang baru ditulis.
+            await fetchReport();
+        } catch (err) {
+            setEditError(
+                err?.response?.data?.error?.message
+                || err?.response?.data?.message
+                || 'Gagal menyimpan penyesuaian jobdesk'
+            );
+        } finally {
+            setSaving(false);
+        }
+    }, [month, fetchReport]);
 
     // Nilai tertinggi tiap kolom huruf → ditandai merah (paling sering dapat).
     const maxByRole = {};
@@ -316,6 +458,35 @@ const JobdeskFairnessPanel = ({ month, onMonthChange }) => {
                         </div>
                     )}
 
+                    {editError && (
+                        <div className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-700 text-red-700 dark:text-red-300 rounded-lg p-3 text-sm">
+                            {editError}
+                        </div>
+                    )}
+
+                    {editResult && (
+                        <div className="bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-700 text-green-800 dark:text-green-300 rounded-lg p-3 text-sm space-y-1">
+                            <div className="font-semibold">
+                                Jadwal {editResult.fullName} disesuaikan — {editResult.changedDays} hari berubah.
+                            </div>
+                            <ul className="list-disc list-inside space-y-0.5 text-xs">
+                                {(editResult.changes || []).map((c) => (
+                                    <li key={c.date}>
+                                        {c.date}: {c.from} → {c.to} ({c.before} jadi {c.after})
+                                    </li>
+                                ))}
+                            </ul>
+                            {(editResult.coverageWarnings || []).length > 0 && (
+                                <div className="text-xs text-amber-700 dark:text-amber-300 pt-1">
+                                    <div className="font-semibold">Stasiun yang jadi kosong hari itu:</div>
+                                    {editResult.coverageWarnings.map((w) => (
+                                        <div key={w.date}>&bull; {w.message}</div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                     {loading ? (
                         <div className="flex items-center justify-center py-10 text-gray-400">
                             <RefreshCw className="w-5 h-5 animate-spin mr-2" />
@@ -334,6 +505,15 @@ const JobdeskFairnessPanel = ({ month, onMonthChange }) => {
                             maxByRole={maxByRole}
                             highlightStyle={highlightStyle}
                             highlightIcon={highlightIcon}
+                            editingUserId={editingUserId}
+                            draft={draft}
+                            saving={saving}
+                            draftValid={draftValid}
+                            draftTotal={draftTotal}
+                            onStartEdit={startEdit}
+                            onCancelEdit={cancelEdit}
+                            onDraftChange={changeDraft}
+                            onSaveEdit={saveEdit}
                         />
                     )}
                 </div>

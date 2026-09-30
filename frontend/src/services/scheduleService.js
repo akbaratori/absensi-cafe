@@ -99,3 +99,20 @@ export const getJobdeskSummary = async (month) => {
     return response.data;
 };
 
+/**
+ * Sesuaikan angka kolom A–D rekap keadilan jobdesk seorang staf (khusus admin).
+ * Backend memindahkan hari kerja antar stasiun sampai angkanya sama persis
+ * dengan yang diinput, lalu mengirim balik daftar hari yang berubah.
+ *
+ * @param {Object} data
+ * @param {string} data.month - "YYYY-MM"
+ * @param {number} data.userId
+ * @param {Object} data.targets - { A, B, C, D } target jumlah hari per stasiun utama
+ * @returns {Promise<{success: boolean, data: {before: Object, after: Object,
+ *   changedDays: number, changes: Array, coverageWarnings: Array}}>}
+ */
+export const adjustJobdeskFairness = async (data) => {
+    const response = await api.put('/schedules/jobdesk-fairness/adjust', data);
+    return response.data;
+};
+

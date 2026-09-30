@@ -146,6 +146,33 @@ Empat hal yang perlu diketahui admin:
 > menjalankan ulang **Admin → Jadwal → Generate Bulanan** untuk bulan terkait.
 > Proses ini menimpa jadwal dan log periode itu secara idempoten.
 
+### 2c. Admin mengoreksi angka rekap (menyentuh jadwal, bukan cuma tampilan)
+
+Tombol **Edit** di panel *Rekap Keadilan Jobdesk* membuat admin bisa mengetik
+angka A–D sendiri, misalnya mengubah `8 / 8 / 4 / 7` menjadi `7 / 8 / 5 / 7`.
+Angka rekap adalah hasil hitungan dari `user_schedules.kitchen_station`, jadi
+**backend memindahkan hari kerja yang sebenarnya** sampai hitungan ulang sama
+dengan angka yang diinput — bukan sekadar menimpa tampilan. Endpoint:
+`PUT /api/v1/schedules/jobdesk-fairness/adjust` (`adjustJobdeskCounts`).
+
+Aturan yang menjaga supaya jadwal & rekap tidak berbeda:
+
+1. **Σ A–D wajib = jumlah hari kerja yang sudah punya jobdesk.** Hari kerja
+   tanpa jobdesk tidak ikut dihitung (harus diisi lebih dulu lewat tabel
+   jadwal), dan hari libur memang tidak pernah dihitung. Kalau Σ tidak cocok,
+   permintaan ditolak dan tidak ada yang ditulis.
+2. **Hari rangkap dipertahankan apa adanya.** Memindahkan stasiun utamanya
+   berarti membongkar jobdesk gabungan, jadi target tiap kolom tidak boleh
+   turun di bawah jumlah hari rangkap dengan primary di kolom itu.
+3. **Hari terkunci manual override tidak ditimpa.** Kalau target memaksa
+   perpindahan hari yang sudah terkunci, permintaan ditolak dengan pesan yang
+   menyebut alasannya — admin membuka kuncinya lewat tabel jadwal dulu.
+4. **Hari yang dipindah langsung dikunci** (`isManualOverride = true`) supaya
+   tidak ditimpa generate/rotasi berikutnya, dan `kitchenJobdeskLog` ditulis
+   ulang dengan nilai baru (§2 butir 4) supaya laporan bulanan tetap sama
+   dengan jadwal. Setelah itu response memuat daftar hari yang berubah
+   beserta peringatan kalau ada stasiun A–D yang jadi kosong di hari tersebut.
+
 ---
 
 ## 3. Aturan Rotasi Mingguan

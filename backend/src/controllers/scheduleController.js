@@ -441,6 +441,62 @@ class ScheduleController {
         }
     }
 
+    /**
+     * PUT /schedules/jobdesk-fairness/adjust
+     * Admin mengedit angka kolom A–D satu staf pada rekap keadilan; jadwal
+     * hariannya disesuaikan supaya rekap = angka yang diinput admin.
+     * Body: { month, userId, targets: { A, B, C, D } }
+     */
+    async adjustJobdeskFairness(req, res, next) {
+        try {
+            const { month, userId, targets } = req.body;
+            if (!month) {
+                throw new AppError('Parameter month wajib diisi (YYYY-MM)', 400, 'VALIDATION_ERROR');
+            }
+            if (!userId) {
+                throw new AppError('Parameter userId wajib diisi', 400, 'VALIDATION_ERROR');
+            }
+            if (!targets || typeof targets !== 'object') {
+                throw new AppError('targets wajib berisi kolom A, B, C, D', 400, 'VALIDATION_ERROR');
+            }
+
+            const result = await scheduleService.adjustJobdeskCounts({
+                month,
+                userId: parseInt(userId, 10),
+                targets,
+            });
+
+            // Audit trail — jejak siapa mengubah hitungan jobdesk siapa.
+            const auditService = require('../services/auditService');
+            await auditService.log({
+                userId: req.user.id,
+                action: 'UPDATE',
+                entityType: 'JOBDESK_FAIRNESS',
+                entityId: String(result.userId),
+                details: {
+                    month: result.month,
+                    userId: result.userId,
+                    fullName: result.fullName,
+                    before: result.before,
+                    after: result.after,
+                    changedDays: result.changedDays,
+                    changes: result.changes,
+                    coverageWarnings: result.coverageWarnings,
+                },
+            });
+
+            return successResponse(
+                res,
+                200,
+                result,
+                `Rekap jobdesk ${result.fullName} bulan ${result.month} disesuaikan `
+                + `(${result.changedDays} hari diubah)`
+            );
+        } catch (err) {
+            next(err);
+        }
+    }
+
     async getPublicSchedule(req, res, next) {
         try {
             const { startDate, endDate } = req.query;

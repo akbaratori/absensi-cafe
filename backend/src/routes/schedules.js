@@ -61,6 +61,10 @@ router.get('/my-jobdesk-summary', authorize('EMPLOYEE', 'ADMIN'), scheduleContro
 // Rekap keadilan jobdesk dapur (Admin only) - MUST be before /:userId
 router.get('/jobdesk-fairness', authorize('ADMIN'), scheduleController.getJobdeskFairness);
 
+// Sesuaikan angka rekap keadilan jobdesk (Admin only) — jadwal harian staf
+// otomatis mengikuti angka yang admin input. MUST be before /:userId
+router.put('/jobdesk-fairness/adjust', authorize('ADMIN'), scheduleController.adjustJobdeskFairness);
+
 // Rangkuman jumlah jobdesk seluruh pegawai (Admin only) - MUST be before /:userId
 router.get('/jobdesk-summary', authorize('ADMIN'), scheduleController.getJobdeskSummary);
 

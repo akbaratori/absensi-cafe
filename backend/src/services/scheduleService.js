@@ -1816,6 +1816,293 @@ class ScheduleService {
             },
         };
     }
+    // ─── Edit angka rekap keadilan jobdesk (Admin) ─────────────────────────────
+
+    /**
+     * Admin mengedit jumlah hari per huruf (A–D) milik satu staf, lalu jadwal
+     * harian staf itu DISESUAIKAN supaya rekap benar-benar mengikuti angka
+     * yang admin input (contoh: Wulan 8/8/4/7 diubah jadi 7/8/5/7 — satu
+     * hari Main Cook berubah jadi Checker).
+     *
+     * Aturan main (supaya jadwal & rekap selalu konsisten):
+     *  1. Σ target A–D wajib = jumlah hari kerja yang sudah berjobdesk.
+     *     Hari tanpa jobdesk tidak ikut dihitung (isi dulu lewat tabel
+     *     jadwal); hari libur memang tidak pernah dihitung.
+     *  2. Hari RANGKAP dipertahankan apa adanya — kolomnya tidak boleh
+     *     diturunkan di bawah jumlah hari rangkapnya; mengedit hari rangkap
+     *     dilakukan lewat tabel jadwal per sel.
+     *  3. Hari yang sudah terkunci manual override tidak dipindahkan; bila
+     *     menghalangi, buka kuncinya dulu lewat tabel jadwal.
+     *  4. Hari yang dipindah lalu DIKUNCI (isManualOverride=true) supaya
+     *     tidak ditimpa generate/rotasi berikutnya, dan kitchen_jobdesk_logs
+     *     ikut disinkronkan supaya laporan rotasi bulanan tidak melenceng.
+     *
+     * @param {Object} payload
+     * @param {String} payload.month   - "YYYY-MM"
+     * @param {Number} payload.userId
+     * @param {Object} payload.targets - { A, B, C, D } jumlah hari baru;
+     *                                   kunci yang tidak dikirim = tidak diubah
+     * @returns {Object} ringkasan sebelum/sesudah + daftar hari yang berubah
+     */
+    async adjustJobdeskCounts({ month, userId, targets }) {
+        const { monthKey, startDate, endDate } = this.parseMonthParam(month);
+        const LETTERS = JOBDESK_GROUPS.map((g) => g.short);
+
+        const user = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { id: true, fullName: true, isActive: true },
+        });
+        if (!user || !user.isActive) {
+            throw new AppError('Pegawai tidak ditemukan atau tidak aktif.', 404, 'NOT_FOUND');
+        }
+
+        const rows = await prisma.userSchedule.findMany({
+            where: { userId, date: { gte: startDate, lte: endDate }, isOffDay: false },
+            orderBy: [{ date: 'asc' }],
+        });
+        if (!rows.length) {
+            throw new AppError('Pegawai ini tidak punya hari kerja pada bulan tersebut.', 400, 'VALIDATION_ERROR');
+        }
+
+        // ── Klasifikasi hari kerja ────────────────────────────────────────────
+        // Satu hari = satu stasiun utama (letters[0]). Hari tanpa jobdesk tidak
+        // bisa dipindah ke huruf mana pun; hari rangkap utamanya dipertahankan.
+        const entries = [];
+        let daysWithoutJobdesk = 0;
+        for (const row of rows) {
+            const letters = parseJobdeskGroups(row.kitchenStation);
+            if (!letters.length) {
+                daysWithoutJobdesk += 1;
+                continue;
+            }
+            entries.push({ row, primary: letters[0], multi: letters.length > 1 });
+        }
+
+        const current = Object.fromEntries(LETTERS.map((l) => [l, 0]));
+        for (const e of entries) current[e.primary] += 1;
+
+        // Target: kunci yang tidak dikirim berarti "biarkan saja".
+        const target = Object.fromEntries(LETTERS.map((l) => [l, current[l]]));
+        for (const short of LETTERS) {
+            const raw = targets?.[short];
+            if (raw === undefined || raw === null || raw === '') continue;
+            const n = Number(raw);
+            if (!Number.isInteger(n) || n < 0) {
+                throw new AppError(
+                    `Kolom ${short} harus bilangan bulat nol atau lebih. Diterima: ${raw}`,
+                    400, 'VALIDATION_ERROR',
+                );
+            }
+            target[short] = n;
+        }
+
+        const targetSum = LETTERS.reduce((s, l) => s + target[l], 0);
+        if (targetSum !== entries.length) {
+            throw new AppError(
+                `Jumlah A–D (${targetSum}) harus sama dengan jumlah hari yang sudah berjobdesk `
+                + `(${entries.length})`
+                + (daysWithoutJobdesk
+                    ? `. Masih ada ${daysWithoutJobdesk} hari kerja tanpa jobdesk — isi dulu lewat tabel jadwal.`
+                    : '.'),
+                400, 'VALIDATION_ERROR',
+            );
+        }
+
+        // Hari rangkap menahan batas bawah kolomnya.
+        for (const l of LETTERS) {
+            const multiCount = entries.filter((e) => e.multi && e.primary === l).length;
+            if (target[l] < multiCount) {
+                throw new AppError(
+                    `Ada ${multiCount} hari rangkap dengan stasiun utama ${l}, sedangkan target `
+                    + `kolom ${l} hanya ${target[l]}. Edit hari rangkap itu lewat tabel jadwal dulu.`,
+                    400, 'VALIDATION_ERROR',
+                );
+            }
+        }
+        // ── Susun rencana pemindahan ──────────────────────────────────────────
+        // Sumber surplus: hari TUNGGAL (bukan rangkap) huruf surplus, diurutkan
+        // dari tanggal paling awal supaya perubahan menumpuk di awal bulan.
+        // Hari rangkap & hari terkunci manual TIDAK boleh jadi sumber.
+        const donorPool = [];
+        for (const l of LETTERS) {
+            const surplus = current[l] - target[l];
+            if (surplus <= 0) continue;
+            const movable = entries
+                .filter((e) => !e.multi && !e.row.isManualOverride && e.primary === l)
+                .sort((a, b) => a.row.date - b.row.date);
+            if (movable.length < surplus) {
+                throw new AppError(
+                    `Kolom ${l} harus turun ${surplus} hari, tapi hanya ${movable.length} hari `
+                    + 'yang bisa dipindah (sisanya rangkap atau terkunci manual override).',
+                    400, 'VALIDATION_ERROR',
+                );
+            }
+            for (const entry of movable.slice(0, surplus)) donorPool.push({ entry, from: l });
+        }
+
+        // Kebutuhan tiap huruf, diulang sebanyak selisihnya.
+        const needLetters = [];
+        for (const l of LETTERS) {
+            const need = target[l] - current[l];
+            for (let i = 0; i < need; i += 1) needLetters.push(l);
+        }
+        if (donorPool.length !== needLetters.length) {
+            throw new AppError(
+                `Jumlah hari yang bisa dipindah (${donorPool.length}) tidak cocok dengan `
+                + `kebutuhan (${needLetters.length}). Periksa ulang kolom A–D.`,
+                400, 'VALIDATION_ERROR',
+            );
+        }
+
+        // Pasangkan surplus dengan defisit: huruf sumber (A→D) ketemu huruf
+        // tujuan (A→D). Set-nya pasti lepas karena huruf surplus tidak mungkin
+        // sekaligus defisit, jadi tidak ada hari yang "pindah" ke huruf sendiri.
+        const plan = [];
+        for (let i = 0; i < donorPool.length; i += 1) {
+            plan.push({ entry: donorPool[i].entry, from: donorPool[i].from, to: needLetters[i] });
+        }
+        plan.sort((a, b) => a.entry.row.date - b.entry.row.date);
+
+        if (!plan.length) {
+            return {
+                month: monthKey, userId: user.id, fullName: user.fullName,
+                before: current, after: current, changedDays: 0,
+                changes: [], coverageWarnings: [],
+            };
+        }
+// ── Terapkan dalam satu transaksi ───────────────────────────────────
+        // isManualOverride = true supaya generate rotasi berikutnya tidak
+        // menimpa pilihan admin. Log laporan bulanan ditulis ulang juga
+        // supaya isinya tetap sama dengan jadwal aktual.
+        const rotationService = require('./rotationService');
+        await prisma.$transaction(async (tx) => {
+            for (const p of plan) {
+                const newStation = this._swapPrimaryStation(p.entry.row.kitchenStation, p.to);
+                await tx.userSchedule.update({
+                    where: { id: p.entry.row.id },
+                    data: { kitchenStation: newStation, isManualOverride: true },
+                });
+
+                const dateObj = new Date(p.entry.row.date);
+                const onDuty = await tx.userSchedule.count({
+                    where: {
+                        date: dateObj,
+                        isOffDay: false,
+                        OR: [
+                            { user: { department: 'KITCHEN', isActive: true } },
+                            { temporaryDepartment: 'KITCHEN' },
+                        ],
+                    },
+                });
+                const logRow = rotationService._kitchenLogRow(dateObj, userId, newStation, onDuty);
+                await tx.kitchenJobdeskLog.upsert({
+                    where: { date_userId: { date: dateObj, userId } },
+                    update: {
+                        roleCode: logRow.roleCode,
+                        packagesAssigned: logRow.packagesAssigned,
+                        workingCount: logRow.workingCount,
+                        rotationVersion: 2, // tetap v2 agar laporan rotasi tak pecah
+                    },
+                    create: logRow,
+                });
+            }
+        });
+
+        // ── Peringatan: apakah semua stasiun A–D masih terisi hari itu ────────
+        // Admin boleh memindahkan jobdesk, tapi kalau sampai satu stasiun
+        // kosong di hari tersebut, itu harus dilaporkan supaya admin tahu
+        // dan bisa menambah rangkap di hari itu lewat tabel jadwal.
+        const coverageWarnings = [];
+        const warnSeen = new Set();
+        for (const p of plan) {
+            const dateObj = new Date(p.entry.row.date);
+            const warnKey = toDateStr(dateObj);
+            if (warnSeen.has(warnKey)) continue;
+            warnSeen.add(warnKey);
+
+            const dayRows = await prisma.userSchedule.findMany({
+                where: {
+                    date: dateObj,
+                    isOffDay: false,
+                    user: { department: 'KITCHEN', isActive: true },
+                },
+                select: { kitchenStation: true },
+            });
+            const held = new Set();
+            for (const r of dayRows) parseJobdeskGroups(r.kitchenStation).forEach((g) => held.add(g));
+            const missing = LETTERS.filter((l) => !held.has(l));
+            if (missing.length) {
+                coverageWarnings.push({
+                    date: warnKey,
+                    missing,
+                    message: `${warnKey}: stasiun ${missing.join(', ')} tidak lagi terisi karena jobdesk dipindah.`,
+                });
+            }
+        }
+
+        const after = { ...current };
+        for (const p of plan) {
+            after[p.from] -= 1;
+            after[p.to] += 1;
+        }
+
+        return {
+            month: monthKey,
+            userId: user.id,
+            fullName: user.fullName,
+            before: current,
+            after,
+            changedDays: plan.length,
+            changes: plan.map((p) => ({
+                date: toDateStr(p.entry.row.date),
+                from: p.from,
+                to: p.to,
+                before: p.entry.row.kitchenStation,
+                after: this._swapPrimaryStation(p.entry.row.kitchenStation, p.to),
+            })),
+            coverageWarnings,
+        };
+    }
+
+    /**
+     * Tukar stasiun UTAMA satu hari ke huruf tujuan; jobdesk sisanya
+     * (rangkap) ikut dipertahankan.
+     *
+     * Contoh: 'Support Cook + Checker / Stock' dengan tujuan C menjadi
+     *         'Checker / Stock + Support Cook' — primary sekarang C.
+     *
+     * @param {String} station - nilai kitchen_station saat ini
+     * @param {String} to      - huruf tujuan "A" | "B" | "C" | "D"
+     * @returns {String} nilai kitchen_station baru
+     */
+    _swapPrimaryStation(station, to) {
+        const targetGroup = JOBDESK_GROUPS.find((g) => g.short === to);
+        if (!targetGroup) return station;
+
+        const currentLetters = parseJobdeskGroups(station);
+        const fromShort = currentLetters[0] || null;
+        const fromGroup = fromShort
+            ? JOBDESK_GROUPS.find((g) => g.short === fromShort)
+            : null;
+
+        const names = splitJobdeskNames(station);
+        // Buang grup primary lama; grup tujuan jangan ditempel dua kali
+        // (dua jobdesk satu grup tetap satu kolom di rekap).
+        const kept = names.filter((n) => {
+            const gk = jobdeskGroupOfName(n);
+            if (fromGroup && gk === fromGroup.key) return false;
+            return gk !== targetGroup.key;
+        });
+
+        // Pakai label yang sudah dipakai admin hari itu bila grup tujuan
+        // sudah pernah muncul, bukan label patokan.
+        const existingTarget = names.find((n) => jobdeskGroupOfName(n) === targetGroup.key);
+        const canonical = JOBDESK_ROLES.find((r) => r.group === targetGroup.key)?.label
+            || targetGroup.label;
+        const head2 = existingTarget || canonical;
+
+        return [head2, ...kept].join(' + ');
+    }
 }
 
 
