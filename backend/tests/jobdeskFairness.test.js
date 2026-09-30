@@ -5,7 +5,8 @@
  * (endpoint station-summary yang sudah dihapus):
  *   1. rekap dihitung per HURUF kolom A–D, sehingga jobdesk yang selalu
  *      menempel ('Checker / Stock + Plating') tidak lagi melahirkan kolom
- *      setengah seperti "C+";
+ *      setengah seperti "C+"; kolom hanya menghitung stasiun UTAMA (prioritas
+ *      A→D) sehingga Σ A–D = hari kerja dan tidak pernah melebihi jumlah hari;
  *   2. pembanding keadilan adalah beban rata-rata per hari kerja, sehingga
  *      staff dengan jumlah hari kerja berbeda tetap bisa dibandingkan;
  *   3. kolom yang distribusinya timpang ditandai (selisih > 3 hari, §4.4).
@@ -104,28 +105,36 @@ describe('Rekap keadilan jobdesk dapur', () => {
         const NAME_LAMA = 'Uji Lama Fairness';
         const NAME_BERAT = 'Uji Berat Fairness';
         const NAME_KOSONG = 'Uji Kosong Fairness';
+        const NAME_LINTAS = 'Uji Lintas Fairness';
 
         let rangkap;
         let lama;
         let berat;
         let kosong;
+        let lintas;
 
         beforeAll(async () => {
-            [rangkap, lama, berat, kosong] = await Promise.all([
+            [rangkap, lama, berat, kosong, lintas] = await Promise.all([
                 createKitchenUser(NAME_RANGKAP),
                 createKitchenUser(NAME_LAMA),
                 createKitchenUser(NAME_BERAT),
                 createKitchenUser(NAME_KOSONG),
+                createKitchenUser(NAME_LINTAS),
             ]);
 
             // Rangkap: 3 hari 'Checker / Stock + Plating' → keduanya kolom C,
             // jadi 3x C (bukan 3x C + 3x "C+" seperti tampilan lama).
             for (let i = 0; i < 3; i++) await addDay(rangkap.id, i, 'Checker / Stock + Plating');
-            // Lama: 6 hari 'Checker / Stock + Runner / Area' → 6x C + 6x D.
+            // Lama: 6 hari 'Checker / Stock + Runner / Area' → dua stasiun beda
+            // kolom, tapi hanya stasiun utama (C) yang masuk hitungan; D tetap 0
+            // dan Keenam harinya tercatat sebagai hari rangkap.
             for (let i = 0; i < 6; i++) await addDay(lama.id, i, 'Checker / Stock + Runner / Area');
-            // Berat: 3 hari 'Main Cook + Support Cook' → 3x A + 3x B, beban
-            // harian tertinggi walau jumlah harinya paling sedikit.
+            // Berat: 3 hari 'Main Cook + Support Cook' → stasiun utamanya A,
+            // beban harian tertinggi walau jumlah harinya paling sedikit.
             for (let i = 0; i < 3; i++) await addDay(berat.id, i, 'Main Cook + Support Cook');
+            // Lintas: 2 hari 'Support Cook + Checker / Stock' → dua huruf
+            // (B + C), tapi yang dihitung hanya stasiun utamanya: B.
+            for (let i = 0; i < 2; i++) await addDay(lintas.id, i, 'Support Cook + Checker / Stock');
             // Kosong: 4 hari kerja tanpa jobdesk + 4 hari libur (libur tidak dihitung).
             for (let i = 0; i < 4; i++) await addDay(kosong.id, i, null);
             for (let i = 4; i < 8; i++) await addDay(kosong.id, i, 'Main Cook', true);
@@ -157,19 +166,24 @@ describe('Rekap keadilan jobdesk dapur', () => {
             const lamaS = staffBy(res.body, NAME_LAMA);
             const beratS = staffBy(res.body, NAME_BERAT);
 
-            // Lama: 6 hari 'Checker / Stock + Runner / Area' → kolom C + kolom D.
+            // Kolom hanya menghitung stasiun utama: Checker (C) menang prioritas atas
+            // Runner (D). D tetap 0, dan 6 hari itu tercatat sebagai rangkap.
             expect(lamaS.counts.C).toBe(6);
-            expect(lamaS.counts.D).toBe(6);
+            expect(lamaS.counts.D).toBe(0);
+            expect(lamaS.multiJobdeskDays).toBe(6);
+            // Rincian per jobdesk & beban tetap memuat keduanya.
             expect(lamaS.roleCounts.CHECKER).toBe(6);
             expect(lamaS.roleCounts.RUNNER).toBe(6);
             // 6 hari x (kolom C 3 + kolom D 2) = 30, dibagi 6 hari kerja = 5.
             expect(lamaS.loadTotal).toBe(30);
             expect(lamaS.loadPerDay).toBe(5);
 
-            // Berat: 3 hari 'Main Cook + Support Cook' → kolom A + kolom B.
+            // Berat: 3 hari 'Main Cook + Support Cook' → stasiun utamanya A (prioritas
+            // tertinggi); B tidak ikut dihitung meski jobdesknya benar-benar ada.
             expect(beratS.counts.A).toBe(3);
-            expect(beratS.counts.B).toBe(3);
-            // 3 hari x (kolom A 5 + kolom B 4) = 27, dibagi 3 hari kerja = 9.
+            expect(beratS.counts.B).toBe(0);
+            expect(beratS.multiJobdeskDays).toBe(3);
+            // Beban: 3 hari x (kolom A 5 + kolom B 4) = 27, dibagi 3 hari = 9.
             expect(beratS.loadTotal).toBe(27);
             expect(beratS.loadPerDay).toBe(9);
 
@@ -229,6 +243,38 @@ describe('Rekap keadilan jobdesk dapur', () => {
             // Bobot A=5 paling berat … D=2 paling ringan (JOB_DESK_KITCHEN.md).
             expect(roles[0].weight).toBe(5);
             expect(roles[roles.length - 1].weight).toBe(2);
+        });
+
+        it('menghitung hari rangkap hanya di huruf stasiun utamanya', async () => {
+            const res = await fetchReport();
+            const s = staffBy(res.body, NAME_LINTAS);
+            expect(s).toBeDefined();
+
+            // 'Support Cook + Checker / Stock' menghasilkan dua huruf (B, C).
+            // Kolom fairness hanya menghitung yang utama: B (Support Cook
+            // berprioritas lebih tinggi dari C), sehingga C tetap 0.
+            expect(s.counts.B).toBe(2);
+            expect(s.counts.C).toBe(0);
+            expect(s.daysWorked).toBe(2);
+            expect(s.multiJobdeskDays).toBe(2);
+
+            // Info tidak hilang: kedua jobdesk tetap tercatat di rincian, dan
+            // beban harian tetap menjumlah keduanya (B 4 + C 3 = 7).
+            expect(s.roleCounts.SUPPORT).toBe(2);
+            expect(s.roleCounts.CHECKER).toBe(2);
+            expect(s.loadTotal).toBe(14);
+            expect(s.loadPerDay).toBe(7);
+        });
+
+        it('menjaga Σ A–D = hari kerja berjobdesk untuk semua staf', async () => {
+            const res = await fetchReport();
+            for (const s of res.body.data.staff) {
+                const sum = s.counts.A + s.counts.B + s.counts.C + s.counts.D;
+                // Ini yang bikin tabel tidak pernah terlihat "31 jobdesk vs 27 hari".
+                // Hari tanpa jobdesk tidak punya huruf, jadi dikecualikan.
+                expect(sum).toBe(s.daysWorked - s.daysWithoutJobdesk);
+                expect(sum).toBeLessThanOrEqual(s.daysWorked);
+            }
         });
 
         it('menggabungkan jobdesk yang menempel ke satu kolom huruf', async () => {

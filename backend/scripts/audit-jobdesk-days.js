@@ -4,10 +4,11 @@
  * DRY-RUN (READ-ONLY). Tidak mengubah data apa pun.
  *
  * Menjawab 3 pertanyaan:
- *  1. Arti angka A/B/C/D di tabel keadilan jobdesk = jumlah HARI memegang
- *     grup jobdesk itu. SATU hari rangkap (mis. "Support Cook + Checker")
- *     dihitung di DUA kolom sekaligus, jadi:
- *         Σ huruf = hari kerja + hari rangkap  (boleh > hari kerja!)
+ *  1. Arti angka A/B/C/D di tabel keadilan jobdesk = jumlah HARI staf jadi
+ *     stasiun UTAMA grup itu (prioritas A→D). SATU hari kerja hanya tercatat
+ *     di satu kolom; hari rangkap (mis. "Support Cook + Checker") tercatat
+ *     di stasiun utamanya (B) saja, jadi:
+ *         Σ huruf = hari kerja - hari tanpa jobdesk  (tidak boleh > hari kerja)
  *  2. Apakah kuota hari kerja/libur aman: batas kerja = hari-bulan - 4 libur.
  *  3. Siapa yang muncul di tabel padahal tidak bekerja bulan ini
  *     (sisa 1-2 baris dari override/swap lama).
@@ -45,14 +46,15 @@ async function main() {
   console.log(`=== AUDIT HARI JOBDESK ${month} (READ-ONLY) ===`);
   console.log(`Hari dalam bulan: ${daysInMonth} | jatah libur/pegawai: ${OFF_DAY_QUOTA} | batas kerja: ${maxWork}\n`);
 
-  // ---- Bagian 1: tabel keadilan (A/B/C/D) + invariant Σ = kerja + rangkap ----
+  // ---- Bagian 1: tabel keadilan (A/B/C/D) + invariant Σ = kerja - kosong ----
   const fair = await scheduleService.getJobdeskFairness(month);
-  console.log('--- Tabel keadilan jobdesk (A/B/C/D = hari memegang grup tsb) ---');
+  console.log('--- Tabel keadilan jobdesk (A/B/C/D = HARI jadi stasiun utama grup tsb) ---');
   console.log(pad('NAMA', 14) + 'A    B    C    D    Σ    kerja  rangkap  cek-Σ');
   for (const s of fair.staff) {
     const c = s.counts;
     const sum = c.A + c.B + c.C + c.D;
-    const ok = sum === s.daysWorked + s.multiJobdeskDays ? 'OK' : `BEDA (ekspektasi ${s.daysWorked + s.multiJobdeskDays})`;
+    const expected = s.daysWorked - s.daysWithoutJobdesk;
+    const ok = sum === expected ? 'OK' : `BEDA (ekspektasi ${expected})`;
     console.log(
       pad(s.fullName, 14) +
         pad(c.A, 5) + pad(c.B, 5) + pad(c.C, 5) + pad(c.D, 5) +

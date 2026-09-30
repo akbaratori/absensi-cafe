@@ -36,6 +36,15 @@ Selaras dengan sistem rotasi otomatis di aplikasi absensi
 > jobdesk tetap dihitung terpisah di backend (`roleCounts`) supaya tidak ada
 > jobdesk yang hilang dari laporan. Implementasi: `JOBDESK_GROUPS` +
 > `parseJobdeskGroups()` di `scheduleService.js`.
+>
+> **Satu hari kerja hanya tercatat di satu kolom — stasiun utama** (huruf
+> berprioritas tertinggi A→D). Saat 3 orang masuk dan satu staf merangkap
+> `Support Cook + Checker` (B + C), hari itu tercatat 1x B saja; kolom
+> **Rangkap** di rekap menampilkan berapa hari ia memegang dua stasiun
+> sekaligus. Dengan aturan ini **Σ A–D selalu = hari kerja** (dikurangi hari
+> tanpa jobdesk); sebelumnya Σ = hari kerja + hari rangkap, sehingga Oktober
+> tampak 31 > 27. Beban kerja tetap menjumlah seluruh stasiun yang dipegang
+> (termasuk takeover) karena beban adalah metrik pekerjaan nyata.
 
 ---
 

@@ -1299,9 +1299,13 @@ class ScheduleService {
             }
 
             if (letters.length > 1) multiJobdeskDays += 1;
+            // Sama seperti rekap admin: satu hari kerja dihitung SATU stasiun
+            // utama (huruf berprioritas tertinggi A→D), sehingga Σ A–D = hari
+            // kerja. Beban tetap menjumlah SEMUA stasiun yang dipegang (takeover
+            // dihitung penuh) karena itu metrik pekerjaan nyata.
+            counts[letters[0]] += 1;
             let dayLoad = 0;
             for (const short of letters) {
-                counts[short] += 1;
                 dayLoad += JOBDESK_GROUPS.find((g) => g.short === short).weight;
             }
             for (const role of roles) byJobdeskKey[role.key] += 1;
@@ -1539,8 +1543,19 @@ class ScheduleService {
             // 'Checker / Stock + Plating' TIDAK dihitung rangkap karena Plating
             // memang satu paket dengan Checker.
             if (letters.length > 1) entry.multiJobdeskDays += 1;
+            // Kolom fairness A–D hanya menghitung stasiun UTAMA, yaitu huruf
+            // berprioritas tertinggi (A→B→C→D) di hari itu. `parseJobdeskGroups`
+            // sudah mengurutkan huruf sesuai JOBDESK_GROUPS, jadi `letters[0]`
+            // = stasiun utama. Dengan ini Σ A–D selalu sama dengan hari kerja dan
+            // tidak bisa melebihi jumlah hari; sebelumnya hari rangkap dihitung
+            // di DUA kolom sehingga Σ = hari kerja + hari rangkap.
+            // `multiJobdeskDays` tetap merekam info kerja ganda dan `roleCounts`
+            // tetap menyimpan rincian semua jobdesk yang dipegang.
+            entry.counts[letters[0]] += 1;
+            // Beban kerja tetap menjumlah SEMUA stasiun yang dipegang hari itu
+            // (termasuk takeover) karena itu metrik pekerjaan nyata, terpisah
+            // dari fairness kolom A–D.
             for (const short of letters) {
-                entry.counts[short] += 1;
                 entry.loadSum += JOBDESK_GROUPS.find((g) => g.short === short).weight;
             }
             for (const role of parseJobdeskRoles(s.kitchenStation)) {

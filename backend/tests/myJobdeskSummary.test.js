@@ -187,6 +187,63 @@ describe('Rekap jobdesk pribadi (my-jobdesk-summary)', () => {
         });
     });
 
+    describe('hari rangkap lintas stasiun', () => {
+        const NAME_LINTAS = 'Uji Rekap Lintas';
+        let lintas;
+        let lintasToken;
+
+        beforeAll(async () => {
+            lintas = await createKitchenUser(NAME_LINTAS);
+            // 2 hari memegang dua stasiun beda kolom (B + C) + 1 hari Main Cook (A).
+            for (let i = 0; i < 2; i++) await addDay(lintas.id, i, 'Support Cook + Checker / Stock');
+            await addDay(lintas.id, 2, 'Main Cook');
+            lintasToken = generateAccessToken({ userId: lintas.id, role: 'EMPLOYEE' });
+        });
+
+        it('kolom huruf hanya menghitung stasiun utama, rinciannya tetap utuh', async () => {
+            const res = await fetchMine(lintasToken);
+            expect(res.status).toBe(200);
+            const d = res.body.data;
+
+            // 'Support Cook + Checker / Stock' = B + C, tapi kolom fairness hanya
+            // menghitung stasiun utamanya (B, prioritas lebih tinggi dari C).
+            expect(d.days.B).toBe(2);
+            expect(d.days.C).toBe(0);
+            expect(d.days.A).toBe(1);
+            // Inti perbaikan: Σ kolom = hari kerja, tidak pernah 31 vs 27 lagi.
+            expect(d.totalJobdesk).toBe(3);
+            expect(d.totalJobdesk).toBe(d.daysWorked);
+            expect(d.multiJobdeskDays).toBe(2);
+
+            // Pekerjaan ganda tidak disembunyikan: rincian jobdesk dan beban
+            // tetap menghitung kedua stasiun (2×(B4+C3) + A5 = 19).
+            expect(d.jobdeskCounts.SUPPORT).toBe(2);
+            expect(d.jobdeskCounts.CHECKER).toBe(2);
+            expect(d.jobdeskCounts.MAIN).toBe(1);
+            expect(d.loadTotal).toBe(19);
+            expect(d.loadPerDay).toBe(6.33);
+
+            // Rincian harian tetap menampilkan DUA huruf untuk dua stasiun itu.
+            const rangkap = d.byDate.filter((x) => x.letters.length > 1);
+            expect(rangkap).toHaveLength(2);
+            for (const day of rangkap) {
+                expect(day.letters).toEqual(['B', 'C']);
+                expect(day.load).toBe(7);
+            }
+        });
+
+        it('angkanya identik dengan baris staff ini di rekap admin', async () => {
+            const [mine, admin] = await Promise.all([
+                fetchMine(lintasToken),
+                request(app).get(`${ADMIN_BASE}?month=${MONTH}`).set('Authorization', `Bearer ${adminToken}`),
+            ]);
+            const adminRow = admin.body.data.staff.find((s) => s.userId === lintas.id);
+            expect(adminRow.counts).toEqual(mine.body.data.days);
+            expect(adminRow.totalJobdesk).toBe(mine.body.data.totalJobdesk);
+            expect(adminRow.multiJobdeskDays).toBe(mine.body.data.multiJobdeskDays);
+        });
+    });
+
     describe('hari kerja tanpa jobdesk', () => {
         const NAME_KOSONG = 'Uji Rekap Kosong';
         let kosongToken;

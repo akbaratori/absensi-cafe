@@ -56,6 +56,12 @@ const JobdeskFairnessBody = ({ report, roles, staff, summary, maxByRole, highlig
                                     {r.short}
                                 </th>
                             ))}
+                            <th
+                                className="px-3 py-3 text-center font-semibold text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700"
+                                title="Hari ketika staf memegang dua stasiun sekaligus (mis. Support Cook merangkap Checker saat rekan libur). Stasiun tambahan TIDAK menambah hitungan A–D, jadi Total tetap = Hari Kerja."
+                            >
+                                Rangkap
+                            </th>
                             <th className="px-3 py-3 text-center font-semibold text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700">Hari Kerja</th>
                         </tr>
                     </thead>
@@ -94,6 +100,15 @@ const JobdeskFairnessBody = ({ report, roles, staff, summary, maxByRole, highlig
                                         </td>
                                     );
                                 })}
+                                <td className="px-3 py-3 text-center" title="Hari staf memegang dua stasiun sekaligus. Stasiun tambahan tidak menambah kolom A–D, tetapi tetap dihitung penuh pada beban kerja.">
+                                    {emp.multiJobdeskDays > 0 ? (
+                                        <span className="inline-flex items-center justify-center w-8 h-8 rounded-full text-sm bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 font-semibold">
+                                            {emp.multiJobdeskDays}x
+                                        </span>
+                                    ) : (
+                                        <span className="text-gray-300 dark:text-gray-600">&ndash;</span>
+                                    )}
+                                </td>
                                 <td className="px-3 py-3 text-center text-gray-600 dark:text-gray-300 font-semibold">{emp.daysWorked}</td>
                             </tr>
                         ))}
@@ -143,8 +158,11 @@ const JobdeskFairnessBody = ({ report, roles, staff, summary, maxByRole, highlig
             <p className="text-xs text-gray-400 dark:text-gray-500">
                 &#128161; Kolom huruf = stasiun, bukan nama jobdesk satu per satu:
                 <b> A</b> Main Cook, <b>B</b> Support Cook, <b>C</b> Checker / Stock + Plating + Dishwasher,
-                <b> D</b> Runner / Area + Helper / Floating. Satu hari dihitung <b>sekali</b> per huruf &mdash; sehari
-                &ldquo;Checker / Stock + Plating&rdquo; tetap 1x C karena Plating memang satu paket dengan Checker.
+                <b> D</b> Runner / Area + Helper / Floating. Satu hari dihitung di <b>satu stasiun utama</b> saja
+                (prioritas A&ndash;D): sehari &ldquo;Checker / Stock + Plating&rdquo; tetap 1x C, dan hari rangkap (memegang dua
+                stasiun sekaligus, mis. B + C) hanya tercatat di stasiun utamanya &mdash; itulah kenapa <b>Total kolom = Hari Kerja</b>.
+                Kolom <b>Rangkap</b> menampilkan berapa hari staf memegang dua stasiun sekaligus (stasiun tambahan tidak menambah
+                hitungan A&ndash;D, tetapi tetap terhitung penuh di beban kerja).
                 Lingkaran bergaris merah = paling sering mendapat stasiun tersebut. Sebuah stasiun ditandai <b>timpang</b> bila
                 selisih antar staff lebih dari {summary?.gapThreshold ?? 3} hari (JOB_DESK_KITCHEN.md &sect;4.4).
             </p>

@@ -190,9 +190,9 @@ const MyJobdeskRekapPanel = ({ month }) => {
                                 />
                                 <StatTile
                                     icon={<Layers className="w-3.5 h-3.5" />}
-                                    label="Total jobdesk"
+                                    label="Hari dengan jobdesk"
                                     value={totalJobdeskDays}
-                                    sub={`${held.length} jenis stasiun`}
+                                    sub={`${held.length} jenis stasiun utama`}
                                 />
                                 <StatTile
                                     icon={<Scale className="w-3.5 h-3.5" />}
@@ -225,7 +225,9 @@ const MyJobdeskRekapPanel = ({ month }) => {
                                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                                     Dihitung per kolom huruf: <b>A</b> Main Cook, <b>B</b> Support Cook,
                                     <b> C</b> Checker / Stock + Plating + Dishwasher, <b>D</b> Runner / Area + Helper.
-                                    Sehari &ldquo;Checker / Stock + Plating&rdquo; tetap 1x C karena Plating memang satu paket dengan Checker.
+                                    Sehari dihitung di <b>satu stasiun utama</b> saja (prioritas A&ndash;D) &mdash; sehari
+                                    &ldquo;Checker / Stock + Plating&rdquo; tetap 1x C, dan hari rangkap (mis. B + C sekaligus)
+                                    hanya tercatat di stasiun utamanya. Total = hari kerja yang punya jobdesk.
                                 </p>
                             </div>
                             {held.length === 0 ? (
