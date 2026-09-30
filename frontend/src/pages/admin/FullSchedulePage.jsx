@@ -71,6 +71,16 @@ function draftKey(userId, dateISO) {
 }
 
 /**
+ * Ukuran batch permintaan bulk saat "Simpan Semua".
+ *
+ * Satu request besar untuk ratusan sel berisiko kena batas waktu serverless
+ * (Vercel 60 detik) — kalau putus di tengah, admin harus mengulang semuanya.
+ * Dikirim bertahap 50 sel per request: tetap jauh di bawah batas server
+ * (MAX_BULK_CELLS = 200), dan batch yang gagal tetap tinggal di antrean.
+ */
+const BULK_SAVE_BATCH = 50;
+
+/**
  * Nomor shift (1, 2, ...) untuk satu shiftId — meniru pemetaan backend
  * (`rotationService`: ambil angka dari nama shift, fallback urutan id).
  *
@@ -645,29 +655,50 @@ export default function FullSchedulePage() {
     if (list.length === 0 || savingAll) return;
     setSavingAll(true);
     setShowReviewModal(false);
-    try {
-      const res = await bulkUpdateUserScheduleCells(list.map((d) => d.payload));
-      const failed = res?.data?.failed || [];
-      const savedCount = res?.data?.saved ?? (list.length - failed.length);
-      if (failed.length > 0) {
-        const failedKeys = new Set(failed.map((f) => draftKey(f.userId, f.date)));
-        setDrafts((prevMap) => {
-          const next = new Map();
-          prevMap.forEach((d, k) => { if (failedKeys.has(k)) next.set(k, d); });
-          return next;
-        });
-        showError(`${savedCount} perubahan tersimpan, ${failed.length} gagal: ${failed[0]?.message || 'coba lagi'}`);
-      } else {
-        setDrafts(new Map());
-        showSuccess(`${savedCount} perubahan jadwal tersimpan`);
+
+    // Dikirim per batch: satu request untuk ratusan sel berisiko kena batas
+    // waktu serverless, dan memaksa admin mengulang semuanya kalau gagal di
+    // tengah. 50 comfortably di bawah batas server (200).
+    let savedCount = 0;
+    let failureMessage = null;
+    const pending = new Set();
+
+    for (let i = 0; i < list.length; i += BULK_SAVE_BATCH) {
+      const chunk = list.slice(i, i + BULK_SAVE_BATCH);
+      try {
+        const res = await bulkUpdateUserScheduleCells(chunk.map((d) => d.payload));
+        const chunkFailed = res?.data?.failed || [];
+        savedCount += res?.data?.saved ?? (chunk.length - chunkFailed.length);
+        chunkFailed.forEach((f) => pending.add(draftKey(f.userId, f.date)));
+        if (chunkFailed.length > 0 && !failureMessage) {
+          failureMessage = chunkFailed[0]?.message || 'coba lagi';
+        }
+      } catch (err) {
+        // Batch ini gagal total (timeout / offline): semua selnya tetap di
+        // antrean, dan batch sisanya tidak dikirim supaya tidak menumpuk
+        // error. Admin tinggal menekan "Simpan Semua" lagi.
+        console.error('[FullSchedule] Bulk save batch failed:', err);
+        chunk.forEach((d) => pending.add(d.key));
+        if (!failureMessage) {
+          failureMessage = err?.response?.data?.message || 'Gagal menyimpan perubahan jadwal';
+        }
+        break;
       }
-      refreshAfterCommit();
-    } catch (err) {
-      console.error('[FullSchedule] Bulk save failed:', err);
-      showError(err?.response?.data?.message || 'Gagal menyimpan perubahan jadwal');
-    } finally {
-      setSavingAll(false);
     }
+
+    setDrafts((prevMap) => {
+      const next = new Map();
+      prevMap.forEach((d, k) => { if (pending.has(k)) next.set(k, d); });
+      return next;
+    });
+
+    if (pending.size === 0) {
+      showSuccess(`${savedCount} perubahan jadwal tersimpan`);
+    } else {
+      showError(`${savedCount} perubahan tersimpan, ${pending.size} gagal: ${failureMessage || 'coba lagi'}`);
+    }
+    if (savedCount > 0) refreshAfterCommit();
+    setSavingAll(false);
   };
 
   const discardDraft = (key) => {

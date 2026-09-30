@@ -245,22 +245,14 @@ class ScheduleController {
             const result = await scheduleService.bulkUpsertSingleSchedules(changes);
 
             // Audit trail hanya untuk sel yang benar-benar tersimpan.
+            // Di-batch jadi SATU createMany (bukan satu create per sel) supaya
+            // bulk besar tidak menggandakan round-trip DB; kegagalan logging
+            // tetap tidak boleh merusak respons simpan jadwal.
             const auditService = require('../services/auditService');
             const isFailed = (c) => result.failed.some(
                 (f) => parseInt(f.userId) === parseInt(c.userId) && f.date === String(c.date).slice(0, 10)
             );
-            for (const c of changes) {
-                if (isFailed(c)) continue;
-                await auditService.logScheduleChange(req.user.id, 0, {
-                    userId: parseInt(c.userId),
-                    date: c.date,
-                    shiftId: c.isOffDay ? null : (c.shiftId ?? null),
-                    isOffDay: Boolean(c.isOffDay),
-                    kitchenStation: c.isOffDay ? null : (c.kitchenStation ?? null),
-                    temporaryDepartment: c.temporaryDepartment ?? null,
-                    bulk: true,
-                });
-            }
+            await auditService.logScheduleBulkChange(req.user.id, changes.filter((c) => !isFailed(c)));
 
             const failedCount = result.failed.length;
             return successResponse(

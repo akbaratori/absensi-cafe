@@ -84,6 +84,37 @@ class AuditService {
     }
 
     /**
+     * Log banyak sel jadwal sekaligus dalam SATU createMany.
+     * Dipakai endpoint bulk supaya 100+ sel tidak menghasilkan 100+ round-trip
+     * audit log; isi tiap baris identik dengan `logScheduleChange`.
+     */
+    async logScheduleBulkChange(adminId, changes) {
+        const rows = (Array.isArray(changes) ? changes : []).filter(Boolean);
+        if (rows.length === 0) return;
+        try {
+            await prisma.auditLog.createMany({
+                data: rows.map((c) => ({
+                    userId: adminId,
+                    action: 'UPDATE',
+                    entityType: 'SCHEDULE',
+                    entityId: '0',
+                    details: JSON.stringify({
+                        userId: parseInt(c.userId),
+                        date: c.date,
+                        shiftId: c.isOffDay ? null : (c.shiftId ?? null),
+                        isOffDay: Boolean(c.isOffDay),
+                        kitchenStation: c.isOffDay ? null : (c.kitchenStation ?? null),
+                        temporaryDepartment: c.temporaryDepartment ?? null,
+                        bulk: true,
+                    }),
+                })),
+            });
+        } catch (error) {
+            console.error('[AuditService] Failed to write bulk audit log:', error.message);
+        }
+    }
+
+    /**
      * Log user creation/update/deletion
      */
     async logUserChange(adminId, action, targetUserId, details = null) {

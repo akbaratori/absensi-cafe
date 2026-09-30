@@ -1,8 +1,15 @@
 const { AppError, ErrorCodes } = require('../utils/AppError');
 const prisma = require('../utils/database');
 
-/** Batas aman sel per permintaan bulk (bulan penuh = 31 hari → 62 = dua bulan). */
-const MAX_BULK_CELLS = 62;
+/**
+ * Batas aman sel per permintaan bulk.
+ *
+ * 200 = dua bulan penuh (31 hari × ~4 staff dapur = 124) + cadangan untuk
+ * setengah bulan ketiga. Per sel hanya ~2 round-trip DB (hapus manualOffDay
+ * + upsert; audit log di-batch satu createMany di controller), jadi 200 sel
+ * masih jauh di bawah maxDuration serverless (60s).
+ */
+const MAX_BULK_CELLS = 200;
 
 /** Format Date → "YYYY-MM-DD" (UTC), dipakai untuk tanggal murni. */
 const toDateStr = (d) => new Date(d).toISOString().slice(0, 10);
