@@ -19,6 +19,23 @@ export const updateUserScheduleCell = async (data) => {
     const response = await api.put('/schedules/user-schedule-cell', data);
     return response.data;
 };
+/**
+ * Simpan banyak sel jadwal SEKALI jalan — dipakai tombol "Simpan Semua" di
+ * Jadwal Lengkap. Admin menumpuk perubahan jobdesk/stasiun per staff per hari,
+ * lalu mengirimnya dalam satu request supaya halaman tidak reload tiap sel.
+ *
+ * @param {Array<{userId: number, date: string, shiftId?: number|null,
+ *   isOffDay?: boolean, kitchenStation?: string|null,
+ *   temporaryDepartment?: string|null}>} changes
+ * @returns {Promise<{success: boolean, message: string,
+ *   data: {total: number, saved: number,
+ *     failed: Array<{userId:number, date:string, message:string}>}}>}
+ */
+export const bulkUpdateUserScheduleCells = async (changes) => {
+    const response = await api.put('/schedules/user-schedule-cell/bulk', { changes });
+    return response.data;
+};
+
 
 /**
  * Ubah shift satu pegawai untuk RENTANG tanggal sekaligus.

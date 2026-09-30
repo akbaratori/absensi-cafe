@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import html2canvas from 'html2canvas';
-import { Clock, Calendar, ChefHat, User, Check, X, Edit2, AlertCircle } from 'lucide-react';
+import { Clock, Calendar, ChefHat, User, Check, X, Edit2, AlertCircle, AlertTriangle, Layers, Trash2 } from 'lucide-react';
 import rotationService from '../../services/rotationService';
 import { getAllShifts } from '../../services/shiftService';
-import { updateUserScheduleCell } from '../../services/scheduleService';
+import { updateUserScheduleCell, bulkUpdateUserScheduleCells } from '../../services/scheduleService';
 import { getUsers } from '../../services/adminService';
 import BackupPanel from '../../components/admin/BackupPanel';
 import JobdeskFairnessPanel from '../../components/admin/JobdeskFairnessPanel';
@@ -12,6 +12,7 @@ import EmployeeShiftEditor from '../../components/admin/EmployeeShiftEditor';
 import Modal from '../../components/shared/Modal';
 import Button from '../../components/shared/Button';
 import { showSuccess, showError } from '../../hooks/useToast';
+import { stationLetterLabel, stationLetterOf } from '../../utils/kitchenStations';
 
 function LoadingSpinner() {
   return (
@@ -56,6 +57,83 @@ function getMondaysInMonth(mon) {
     cursor.setUTCDate(cursor.getUTCDate() + 7);
   }
   return mondays;
+}
+
+/**
+ * Kunci antrean draft: `userId|YYYY-MM-DD`.
+ *
+ * Satu pegawai satu tanggal = SATU entri. Perubahan berikutnya pada sel yang
+ * sama menimpa entri lama (bukan menambah duplikat), supaya satu sel tidak
+ * pernah terkirim dua kali dengan nilai berbeda saat "Simpan Semua".
+ */
+function draftKey(userId, dateISO) {
+  return `${userId}|${dateISO}`;
+}
+
+/**
+ * Nomor shift (1, 2, ...) untuk satu shiftId — meniru pemetaan backend
+ * (`rotationService`: ambil angka dari nama shift, fallback urutan id).
+ *
+ * Dibutuhkan agar pratinjau draft bisa memindahkan pegawai ke baris "Shift 1 /
+ * Shift 2" yang benar SEBELUM datanya benar-benar disimpan.
+ */
+function shiftNumberOf(shiftId, shifts) {
+  if (shiftId == null || shiftId === '') return null;
+  const sorted = [...(shifts || [])].sort((a, b) => a.id - b.id);
+  const idx = sorted.findIndex((s) => Number(s.id) === Number(shiftId));
+  if (idx === -1) return null;
+  const match = String(sorted[idx].name || '').match(/\d+/);
+  return match ? parseInt(match[0], 10) : idx + 1;
+}
+
+/**
+ * Terapkan draft yang BELUM disimpan ke satu objek jadwal (satu posisi, satu
+ * minggu) supaya tabel menampilkan pratinjau tanpa reload.
+ *
+ * Bentuk hasilnya dibuat sama persis dengan respons API — `userSchedulesByDate`
+ * + `jobdesksByDate` — sehingga `getUsersOnDayWithOffDay` dan seluruh logika
+ * render (termasuk baris "Libur" dan jobdesk backup) ikut tanpa diubah.
+ *
+ * `isManualOverride` ikut diset saat draft menandai MASUK karena backend juga
+ * menyetel flag itu di `upsertSingleSchedule`, termasuk saat membatalkan hari
+ * libur manual. Tanpa itu, pratinjau masih menampilkan orangnya libur.
+ *
+ * Draft milik pegawai yang tidak ada di tabel ini dilewati (tidak ada barisnya)
+ * — tetap masuk antrean dan baru terlihat setelah disimpan.
+ */
+function applyDraftsToSchedule(schedule, drafts) {
+  if (!schedule?.schedules?.length || !drafts || drafts.size === 0) return schedule;
+
+  const byUser = new Map();
+  drafts.forEach((d) => {
+    if (!byUser.has(d.userId)) byUser.set(d.userId, []);
+    byUser.get(d.userId).push(d);
+  });
+
+  let touched = false;
+  const schedules = schedule.schedules.map((row) => {
+    const mine = byUser.get(row.userId);
+    if (!mine) return row;
+    const userSchedulesByDate = { ...(row.userSchedulesByDate || {}) };
+    const jobdesksByDate = { ...(row.jobdesksByDate || {}) };
+    mine.forEach((d) => {
+      const base = userSchedulesByDate[d.date] || {};
+      userSchedulesByDate[d.date] = {
+        ...base,
+        shiftId: d.payload.shiftId ?? null,
+        shiftNumber: d.payload.isOffDay ? (base.shiftNumber ?? null) : (d.shiftNumber ?? base.shiftNumber ?? null),
+        isOffDay: Boolean(d.payload.isOffDay),
+        isManualOverride: d.payload.isOffDay ? Boolean(base.isManualOverride) : true,
+        kitchenStation: d.payload.kitchenStation ?? null,
+        temporaryDepartment: d.payload.temporaryDepartment ?? null,
+      };
+      jobdesksByDate[d.date] = d.payload.isOffDay ? null : (d.payload.kitchenStation || null);
+    });
+    touched = true;
+    return { ...row, userSchedulesByDate, jobdesksByDate };
+  });
+
+  return touched ? { ...schedule, schedules } : schedule;
 }
 
 function getUsersOnDayWithOffDay(schedule, dateISO, shiftNum, offDaySet, backupsOnDay = [], currentPositionId = null) {
@@ -160,6 +238,10 @@ export default function FullSchedulePage() {
   const [loading, setLoading]         = useState(false);
   const [error, setError]             = useState(null);
   const [offDaySet, setOffDaySet]     = useState(new Set());
+  // Cakupan stasiun dapur A–D per tanggal (source: API coverage, pool sama
+  // dengan generator) — dipakai untuk badge "stasiun kosong" di header tanggal.
+  const [coverage, setCoverage]       = useState({});
+  const [coverageReload, setCoverageReload] = useState(0);
   const [backupsByDate, setBackupsByDate] = useState(new Map());
   const [backupDate, setBackupDate]   = useState(null);
   const [showBackupPanel, setShowBackupPanel] = useState(false);
@@ -185,6 +267,13 @@ export default function FullSchedulePage() {
     jobdesksList: [],
   });
   const [saveLoading, setSaveLoading] = useState(false);
+
+  // Antrean perubahan (draft) jadwal — admin menumpuk banyak perubahan lalu
+  // mengirim semuanya sekaligus lewat tombol "Simpan Semua", bukan langsung
+  // tersimpan per sel + reload per perubahan.
+  const [drafts, setDrafts] = useState(new Map());   // key "userId|date" → draft
+  const [savingAll, setSavingAll] = useState(false);
+  const [showReviewModal, setShowReviewModal] = useState(false);
 
   useEffect(() => {
     getAllShifts().then(res => {
@@ -237,6 +326,69 @@ export default function FullSchedulePage() {
   }, [viewMode, weekStart, monthView]); // eslint-disable-line
 
   useEffect(() => { fetchOffDays(activeMonth); }, [activeMonth]); // eslint-disable-line
+
+  /**
+   * Cakupan stasiun dapur untuk rentang yang sedang tampil (minggu / bulan).
+   * Hanya menampilkan informasi, bukan mengubah jadwal. Dipanggil ulang setelah
+   * simpan sel jadwal supaya badge stasiun kosong ikut diperbarui.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!visibleRange.start || !visibleRange.end) return;
+      try {
+        const res = await rotationService.getKitchenStationCoverage(visibleRange.start, visibleRange.end);
+        if (!cancelled) setCoverage(res?.data?.data?.days || {});
+      } catch (err) {
+        console.error('[FullSchedule] kitchen coverage failed:', err?.response?.data?.message || err?.message);
+        if (!cancelled) setCoverage({});
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [visibleRange.start, visibleRange.end, coverageReload]); // eslint-disable-line
+
+  /** Tanggal-tanggal terlihat yang punya stasiun dapur kosong. */
+  const gapDays = useMemo(() => {
+    const out = [];
+    if (!visibleRange.start || !visibleRange.end) return out;
+    const [sy, sm, sd] = visibleRange.start.split('-').map(Number);
+    const [ey, em, ed] = visibleRange.end.split('-').map(Number);
+    let cur = new Date(Date.UTC(sy, sm - 1, sd));
+    const end = new Date(Date.UTC(ey, em - 1, ed));
+    while (cur <= end) {
+      const key = cur.toISOString().slice(0, 10);
+      const day = coverage[key];
+      if (day && Array.isArray(day.missing) && day.missing.length > 0) {
+        out.push({ date: key, missing: day.missing });
+      }
+      cur.setUTCDate(cur.getUTCDate() + 1);
+    }
+    return out;
+  }, [coverage, visibleRange.start, visibleRange.end]);
+
+  /**
+   * Jadwal yang DIRENDER = data server + pratinjau draft yang belum disimpan.
+   * Efeknya admin langsung melihat consequences perubahannya (stasiun baru,
+   * pindah baris shift, status libur) tanpa menunggu reload — dan begitu
+   * "Simpan Semua" ditekan, tabel kembali ke data server apa adanya.
+   */
+  const displayData = useMemo(
+    () => data.map((row) => ({ ...row, schedule: applyDraftsToSchedule(row.schedule, drafts) })),
+    [data, drafts]
+  );
+  const displayMonthData = useMemo(() => {
+    if (!monthData?.weeks?.length) return monthData;
+    return {
+      ...monthData,
+      weeks: monthData.weeks.map((w) => ({
+        ...w,
+        positions: (w.positions || []).map((p) => ({ ...p, schedule: applyDraftsToSchedule(p.schedule, drafts) })),
+      })),
+    };
+  }, [monthData, drafts]);
+
+  /** Draft aktif untuk satu sel (dipakai untuk menandai sel "belum disimpan"). */
+  const draftFor = (userId, dateISO) => drafts.get(draftKey(userId, dateISO));
 
   const fetchWeek = async () => {
     setLoading(true); setError(null);
@@ -348,6 +500,13 @@ export default function FullSchedulePage() {
       isOff: Boolean(isCurrentlyOff),
       temporaryDepartment: userSched?.temporaryDepartment || '',
       jobdesksList: position.jobdesks || [],
+      // Nilai sebelum diedit — ditampilkan di daftar tinjauan ("A → B").
+      prev: {
+        shiftId: userSched?.shiftId ?? null,
+        isOffDay: Boolean(isCurrentlyOff),
+        kitchenStation: userObj.jobdesksByDate?.[dateISO] || null,
+        temporaryDepartment: userSched?.temporaryDepartment || null,
+      },
     });
     setShowEditCellModal(true);
   };
@@ -387,26 +546,71 @@ export default function FullSchedulePage() {
     setShowEditCellModal(true);
   };
 
-  const handleSaveCell = async (e) => {
-    e.preventDefault();
+  /**
+   * Submit modal sel: perubahan TIDAK langsung dikirim ke server, hanya masuk
+   * antrean (draft). Tabel sudah menampilkan hasilnya lewat pratinjau
+   * (`displayData`), jadi admin bisa lanjut mengubah sel lain tanpa menunggu
+   * reload. Seluruh antrean dikirim sekali jalan lewat "Simpan Semua".
+   */
+  const stageCellChange = (data) => {
+    const key = draftKey(data.userId, data.dateISO);
+    // `prev` asli dipertahankan bila sel ini sudah pernah masuk antrean,
+    // supaya daftar tinjauan tetap menampilkan nilai SEBELUM admin menyentuhnya.
+    const prev = drafts.get(key)?.prev || data.prev || null;
+    const draft = {
+      key,
+      userId: Number(data.userId),
+      date: data.dateISO,
+      userName: data.userName,
+      positionName: data.positionName,
+      prev,
+      shiftNumber: data.isOff ? null : shiftNumberOf(data.currentShiftId, allShifts),
+      payload: {
+        userId: Number(data.userId),
+        date: data.dateISO,
+        shiftId: data.isOff ? null : (data.currentShiftId ? parseInt(data.currentShiftId) : null),
+        isOffDay: Boolean(data.isOff),
+        kitchenStation: data.isOff ? null : (data.currentJobdesk || null),
+        temporaryDepartment: data.temporaryDepartment || null,
+      },
+    };
+    setDrafts((prevMap) => {
+      const next = new Map(prevMap);
+      next.set(key, draft);
+      return next;
+    });
+    setShowEditCellModal(false);
+    showSuccess(`${data.userName} · ${data.dateISO} masuk antrean (${drafts.size + 1} belum disimpan)`);
+  };
+
+  /**
+   * Simpan satu sel LANGSUNG ke server (jalur lama) — dipakai tombol
+   * "Simpan Sekarang" di modal untuk admin yang memang cuma mengubah satu hal.
+   * Draft sel ini dibuang lebih dulu supaya tidak ikut tersimpan dua kali.
+   */
+  const saveCellNow = async () => {
     if (!editCellData.userId) { showError('Pilih pegawai terlebih dahulu'); return; }
+    const key = draftKey(editCellData.userId, editCellData.dateISO);
+    const payload = {
+      userId: Number(editCellData.userId),
+      date: editCellData.dateISO,
+      shiftId: editCellData.isOff ? null : (editCellData.currentShiftId ? parseInt(editCellData.currentShiftId) : null),
+      isOffDay: Boolean(editCellData.isOff),
+      kitchenStation: editCellData.isOff ? null : (editCellData.currentJobdesk || null),
+      temporaryDepartment: editCellData.temporaryDepartment || null,
+    };
     setSaveLoading(true);
     try {
-      await updateUserScheduleCell({
-        userId: editCellData.userId,
-        date: editCellData.dateISO,
-        shiftId: editCellData.isOff ? null : (editCellData.currentShiftId ? parseInt(editCellData.currentShiftId) : null),
-        isOffDay: editCellData.isOff,
-        kitchenStation: editCellData.isOff ? null : (editCellData.currentJobdesk || null),
-        temporaryDepartment: editCellData.temporaryDepartment || null,
+      await updateUserScheduleCell(payload);
+      setDrafts((prevMap) => {
+        if (!prevMap.has(key)) return prevMap;
+        const next = new Map(prevMap);
+        next.delete(key);
+        return next;
       });
-
       showSuccess(`Jadwal ${editCellData.userName} tanggal ${editCellData.dateISO} berhasil diperbarui`);
       setShowEditCellModal(false);
-
-      // Refresh schedule views
-      if (viewMode === 'week') fetchWeek(); else fetchMonth();
-      fetchOffDays(activeMonth);
+      await refreshAfterCommit();
     } catch (err) {
       console.error('[FullSchedule] Save cell failed:', err);
       showError(err?.response?.data?.message || 'Gagal menyimpan perubahan jadwal');
@@ -414,6 +618,98 @@ export default function FullSchedulePage() {
       setSaveLoading(false);
     }
   };
+
+  /** Submit form modal sel → masuk antrean (tidak langsung simpan). */
+  const handleSaveCell = (e) => {
+    e.preventDefault();
+    if (!editCellData.userId) { showError('Pilih pegawai terlebih dahulu'); return; }
+    stageCellChange(editCellData);
+  };
+
+  /** Muat ulang data server SEKALI (jadwal + libur + cakupan stasiun dapur). */
+  const refreshAfterCommit = () => {
+    if (viewMode === 'week') fetchWeek(); else fetchMonth();
+    fetchOffDays(activeMonth);
+    setCoverageReload((n) => n + 1);
+  };
+
+  /**
+   * Kirim seluruh isi antrean dalam SATU request, lalu reload sekali.
+   *
+   * Sel yang gagal (mis. user tidak ada) TETAP tinggal di antrean supaya admin
+   * cukup menekan "Simpan Semua" lagi, tanpa mengulang perubahan yang sudah
+   * berhasil tersimpan.
+   */
+  const commitAllDrafts = async () => {
+    const list = [...drafts.values()];
+    if (list.length === 0 || savingAll) return;
+    setSavingAll(true);
+    setShowReviewModal(false);
+    try {
+      const res = await bulkUpdateUserScheduleCells(list.map((d) => d.payload));
+      const failed = res?.data?.failed || [];
+      const savedCount = res?.data?.saved ?? (list.length - failed.length);
+      if (failed.length > 0) {
+        const failedKeys = new Set(failed.map((f) => draftKey(f.userId, f.date)));
+        setDrafts((prevMap) => {
+          const next = new Map();
+          prevMap.forEach((d, k) => { if (failedKeys.has(k)) next.set(k, d); });
+          return next;
+        });
+        showError(`${savedCount} perubahan tersimpan, ${failed.length} gagal: ${failed[0]?.message || 'coba lagi'}`);
+      } else {
+        setDrafts(new Map());
+        showSuccess(`${savedCount} perubahan jadwal tersimpan`);
+      }
+      refreshAfterCommit();
+    } catch (err) {
+      console.error('[FullSchedule] Bulk save failed:', err);
+      showError(err?.response?.data?.message || 'Gagal menyimpan perubahan jadwal');
+    } finally {
+      setSavingAll(false);
+    }
+  };
+
+  const discardDraft = (key) => {
+    setDrafts((prevMap) => {
+      const next = new Map(prevMap);
+      next.delete(key);
+      return next;
+    });
+  };
+
+  const discardAllDrafts = () => {
+    setDrafts(new Map());
+    setShowReviewModal(false);
+    showSuccess('Antrean dibuang — jadwal tetap seperti tersimpan di server');
+  };
+
+  /**
+   * Ringkas nilai draft untuk daftar tinjauan: "A" / "—" (tanpa stasiun) / "libur".
+   * `kitchenStation` berisi NAMA jobdesk ("Main Cook"), sedangkan tabel hanya
+   * menampilkan HURUF kolom rekap — jadi konversi nama→huruf via
+   * `stationLetterOf`, bukan `stationLetterLabel` (argumennya huruf).
+   */
+  const draftStationLabel = (cell) => (cell?.kitchenStation ? (stationLetterOf(cell.kitchenStation) || '—') : '—');
+
+  /** "A → B" untuk satu draft, supaya perubahannya terbaca sekilas. */
+  const draftChangeText = (d) => {
+    const before = d.prev ? draftStationLabel({ kitchenStation: d.prev.isOffDay ? null : d.prev.kitchenStation }) : '(baru)';
+    const after = d.payload.isOffDay ? 'LIBUR' : draftStationLabel(d.payload);
+    return `${before} → ${after}`;
+  };
+
+  // Peringatan tutup tab selama antrean belum dikirim (draft hanya hidup di
+  // memory browser, jadi refresh = hilang).
+  useEffect(() => {
+    if (drafts.size === 0) return undefined;
+    const onBeforeUnload = (e) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [drafts.size]);
   // Backup bar
   const BackupBar = ({ ws }) => (
     <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-3 mb-4 overflow-x-auto">
@@ -442,6 +738,8 @@ export default function FullSchedulePage() {
   const renderPositionTable = (position, schedule, ws) => {
     const wDates  = getWeekDates(ws);
     const dLabels = makeDateLabels(ws);
+    // Badge "stasiun dapur kosong" hanya relevan untuk posisi Kitchen/Dapur.
+    const isKitchenPosition = /dapur|kitchen/i.test(position?.name || '');
     return (
       <div key={`${position.id}-${ws}`} className="bg-white dark:bg-gray-800 rounded-xl shadow overflow-hidden">
         <div className="px-4 py-3 bg-blue-600 text-white flex items-center justify-between">
@@ -463,9 +761,29 @@ export default function FullSchedulePage() {
               <thead>
                 <tr className="bg-gray-50 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
                   <th className="px-3 py-2 text-left w-24">Shift</th>
-                  {dLabels.map(dl => (
-                    <th key={dl.date} className={`px-3 py-2 text-left whitespace-nowrap ${dl.isToday ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : ''}`}>{dl.label}</th>
-                  ))}
+                  {dLabels.map(dl => {
+                    const dayCoverage = coverage[dl.date];
+                    const missing = (isKitchenPosition && dayCoverage?.missing) || [];
+                    return (
+                      <th
+                        key={dl.date}
+                        className={`px-3 py-2 text-left whitespace-nowrap ${dl.isToday ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : ''}`}
+                      >
+                        <span className={missing.length > 0 ? 'text-red-600 dark:text-red-400' : ''}>{dl.label}</span>
+                        {missing.length > 0 && (
+                          <span className="block mt-0.5">
+                            <span
+                              title={`Stasiun dapur kosong: ${missing.map(stationLetterLabel).join(', ')}`}
+                              className="inline-flex items-center gap-0.5 text-[10px] font-bold uppercase px-1 py-0.5 rounded bg-red-100 text-red-700 border border-red-300 dark:bg-red-900/40 dark:text-red-300 dark:border-red-700"
+                            >
+                              <AlertTriangle className="w-2.5 h-2.5" />
+                              {missing.join('')} kosong
+                            </span>
+                          </span>
+                        )}
+                      </th>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>
@@ -477,15 +795,18 @@ export default function FullSchedulePage() {
                       const { working, offDay, deployedElsewhere, movedToOtherShift, absent } = getUsersOnDayWithOffDay(schedule, dl.date, shiftNum, offDaySet, backupsOnDay, position.id);
                       return (
                         <td key={dl.date} className={`px-3 py-2 align-top ${dl.isToday ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''}`}>
-                          {working.length > 0 && <ul className="space-y-0.5 mb-1">{working.map((u,i) => (
+                          {working.length > 0 && <ul className="space-y-0.5 mb-1">{working.map((u,i) => {
+                            const pending = draftFor(u.userId, dl.date);
+                            return (
                             <li key={i}
                               onClick={() => handleCellClick(u, dl.date, position, shiftNum)}
-                              className="whitespace-nowrap text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 cursor-pointer rounded px-1 -mx-1 transition-colors flex items-center justify-between group/cell"
-                              title="Klik untuk edit jadwal/stasiun ini"
+                              className={`whitespace-nowrap text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 cursor-pointer rounded px-1 -mx-1 transition-colors flex items-center justify-between group/cell ${pending ? 'ring-1 ring-amber-400 dark:ring-amber-500 bg-amber-50/70 dark:bg-amber-900/20' : ''}`}
+                              title={pending ? `Belum disimpan: ${draftChangeText(pending)}` : 'Klik untuk edit jadwal/stasiun ini'}
                             >
                               <span>
                                 {u.name}
                                 {u.jobdesk && <span className="ml-1 inline-block px-1 py-px rounded bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 text-[10px] font-medium align-middle">{u.jobdesk}</span>}
+                                {pending && <span className="ml-1 inline-block px-1 py-px rounded bg-yellow-200 dark:bg-yellow-900/50 text-yellow-800 dark:text-yellow-200 text-[10px] font-bold align-middle">BELUM DISIMPAN</span>}
                                 {u.swapInfo && (
                                   <span className="ml-1 inline-flex items-center gap-0.5 px-1 py-px rounded bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 text-[10px] font-medium align-middle">
                                     ⇄ {u.swapInfo.withUserName}
@@ -494,7 +815,8 @@ export default function FullSchedulePage() {
                               </span>
                               <Edit2 className="w-3 h-3 opacity-0 group-hover/cell:opacity-100 text-blue-500 ml-1 flex-shrink-0" />
                             </li>
-                          ))}</ul>}
+                            );
+                          })}</ul>}
                           {movedToOtherShift.length > 0 && <ul className="space-y-0.5 mb-1">{movedToOtherShift.map((u,i) => (
                             <li key={i} className="whitespace-nowrap text-xs">
                               <span className="text-red-500 dark:text-red-400 line-through">{u.name}</span>
@@ -509,16 +831,19 @@ export default function FullSchedulePage() {
                               {u.backupName && (<><span className="text-gray-400 mx-1">&rarr;</span><span className="text-green-700 dark:text-green-400 font-medium">{u.backupName}</span></>)}
                             </li>
                           ))}</ul>}
-                          {offDay.length > 0 && <ul className="space-y-0.5">{offDay.map((u,i) => (
+                          {offDay.length > 0 && <ul className="space-y-0.5">{offDay.map((u,i) => {
+                            const pending = draftFor(u.userId, dl.date);
+                            return (
                             <li key={i}
                               onClick={() => handleCellClick(u, dl.date, position, shiftNum)}
-                              className="whitespace-nowrap text-orange-500 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 hover:bg-orange-100/50 dark:hover:bg-orange-900/30 cursor-pointer rounded px-1 -mx-1 transition-colors text-xs line-through flex items-center justify-between group/cell"
-                              title="Klik untuk ubah jadwal (masuk / tukar shift)"
+                              className={`whitespace-nowrap text-orange-500 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 hover:bg-orange-100/50 dark:hover:bg-orange-900/30 cursor-pointer rounded px-1 -mx-1 transition-colors text-xs line-through flex items-center justify-between group/cell ${pending ? 'ring-1 ring-amber-400 dark:ring-amber-500 bg-amber-50/70 dark:bg-amber-900/20' : ''}`}
+                              title={pending ? `Belum disimpan: ${draftChangeText(pending)}` : 'Klik untuk ubah jadwal (masuk / tukar shift)'}
                             >
-                              <span>&#127958; {u.name}</span>
+                              <span>&#127958; {u.name}{pending && <span className="ml-1 px-1 py-px rounded bg-yellow-200 dark:bg-yellow-900/50 text-yellow-800 dark:text-yellow-200 text-[10px] font-bold no-underline align-middle">BARU</span>}</span>
                               <Edit2 className="w-3 h-3 opacity-0 group-hover/cell:opacity-100 text-orange-600 ml-1 flex-shrink-0" />
                             </li>
-                          ))}</ul>}
+                            );
+                          })}</ul>}
                           {working.length === 0 && offDay.length === 0 && deployedElsewhere.length === 0 && movedToOtherShift.length === 0 && absent.length === 0 && (
                             <button
                               type="button"
@@ -616,7 +941,7 @@ export default function FullSchedulePage() {
     );
   };
   const renderMonthView = () => {
-    if (!monthData?.weeks?.length) {
+    if (!displayMonthData?.weeks?.length) {
       return (
         <div className="text-center py-16 text-gray-500">
           <p className="text-lg mb-2">Belum ada jadwal untuk bulan ini</p>
@@ -626,7 +951,7 @@ export default function FullSchedulePage() {
     }
     return (
       <div className="space-y-10">
-        {monthData.weeks.map(({ weekStart: ws, positions: posSchedules }) => {
+        {displayMonthData.weeks.map(({ weekStart: ws, positions: posSchedules }) => {
           const wStart = new Date(`${ws}T00:00:00Z`);
           const wEnd   = new Date(`${ws}T00:00:00Z`);
           wEnd.setUTCDate(wEnd.getUTCDate() + 6);
@@ -708,16 +1033,18 @@ export default function FullSchedulePage() {
       lines.push(`${fmtShort(new Date(`${ws}T00:00:00Z`))} – ${fmtShort(wEnd)}`);
       lines.push(SEP);
       lines.push('');
-      data.forEach(({ position, schedule }, i) => {
+      // Pakai data + pratinjau draft: teks yang disalin selalu sama dengan
+      // yang terlihat di layar (dan sama dengan isi PNG/PDF dari tabel).
+      displayData.forEach(({ position, schedule }, i) => {
         lines.push(...renderPosition(position, schedule, ws));
-        if (i < data.length - 1) lines.push('', SEP2, '');
+        if (i < displayData.length - 1) lines.push('', SEP2, '');
       });
     } else {
       lines.push(`🗓️ *JADWAL BULANAN*`);
       lines.push(`Bulan ${new Date(`${monthView}-01T00:00:00Z`).toLocaleDateString('id-ID', { month: 'long', year: 'numeric', timeZone: 'UTC' })}`);
       lines.push(SEP);
       lines.push('');
-      monthData?.weeks?.forEach(({ weekStart: ws, positions: posSchedules }, wi) => {
+      displayMonthData?.weeks?.forEach(({ weekStart: ws, positions: posSchedules }, wi) => {
         const wStart = new Date(`${ws}T00:00:00Z`);
         const wEnd = new Date(`${ws}T00:00:00Z`); wEnd.setUTCDate(wEnd.getUTCDate() + 6);
         if (wi > 0) lines.push(SEP, '');
@@ -849,6 +1176,28 @@ export default function FullSchedulePage() {
           </>
         )}
       </div>
+      {/* Peringatan stasiun dapur kosong pada rentang yang sedang tampil.
+          Di luar exportRef supaya tidak ikut masuk gambar/PDF jadwal. */}
+      {gapDays.length > 0 && (
+        <div className="mb-6 rounded-xl border border-red-200 dark:border-red-700 bg-red-50 dark:bg-red-900/30 p-3 print:hidden">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+            <div className="text-sm">
+              <p className="font-semibold text-red-800 dark:text-red-200">
+                {gapDays.length} hari punya stasiun dapur kosong
+              </p>
+              <ul className="mt-1 space-y-0.5 text-red-700 dark:text-red-300">
+                {gapDays.map(g => (
+                  <li key={g.date}>
+                    <span className="font-medium">{g.date}</span> — {g.missing.map(stationLetterLabel).join(', ')}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Rekap keadilan jobdesk — satu-satunya tempat rekap jobdesk dapur.
           Sengaja di luar exportRef agar tidak ikut masuk gambar/PDF jadwal. */}
       <div className="mb-6">
@@ -868,18 +1217,18 @@ export default function FullSchedulePage() {
       </div>
 
       <div ref={exportRef} className="bg-gray-50 dark:bg-transparent p-1 rounded-lg">
-        {viewMode === 'week' && !loading && data.length > 0 && <BackupBar ws={weekStart} />}
+        {viewMode === 'week' && !loading && displayData.length > 0 && <BackupBar ws={weekStart} />}
         {error && <div className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-700 text-red-700 dark:text-red-300 rounded-lg p-4 mb-4 text-sm">{error}</div>}
         {loading ? (
           <LoadingSpinner />
         ) : viewMode === 'week' ? (
-          data.length === 0 ? (
+          displayData.length === 0 ? (
             <div className="text-center py-16 text-gray-500">
               <p className="text-lg mb-2">Belum ada posisi yang dibuat</p>
               <p className="text-sm">Buat posisi di halaman Posisi &amp; Rotasi terlebih dahulu.</p>
             </div>
           ) : (
-            <div className="space-y-8">{data.map(({ position, schedule }) => renderPositionTable(position, schedule, weekStart))}</div>
+            <div className="space-y-8">{displayData.map(({ position, schedule }) => renderPositionTable(position, schedule, weekStart))}</div>
           )
         ) : (
           renderMonthView()
@@ -899,6 +1248,74 @@ export default function FullSchedulePage() {
           }}
         />
       )}
+
+      {/* ── Bilah antrean perubahan ── muncul selama ada draft yang belum dikirim.
+          Di luar exportRef + print:hidden supaya tidak ikut ke PNG/PDF. */}
+      {drafts.size > 0 && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 w-[min(96vw,760px)] print:hidden">
+          <div className="rounded-xl border-2 border-amber-400 dark:border-amber-600 bg-white dark:bg-gray-800 shadow-2xl p-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <Layers className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+              <div className="text-sm min-w-0 flex-1">
+                <p className="font-semibold text-amber-800 dark:text-amber-200">
+                  {drafts.size} perubahan belum disimpan
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Antrean aman saat pindah minggu/bulan. Badge stasiun A–D ikut diperbarui setelah disimpan.
+                </p>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <Button variant="outline" size="sm" type="button" onClick={discardAllDrafts} disabled={savingAll}>
+                  <Trash2 className="w-3.5 h-3.5" /> Buang
+                </Button>
+                <Button size="sm" type="button" onClick={() => setShowReviewModal(true)}>
+                  Simpan Semua
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Konfirmasi terakhir sebelum antrean ditulis ke server (+ hapus satu item). */}
+      <Modal
+        isOpen={showReviewModal}
+        onClose={() => setShowReviewModal(false)}
+        title={`Simpan ${drafts.size} perubahan jadwal`}
+        size="lg"
+      >
+        <p className="text-sm text-gray-600 dark:text-gray-300 mb-3">
+          Semua perubahan di bawah akan ditulis ke jadwal, lalu tabel dimuat ulang satu kali.
+          Perubahan yang tidak jadi dikirim bisa dihapus satu per satu dengan ikon <X className="w-3.5 h-3.5 inline" />.
+        </p>
+        <ul className="max-h-[50vh] overflow-y-auto divide-y divide-gray-100 dark:divide-gray-700 text-sm">
+          {[...drafts.values()].map((d) => (
+            <li key={d.key} className="py-2 flex items-center gap-3">
+              <div className="min-w-0 flex-1">
+                <p className="font-medium text-gray-800 dark:text-gray-100 truncate">{d.userName}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {d.date} · {d.positionName} · {draftChangeText(d)}
+                  {d.payload.temporaryDepartment ? ` · dept ${d.payload.temporaryDepartment}` : ''}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => discardDraft(d.key)}
+                className="ml-auto text-gray-400 hover:text-red-600 flex-shrink-0"
+                title="Buang perubahan ini"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </li>
+          ))}
+        </ul>
+        <div className="pt-4 flex justify-end gap-2 border-t border-gray-200 dark:border-gray-700">
+          <Button variant="outline" type="button" onClick={() => setShowReviewModal(false)}>Nanti</Button>
+          <Button type="button" onClick={commitAllDrafts} loading={savingAll}>
+            Simpan {drafts.size} Perubahan
+          </Button>
+        </div>
+      </Modal>
 
       {/* Modal Quick Edit Cell Schedule — sekaligus dipakai untuk MENAMBAH
           jadwal dari sel kosong (saat `editCellData.userId` masih null). */}
@@ -1026,12 +1443,21 @@ export default function FullSchedulePage() {
             </select>
           </div>
 
-          <div className="pt-4 flex justify-end gap-2 border-t border-gray-200 dark:border-gray-700">
+          <p className="text-xs text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 rounded-md px-3 py-2">
+            Perubahan <strong>tidak langsung disimpan</strong>. Tekan “Masukkan Antrean”, lalu kirim semuanya sekaligus lewat
+            tombol <strong>Simpan</strong> di bilah bawah halaman — tabel cukup dimuat ulang satu kali.
+          </p>
+
+          <div className="pt-2 flex flex-wrap justify-end gap-2 border-t border-gray-200 dark:border-gray-700">
             <Button variant="outline" type="button" onClick={() => setShowEditCellModal(false)}>
               Batal
             </Button>
-            <Button type="submit" loading={saveLoading}>
-              Simpan Perubahan
+            {/* Jalur cepat untuk yang memang hanya mengubah satu sel. */}
+            <Button variant="outline" type="button" onClick={saveCellNow} loading={saveLoading} disabled={!editCellData.userId}>
+              Simpan Sekarang
+            </Button>
+            <Button type="submit">
+              {drafts.has(draftKey(editCellData.userId, editCellData.dateISO)) ? 'Perbarui Antrean' : 'Masukkan Antrean'}
             </Button>
           </div>
         </form>

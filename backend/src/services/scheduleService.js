@@ -1,6 +1,9 @@
 const { AppError, ErrorCodes } = require('../utils/AppError');
 const prisma = require('../utils/database');
 
+/** Batas aman sel per permintaan bulk (bulan penuh = 31 hari → 62 = dua bulan). */
+const MAX_BULK_CELLS = 62;
+
 /** Format Date → "YYYY-MM-DD" (UTC), dipakai untuk tanggal murni. */
 const toDateStr = (d) => new Date(d).toISOString().slice(0, 10);
 
@@ -850,6 +853,60 @@ class ScheduleService {
             }
         });
     }
+    /**
+     * Simpan BANYAK sel jadwal sekaligus (dipakai tombol "Simpan Semua" di
+     * halaman Jadwal Lengkap, supaya admin bisa menumpuk banyak perubahan
+     * jobdesk/stasiun lalu mengirimnya dalam satu permintaan).
+     *
+     * Sengaja diproses SATU per satu, bukan `$transaction` besar:
+     *  - `upsertSingleSchedule` juga menghapus baris `manualOffDays` milik sel
+     *    tersebut; kalau satu tanggal ditolak (mis. user tidak ada), admin
+     *    tetap menerima hasil parsial + daftar sel yang gagal — bukan satu
+     *    rollback yang membuang semua perubahannya;
+     *  - dijalankan berurutan (bukan `Promise.all`) supaya koneksi DB tidak
+     *    habis, sama seperti `updateUserShiftRange`.
+     *
+     * Aturan per sel PERSIS sama dengan `upsertSingleSchedule` (method yang sama
+     * yang dipanggil), jadi tidak ada perbedaan efek antara simpan 1 sel dan
+     * simpan massal: shift dinormalkan, `kitchenStation` dibersihkan saat LIBUR.
+     *
+     * @param {Array<{userId:number|string, date:string, shiftId?:number|string|null,
+     *   isOffDay?:boolean, kitchenStation?:string|null, temporaryDepartment?:string|null}>} changes
+     * @returns {Promise<{saved:number, failed:Array<{userId:number, date:string, message:string}>}>}
+     */
+    async bulkUpsertSingleSchedules(changes) {
+        const list = Array.isArray(changes) ? changes : [];
+        if (list.length === 0) {
+            throw new AppError('Tidak ada perubahan jadwal untuk disimpan', 400, 'VALIDATION_ERROR');
+        }
+        if (list.length > MAX_BULK_CELLS) {
+            throw new AppError(`Maksimal ${MAX_BULK_CELLS} perubahan sekali simpan`, 400, 'VALIDATION_ERROR');
+        }
+
+        let saved = 0;
+        const failed = [];
+        for (const change of list) {
+            try {
+                await this.upsertSingleSchedule({
+                    ...change,
+                    shiftId: change.isOffDay ? null : (change.shiftId ? parseInt(change.shiftId) : null),
+                    isOffDay: Boolean(change.isOffDay),
+                    kitchenStation: change.isOffDay ? null : (change.kitchenStation || null),
+                });
+                saved += 1;
+            } catch (err) {
+                failed.push({
+                    userId: parseInt(change.userId),
+                    date: String(change.date).slice(0, 10),
+                    message: err?.message || 'Gagal menyimpan sel jadwal',
+                });
+            }
+        }
+
+        return { saved, failed };
+    }
+
+
 
     /**
      * Ubah shift/user untuk RENTANG tanggal (dipakai tombol "Ubah shift beberapa

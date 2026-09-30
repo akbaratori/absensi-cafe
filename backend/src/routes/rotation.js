@@ -20,6 +20,10 @@ router.get('/all-schedules', authorize('ADMIN'), rotationController.getAllSchedu
 // WAJIB di atas route '/:id' agar tidak tertangkap sebagai parameter id.
 router.get('/kitchen-jobdesk-report', authorize('ADMIN'), rotationController.getKitchenJobdeskReport);
 
+// Cakupan stasiun dapur A–D per hari (READ-ONLY) — dipakai tampilan jadwal untuk
+// menandai "stasiun belum ada pegawainya". WAJIB di atas route '/:id'.
+router.get('/kitchen-station-coverage', authorize('ADMIN'), rotationController.getKitchenStationCoverage);
+
 // Manual Off-days
 router.get('/manual-off-days', rotationController.getManualOffDays);
 

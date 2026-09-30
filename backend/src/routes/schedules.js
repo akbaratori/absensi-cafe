@@ -44,6 +44,10 @@ router.post('/closing-config', authorize('ADMIN'), asyncHandler(async (req, res)
 // Update single schedule cell by user & date (Admin only)
 router.put('/user-schedule-cell', authorize('ADMIN'), scheduleController.updateUserScheduleCell);
 
+// Simpan banyak sel jadwal sekaligus — antrean "Simpan Semua" Jadwal Lengkap
+// (Admin only). HARUS sebelum /:id.
+router.put('/user-schedule-cell/bulk', authorize('ADMIN'), scheduleController.bulkUpdateUserScheduleCells);
+
 // Ubah shift satu pegawai untuk RENTANG tanggal (Admin only)
 router.put('/user-shift-range', authorize('ADMIN'), scheduleController.updateUserShiftRange);
 

@@ -197,6 +197,149 @@ describe('Fairness rotasi jobdesk Kitchen (huruf A-D)', () => {
       rotationVersion: 2,
     });
   });
+
+  // Jobdesk di DB bernama RANGKAP ('Checker + Plating + Dishwasher',
+  // 'Main Cook / Support Cook', 'Runner + Helper'). Peran yang dipakai untuk
+  // slot/prioritas harus peran UTAMA kolomnya (urutan laporan A→D), bukan
+  // sub-peran yang kebetulan diuji lebih dulu — kalau tidak, paket kolom C
+  // terpotret PLATING dan rankOf()-nya jatuh ke slot paling akhir.
+  it('_kitchenRoleOf memakai urutan laporan (A→D), bukan penemu pertama', () => {
+    expect(rotationService._kitchenRoleOf('Checker + Plating + Dishwasher')).toBe('CHECKER');
+    expect(rotationService._kitchenRoleOf('Main Cook / Support Cook')).toBe('MAIN');
+    expect(rotationService._kitchenRoleOf('Runner + Helper')).toBe('RUNNER');
+    expect(rotationService._kitchenRoleOf('Plating')).toBe('PLATING');
+    expect(rotationService._kitchenRoleOf('Cuci Alat')).toBe('DISHWASHER');
+    expect(rotationService._kitchenRoleOf('Barista')).toBeNull();
+  });
+
+  // Sama persis dengan parseJobdeskGroups() di scheduleService: satu hari
+  // dihitung SEKALI per huruf, sub-jobdesk tidak menambah huruf baru.
+  it('_kitchenLettersOfStation mende-dedupe sub-jobdesk seperti laporan', () => {
+    expect(rotationService._kitchenLettersOfStation('Checker + Plating + Dishwasher')).toEqual(['C']);
+    expect(rotationService._kitchenLettersOfStation('Main Cook / Support Cook')).toEqual(['A']);
+    expect(rotationService._kitchenLettersOfStation('Support Cook + Runner / Area')).toEqual(['B', 'D']);
+    expect(rotationService._kitchenLettersOfStation('')).toEqual([]);
+    expect(rotationService._kitchenLettersOfStation(null)).toEqual([]);
+  });
+
+  // Jaminan "tiap hari semua station terisi": selama jumlah paket ditentukan
+  // dari JUMLAH STAFF yang masuk (bukan dipotong override), huruf A–D selalu
+  // muncul di antara paket yang dibagikan.
+  it('buildKitchenPackages menutup huruf A–D untuk 1..6 staff', () => {
+    for (let n = 1; n <= 6; n += 1) {
+      const packs = rotationService.buildKitchenPackages(JOBDESKS, n);
+      const set = new Set();
+      packs.forEach((p) => rotationService._kitchenLettersOfPack(p).forEach((L) => set.add(L)));
+      expect([...set].sort()).toEqual(['A', 'B', 'C', 'D']);
+      expect(packs.length).toBeLessThanOrEqual(n);
+    }
+  });
+
+  // BUG STATION KOSONG (terukur pada data Oktober 2026).
+  // Staf yang jobdesknya DIKUNCI admin (isManualOverride) tetap dihitung
+  // "masuk" oleh generateWeek, jadi mereka ikut mengambil satu paket — tetapi
+  // nilai hasil rotasi itu dibuang saat menulis DB (barisnya dipertahankan).
+  // Paket yang mereka "ambil" karena itu lenyap: huruf itu tidak pernah terisi,
+  // sementara huruf yang mereka pegang secara nyata jadi dobel.
+  // Contoh nyata 2026-10-07: 3 staf semuanya huruf D, huruf A/B/C kosong.
+  // Sekarang jobdesk admin dihitung lebih dulu sebagai huruf yang SUDAH
+  // terisi, dan paket sisanya dipaksa menutup huruf yang belum ada.
+  const ALL_LETTERS = ['A', 'B', 'C', 'D'];
+  const lettersOfAssign = (assign) => {
+    const set = new Set();
+    for (const entry of assign.values()) {
+      for (const L of rotationService._kitchenLettersOfRoleCode(entry.roleCode)) set.add(L);
+    }
+    return ALL_LETTERS.filter((L) => set.has(L));
+  };
+
+  it('staf terkunci (manual override) tidak meninggalkan station kosong', () => {
+    const counts = new Map(STAFF.map((u) => [u, blank()]));
+    const lockedCases = [
+      new Map([[101, 'Runner + Helper']]), // D
+      new Map([[101, 'Main Cook / Support Cook']]), // A
+      new Map([[101, 'Runner + Helper'], [102, 'Checker + Plating + Dishwasher']]), // D,C
+      // 2026-10-07 sejati: 2 staf terkunci di D + 1 staf bebas.
+      new Map([[101, 'Runner + Helper'], [103, 'Runner / Area + Helper / Floating']]),
+      // 3 dari 4 staf terkunci (A,B,C) — sisa huruf harus ke satu staf.
+      new Map([
+        [101, 'Main Cook / Support Cook'],
+        [102, 'Support Cook'],
+        [103, 'Checker + Plating + Dishwasher'],
+      ]),
+      new Map([[101, 'Checker / Stock + Plating']]), // nama jobdesk lama -> C
+    ];
+    const present = STAFF.slice(0, 4);
+    for (const [i, locked] of lockedCases.entries()) {
+      const assign = rotationService._assignKitchenByQueue(
+        JOBDESKS, present, QUEUE, ROSTER,
+        dayOffset(new Date(Date.UTC(2026, 9, 5 + i))), counts, locked
+      );
+      // Nilai admin tidak boleh ditimpa hasil rotasi.
+      for (const [uid, station] of locked) {
+        expect((assign.get(uid).jobs || []).join(' + ')).toBe(station);
+      }
+      // Setiap staf yang masuk dapat jobdesk, dan tidak ada huruf kosong.
+      for (const uid of present) {
+        expect(String(assign.get(uid)?.roleCode || '')).not.toBe('');
+        countLetters(counts.get(uid), assign.get(uid).roleCode);
+      }
+      expect(lettersOfAssign(assign)).toEqual(ALL_LETTERS);
+    }
+    // Pemerataan tetap berjalan: tidak ada staf yang menumpuk satu huruf.
+    for (const uid of present) expect(gapOf(counts.get(uid))).toBeLessThanOrEqual(3);
+  });
+
+  it('1 staf bebas + sisanya terkunci di D: A,B,C tetap terisi', () => {
+    const counts = new Map(STAFF.map((u) => [u, blank()]));
+    const locked = new Map([[102, 'Runner + Helper'], [103, 'Runner + Helper']]);
+    const assign = rotationService._assignKitchenByQueue(
+      JOBDESKS, [101, 102, 103], QUEUE, ROSTER, dayOffset(new Date(Date.UTC(2026, 9, 7))), counts, locked
+    );
+    expect(lettersOfAssign(assign)).toEqual(ALL_LETTERS);
+    expect(assign.get(101).jobs.join(' + ')).toContain('Main Cook / Support Cook');
+  });
+
+  // Jalur redistribusi (swap / off-day) MEMANG mengeluarkan staf terkunci dari
+  // `workingUserIds`. Jumlah paket tetap harus dihitung dari TOTAL staff yang
+  // masuk hari itu; kalau tidak, satu staf bebas mengambil semua jobdesk
+  // (overload) walau huruf lain sudah dipegang staf terkunci.
+  it('staf terkunci di luar pool: staf bebas tidak menanggung semua jobdesk', () => {
+    const counts = new Map(STAFF.map((u) => [u, blank()]));
+    const locked = new Map([
+      [102, 'Checker + Plating + Dishwasher'], // C
+      [103, 'Runner + Helper'], // D
+      [104, 'Support Cook'], // B
+    ]);
+    const assign = rotationService._assignKitchenByQueue(
+      JOBDESKS, [101], QUEUE, ROSTER, dayOffset(new Date(Date.UTC(2026, 9, 1))), counts, locked
+    );
+    expect(lettersOfAssign(assign)).toEqual(ALL_LETTERS);
+    expect(assign.get(101).jobs).toEqual(['Main Cook / Support Cook']);
+  });
+
+  it('staf berlebih tetap dapat paket saat sebagian huruf terkunci', () => {
+    const counts = new Map(STAFF.map((u) => [u, blank()]));
+    const locked = new Map([[105, 'Runner + Helper']]);
+    const assign = rotationService._assignKitchenByQueue(
+      JOBDESKS, STAFF, QUEUE, ROSTER, dayOffset(new Date(Date.UTC(2026, 9, 8))), counts, locked
+    );
+    for (const uid of STAFF) expect(String(assign.get(uid)?.roleCode || '')).not.toBe('');
+    expect(lettersOfAssign(assign)).toEqual(ALL_LETTERS);
+  });
+
+  it('tanpa override, hasil rotasi tidak berubah (regresi perilaku lama)', () => {
+    const counts = new Map(STAFF.map((u) => [u, blank()]));
+    const day = dayOffset(new Date(Date.UTC(2026, 9, 12)));
+    const plain = rotationService._assignKitchenByQueue(
+      JOBDESKS, STAFF.slice(0, 4), QUEUE, ROSTER, day, counts
+    );
+    const empty = rotationService._assignKitchenByQueue(
+      JOBDESKS, STAFF.slice(0, 4), QUEUE, ROSTER, day, counts, new Map()
+    );
+    expect([...empty.keys()]).toEqual([...plain.keys()]);
+    for (const uid of STAFF.slice(0, 4)) expect(empty.get(uid).jobs).toEqual(plain.get(uid).jobs);
+  });
 });
 
 
@@ -722,6 +865,88 @@ describe('Pemetaan shiftNumber <-> shiftId', () => {
         expect(validIds.has(g.shiftId)).toBe(true);
       }
     }
+  });
+});
+
+/**
+ * Test `kitchenStationGapOfDay` — fungsi MURNI (tanpa query DB) yang menghitung
+ * huruf stasiun dapur A–D yang belum dipegang siapa pun pada satu hari. Fungsi
+ * ini adalah inti dari endpoint coverage (`GET /rotation/kitchen-station-coverage`)
+ * dan badge "stasiun kosong" di jadwal admin.
+ *
+ * Yang dijaga:
+ *   1. hari dengan A–D semua terisi → tidak ada huruf kosong;
+ *   2. satu huruf kosong (mis. B) dilaporkan apa adanya;
+ *   3. baris libur (isOffDay) TIDAK menghitung stasiunnya;
+ *   4. baris tanpa kitchenStation diabaikan (tidak membuat stasiun terisi);
+ *   5. 'Runner + Helper' (E) dipetakan ke D — E bukan kolom rekap;
+ *   6. jobdesk yang tidak dikenali diabaikan.
+ */
+describe('kitchenStationGapOfDay (coverage stasiun dapur)', () => {
+  const REQUIRED = ['A', 'B', 'C', 'D'];
+
+  it('hari kosong saat A–D semua terisi', () => {
+    const rows = [
+      { isOffDay: false, kitchenStation: 'Main Cook / Support Cook' }, // A
+      { isOffDay: false, kitchenStation: 'Support Cook' }, // B
+      { isOffDay: false, kitchenStation: 'Checker + Plating + Dishwasher' }, // C
+      { isOffDay: false, kitchenStation: 'Runner + Helper' }, // D
+    ];
+    expect(rotationService.kitchenStationGapOfDay(rows, REQUIRED)).toEqual([]);
+  });
+
+  it('melaporkan B ketika Support Cook hilang', () => {
+    const rows = [
+      { isOffDay: false, kitchenStation: 'Main Cook / Support Cook' }, // A
+      { isOffDay: false, kitchenStation: 'Checker + Plating + Dishwasher' }, // C
+      { isOffDay: false, kitchenStation: 'Runner + Helper' }, // D
+    ];
+    expect(rotationService.kitchenStationGapOfDay(rows, REQUIRED)).toEqual(['B']);
+  });
+
+  it('mengabaikan baris libur (isOffDay) saat menghitung stasiun', () => {
+    const rows = [
+      { isOffDay: false, kitchenStation: 'Main Cook / Support Cook' }, // A
+      { isOffDay: true, kitchenStation: 'Support Cook' }, // libur → B tetap kosong
+      { isOffDay: false, kitchenStation: 'Checker + Plating + Dishwasher' }, // C
+      { isOffDay: false, kitchenStation: 'Runner + Helper' }, // D
+    ];
+    expect(rotationService.kitchenStationGapOfDay(rows, REQUIRED)).toEqual(['B']);
+  });
+
+  it('mengabaikan baris tanpa kitchenStation', () => {
+    const rows = [
+      { isOffDay: false, kitchenStation: 'Main Cook / Support Cook' }, // A
+      { isOffDay: false, kitchenStation: 'Support Cook' }, // B
+      { isOffDay: false, kitchenStation: 'Checker + Plating + Dishwasher' }, // C
+      { isOffDay: false, kitchenStation: null }, // bekerja tapi tanpa stasiun → D tetap kosong
+    ];
+    expect(rotationService.kitchenStationGapOfDay(rows, REQUIRED)).toEqual(['D']);
+  });
+
+  it('memetakan Runner + Helper (E) ke stasiun D', () => {
+    const rows = [
+      { isOffDay: false, kitchenStation: 'Main Cook / Support Cook' }, // A
+      { isOffDay: false, kitchenStation: 'Support Cook' }, // B
+      { isOffDay: false, kitchenStation: 'Checker + Plating + Dishwasher' }, // C
+      { isOffDay: false, kitchenStation: 'Runner + Helper' }, // E → D
+    ];
+    expect(rotationService.kitchenStationGapOfDay(rows, REQUIRED)).toEqual([]);
+  });
+
+  it('mengabaikan jobdesk yang tidak dikenali', () => {
+    const rows = [
+      { isOffDay: false, kitchenStation: 'Main Cook / Support Cook' }, // A
+      { isOffDay: false, kitchenStation: 'Support Cook' }, // B
+      { isOffDay: false, kitchenStation: 'Checker + Plating + Dishwasher' }, // C
+      { isOffDay: false, kitchenStation: 'Barista' }, // tidak dikenali → D tetap kosong
+    ];
+    expect(rotationService.kitchenStationGapOfDay(rows, REQUIRED)).toEqual(['D']);
+  });
+
+  it('tanpa baris sama sekali: semua huruf dianggap belum ada', () => {
+    expect(rotationService.kitchenStationGapOfDay([], REQUIRED)).toEqual(REQUIRED);
+    expect(rotationService.kitchenStationGapOfDay(null, REQUIRED)).toEqual(REQUIRED);
   });
 });
 

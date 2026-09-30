@@ -213,6 +213,71 @@ class ScheduleController {
     }
 
     /**
+     * Simpan banyak sel jadwal SEKALI jalan (Admin only).
+     *
+     * Dipakai tombol "Simpan Semua" di halaman Jadwal Lengkap: admin menumpuk
+     * perubahan jobdesk/stasiun per staff per hari di antrean, lalu mengirimnya
+     * lewat satu endpoint. Kalau tiap perubahan dikirim sebagai request sendiri,
+     * halaman harus reload sekali per perubahan (lambat saat menata seminggu
+     * penuh); di sini cukup satu request + satu reload.
+     *
+     * PUT /api/v1/schedules/user-schedule-cell/bulk
+     * body: { changes: [{ userId, date, shiftId, isOffDay, kitchenStation, temporaryDepartment }] }
+     *
+     * Hasil parsial dikembalikan apa adanya (`saved` + `failed`) supaya frontend
+     * hanya menahan sel yang gagal di antrean — perubahan yang sudah tersimpan
+     * tidak perlu diketik ulang.
+     */
+    async bulkUpdateUserScheduleCells(req, res, next) {
+        try {
+            const { changes } = req.body;
+            if (!Array.isArray(changes) || changes.length === 0) {
+                return res.status(400).json({ success: false, message: 'changes harus berupa daftar perubahan jadwal' });
+            }
+            const invalid = changes.findIndex((c) => !c || !c.userId || !c.date);
+            if (invalid !== -1) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Perubahan nomor ${invalid + 1} tidak lengkap (userId dan date wajib diisi)`,
+                });
+            }
+
+            const result = await scheduleService.bulkUpsertSingleSchedules(changes);
+
+            // Audit trail hanya untuk sel yang benar-benar tersimpan.
+            const auditService = require('../services/auditService');
+            const isFailed = (c) => result.failed.some(
+                (f) => parseInt(f.userId) === parseInt(c.userId) && f.date === String(c.date).slice(0, 10)
+            );
+            for (const c of changes) {
+                if (isFailed(c)) continue;
+                await auditService.logScheduleChange(req.user.id, 0, {
+                    userId: parseInt(c.userId),
+                    date: c.date,
+                    shiftId: c.isOffDay ? null : (c.shiftId ?? null),
+                    isOffDay: Boolean(c.isOffDay),
+                    kitchenStation: c.isOffDay ? null : (c.kitchenStation ?? null),
+                    temporaryDepartment: c.temporaryDepartment ?? null,
+                    bulk: true,
+                });
+            }
+
+            const failedCount = result.failed.length;
+            return successResponse(
+                res,
+                200,
+                { total: changes.length, saved: result.saved, failed: result.failed },
+                failedCount === 0
+                    ? `${result.saved} perubahan jadwal berhasil disimpan`
+                    : `${result.saved} perubahan tersimpan, ${failedCount} gagal`
+            );
+        } catch (err) {
+            next(err);
+        }
+    }
+
+
+    /**
      * Ubah jadwal SATU pegawai untuk RENTANG tanggal sekaligus.
      *
      * Dipakai halaman Jadwal Lengkap: daripada admin mengklik satu sel per hari

@@ -90,6 +90,14 @@ function mod(n, m) {
   return ((n % m) + m) % m;
 }
 
+/**
+ * Empat huruf stasiun dapur yang WAJIB terisi tiap hari operasional (A–D).
+ * Lihat JOB_DESK_KITCHEN.md §2d — Helper/Floating ("E") bukan kolom rekap,
+ * ia menempel pada Runner (D), jadi tidak pernah dihitung sebagai stasiun
+ * yang "belum ada".
+ */
+const KITCHEN_LETTERS = ['A', 'B', 'C', 'D'];
+
 
 /**
  * Indeks hari DALAM bulan berjalan (tanggal 1 = 0), dipakai sebagai `dayOffset`
@@ -826,6 +834,19 @@ class RotationService {
             .map((a) => a.userId);
           if (!working.length) continue;
 
+          // Jobdesk yang dikunci admin (isManualOverride) untuk hari ini.
+          // Nilai admin dipakai APA ADANYA — barisnya memang tidak ditimpa —
+          // dan hurufnya dianggap sudah terisi supaya paket yang dibagikan ke
+          // staff lain tidak membiarkan station kosong. Bug lama: staff
+          // terkunci ikut mengambil paket, hasilnya dibuang saat menulis DB,
+          // paket itu lenyap → satu huruf kosong, huruf lain dobel
+          // (terukur 2026-10-07: 3 staff semuanya huruf D, A/B/C kosong).
+          const preassigned = new Map();
+          for (const uid of working) {
+            const lockedStation = overrideSet.get(`${uid}_${dateObj.toISOString()}`);
+            if (lockedStation) preassigned.set(uid, lockedStation);
+          }
+
           if (isKitchenPos) {
             const key = this._kitchenPeriodKey(dateObj);
             if (key !== kitchenPeriodKey) {
@@ -835,7 +856,15 @@ class RotationService {
           }
 
           const assign = isKitchenPos
-            ? this._assignKitchenByQueue(jobdeskList, working, stateMap, rank, dayOffsetOfMonth(dateObj), kitchenCounts)
+            ? this._assignKitchenByQueue(
+                jobdeskList,
+                working,
+                stateMap,
+                rank,
+                dayOffsetOfMonth(dateObj),
+                kitchenCounts,
+                preassigned
+              )
             : this.assignKitchenStations(jobdeskList, this._sortKitchenByQueue(working, new Map(), rank), dayIdx);
 
           if (isKitchenPos) this._applyKitchenDayToCounts(kitchenCounts, assign);
@@ -942,14 +971,42 @@ class RotationService {
    */
   _kitchenRoleOf(name) {
     const n = String(name || '').toLowerCase();
-    if (/plating/.test(n)) return 'PLATING';
-    if (/dishwash|cuci|sanitation/.test(n)) return 'DISHWASHER';
+    // Urutan = prioritas huruf laporan (A→D), BUKAN urutan penemu pertama.
+    // Nama rangkap di DB memuat sub-peran di dalamnya, mis.
+    // "Checker + Plating + Dishwasher". Kalau /plating/ diuji lebih dulu,
+    // jobdesk kolom C terpotret sebagai PLATING — bukan CHECKER — sehingga
+    // urutannya jatuh ke slot paling akhir di _spreadKitchenPackages dan
+    // nama peran di log tidak sama dengan kolom rekapnya.
     if (/main\s*cook|head\s*cook|kepala/.test(n)) return 'MAIN';
     if (/support|snack/.test(n)) return 'SUPPORT';
     if (/checker|stock|stok/.test(n)) return 'CHECKER';
     if (/runner|area/.test(n)) return 'RUNNER';
     if (/helper|floating/.test(n)) return 'HELPER';
+    // Plating & Dishwasher bukan jobdesk mandiri: tugas tambahan yang menempel
+    // ke Checker (lihat buildKitchenPackages), jadi tetap dipetakan ke huruf C.
+    if (/plating/.test(n)) return 'PLATING';
+    if (/dishwash|cuci|sanitation/.test(n)) return 'DISHWASHER';
     return null;
+  }
+
+  /**
+   * Huruf A–D yang dipegang sebuah nilai `kitchen_station` (string gabungan).
+   *
+   * Dipakai untuk membaca jobdesk yang dikunci admin (manual override) dan
+   * baris log lama, yang tidak tersedia sebagai daftar paket. Memakai
+   * pemetaan yang sama dengan laporan (group → huruf, dedup per hari).
+   *
+   * @param {String} station - mis. "Support Cook + Checker / Stock"
+   * @returns {String[]} huruf unik, urutan A,B,C,D
+   */
+  _kitchenLettersOfStation(station) {
+    const parts = String(station || '')
+      .split(' + ')
+      .map((p) => p.trim())
+      .filter(Boolean);
+    return this._kitchenLettersOfRoleCode(
+      parts.map((p) => this._kitchenRoleOf(p)).filter(Boolean).join('+'),
+    );
   }
 
   /**
@@ -1105,7 +1162,10 @@ class RotationService {
                 { temporaryDepartment: 'KITCHEN' },
               ],
             },
-            select: { id: true, userId: true, isOffDay: true, isManualOverride: true, temporaryDepartment: true },
+            select: {
+              id: true, userId: true, isOffDay: true, isManualOverride: true,
+              temporaryDepartment: true, kitchenStation: true,
+            },
           });
 
           // Jangan overwrite manual override
@@ -1145,7 +1205,22 @@ class RotationService {
             )
             .map((s) => s.userId);
 
-          if (!working.length) continue;
+          // Jobdesk yang dikunci admin hari ini (isManualOverride, masuk kerja,
+          // masih di kitchen): nilai admin dipakai APA ADANYA dan hurufnya
+          // dianggap sudah terisi, supaya staf auto mengisi huruf sisanya.
+          const preassigned = new Map();
+          for (const s of userSchedules) {
+            if (
+              s.isManualOverride &&
+              !s.isOffDay &&
+              KITCHEN_DEPTS.has(s.temporaryDepartment) &&
+              s.kitchenStation
+            ) {
+              preassigned.set(s.userId, s.kitchenStation);
+            }
+          }
+
+          if (!working.length && !preassigned.size) continue;
 
           // Fase rotasi = hari-dalam-bulan, SAMA seperti generateWeek, supaya
           // kedua jalur menghasilkan jobdesk identik untuk tanggal yang sama
@@ -1156,9 +1231,20 @@ class RotationService {
             stateMap,
             rosterOrder,
             dayOffsetOfMonth(dateObj),
-            kitchenCounts
+            kitchenCounts,
+            preassigned
           );
           this._applyKitchenDayToCounts(kitchenCounts, assign);
+
+          // Huruf dari jobdesk terkunci ikut dihitung ke jumlah bulan stafnya,
+          // supaya pemerataan melihat bahwa staf itu sudah memikul huruf tersebut.
+          for (const [uid, station] of preassigned) {
+            const jobs = String(station).split(' + ').map((p) => p.trim()).filter(Boolean);
+            if (!jobs.length) continue;
+            this._applyKitchenDayToCounts(kitchenCounts, new Map([
+              [uid, { roleCode: this._kitchenPackagesAssigned(jobs) }],
+            ]));
+          }
 
           // Tulis ke DB: jadwal (userSchedule.kitchenStation) DAN log laporan
           // bulanan (kitchenJobdeskLog) WAJIB sinkron. Kalau hanya jadwal yang
@@ -1196,6 +1282,150 @@ class RotationService {
     } catch (err) {
       console.error('[rotationService] Gagal redistribusi jobdesk kitchen:', err?.message);
     }
+  }
+
+  /**
+   * Huruf A–D dari daftar NAMA jobdesk sebuah posisi (bukan kitchen_station).
+   * Jobdesk yang tidak dikenali diabaikan — dipakai coverage untuk menghitung
+   * stasiun yang wajib ada mengikuti jobdesk yang benar-benar tersedia di DB.
+   */
+  _kitchenLettersOfJobdesks(jobdeskList) {
+    const codes = (Array.isArray(jobdeskList) ? jobdeskList : [])
+      .map((name) => this._kitchenRoleOf(name))
+      .filter(Boolean);
+    return this._kitchenLettersOfRoleCode(codes.join('+'));
+  }
+
+  /**
+   * Huruf yang belum ada pegangnya pada SATU hari (pure, tanpa query DB).
+   * Dipisah agar bisa diuji lewat `backend/tests/rotation.test.js`.
+   *
+   * @param {Array} rows - baris userSchedule hari itu ({ isOffDay, kitchenStation })
+   * @param {String[]} requiredLetters - huruf yang wajib ada (default A–D)
+   * @returns {String[]} huruf yang tidak dipegang staf non-libur mana pun
+   */
+  kitchenStationGapOfDay(rows, requiredLetters = KITCHEN_LETTERS) {
+    const filled = new Set();
+    for (const row of Array.isArray(rows) ? rows : []) {
+      if (!row || row.isOffDay) continue;
+      for (const L of this._kitchenLettersOfStation(row.kitchenStation)) filled.add(L);
+    }
+    return requiredLetters.filter((L) => !filled.has(L));
+  }
+
+  /**
+   * Cakupan stasiun dapur per tanggal — untuk tanda "stasiun kosong" di jadwal.
+   * READ-ONLY, tidak mengubah data.
+   *
+   * Pool sama dengan generator
+   * (`distributeKitchenJobdesksForDates` / `generateWeek`):
+   *   - roster posisi Kitchen/Dapur,
+   *   - baris temporaryDepartment='KITCHEN',
+   *   - baris yang punya nilai kitchen_station.
+   *
+   * Hari tanpa seorang pun staf dapur masuk kerja DIKELUARKAN — itu hari libur
+   * dapur, bukan "stasiun kosong". Huruf wajib mengikuti jobdesk yang ada di DB;
+   * kalau posisi dapur tidak punya jobdesk sama sekali, huruf default A–D dipakai
+   * supaya kegagalan konfigurasi tetap kelihatan.
+   *
+   * @param {String} startDate - ISO 'YYYY-MM-DD'
+   * @param {String} endDate   - ISO 'YYYY-MM-DD' (inklusif)
+   * @returns {Object} { startDate, endDate, positions, required, days:{ date: {...} } }
+   */
+  async kitchenStationCoverage(startDate, endDate) {
+    const startObj = new Date(`${String(startDate).slice(0, 10)}T00:00:00.000Z`);
+    const endObj = new Date(`${String(endDate).slice(0, 10)}T23:59:59.999Z`);
+    if (isNaN(startObj.getTime()) || isNaN(endObj.getTime()) || startObj > endObj) {
+      throw new AppError('Rentang tanggal coverage tidak valid', 400, 'VALIDATION_ERROR');
+    }
+
+    // Batas kenalaran (bukan keamanan): tampilan jadwal maksimal satu-dua bulan.
+    const spanDays = Math.round((endObj - startObj) / 86400000) + 1;
+    if (spanDays > 62) {
+      throw new AppError('Rentang coverage maksimal 62 hari', 400, 'VALIDATION_ERROR');
+    }
+
+    const positions = await prisma.position.findMany({
+      where: { OR: [{ name: 'Kitchen' }, { name: 'Dapur' }], isActive: true },
+      include: {
+        jobdesks: { orderBy: { orderIndex: 'asc' } },
+        rosters: { select: { userId: true } },
+      },
+    });
+
+    const rosterUserIds = new Set(
+      (positions || []).flatMap((p) => (p.rosters || []).map((r) => r.userId)),
+    );
+    const required = (() => {
+      const letters = this._kitchenLettersOfJobdesks(
+        (positions || []).flatMap((p) => (p.jobdesks || []).map((j) => j.name)),
+      );
+      return letters.length ? letters : KITCHEN_LETTERS;
+    })();
+
+    const rows = await prisma.userSchedule.findMany({
+      where: {
+        date: { gte: startObj, lte: endObj },
+        OR: [
+          { userId: { in: [...rosterUserIds] } },
+          { temporaryDepartment: 'KITCHEN' },
+          { kitchenStation: { not: null } },
+        ],
+      },
+      select: {
+        date: true,
+        userId: true,
+        isOffDay: true,
+        isManualOverride: true,
+        temporaryDepartment: true,
+        kitchenStation: true,
+        user: { select: { fullName: true } },
+      },
+      orderBy: { date: 'asc' },
+    });
+
+    const byDate = new Map();
+    for (const row of rows) {
+      const key = row.date.toISOString().slice(0, 10);
+      if (!byDate.has(key)) byDate.set(key, []);
+      byDate.get(key).push(row);
+    }
+
+    const days = {};
+    for (const [dateKey, list] of byDate) {
+      const onDuty = list.filter((row) => !row.isOffDay && row.kitchenStation);
+      const staffOnDuty = list.filter((row) => !row.isOffDay);
+      if (!staffOnDuty.length) continue; // libur dapur, bukan stasiun kosong
+      const missing = this.kitchenStationGapOfDay(list, required);
+      const holders = {};
+      for (const row of onDuty) {
+        for (const L of this._kitchenLettersOfStation(row.kitchenStation)) {
+          (holders[L] = holders[L] || []).push({
+            userId: row.userId,
+            name: row.user?.fullName || `User #${row.userId}`,
+            manual: row.isManualOverride,
+          });
+        }
+      }
+      days[dateKey] = {
+        date: dateKey,
+        staffCount: staffOnDuty.length,
+        assignedCount: onDuty.length,
+        required,
+        filled: required.filter((L) => holders[L]),
+        missing,
+        holders,
+        allManual: staffOnDuty.every((row) => row.isManualOverride),
+      };
+    }
+
+    return {
+      startDate: startObj.toISOString().slice(0, 10),
+      endDate: endObj.toISOString().slice(0, 10),
+      positions: (positions || []).map((p) => p.name),
+      required,
+      days,
+    };
   }
 
   /**
@@ -3036,6 +3266,9 @@ class RotationService {
    *   penentu utama siapa-dapat-apa
    * @param {Map} counts - userId -> { A, B, C, D, total } huruf yang sudah
    *   dipikul tiap staff dalam periode berjalan (lihat _kitchenLetterCounts)
+   * @param {Map} [preassigned] - userId -> jobdesk yang SUDAH dipastikan
+   *   (manual override admin) untuk hari itu. Staf ini tidak ikut berbagi
+   *   paket, dan huruf yang sudah mereka pegang tidak dibagikan lagi.
    * @returns {Map} userId -> { jobs: String[], roleCode: String }
    */
   _assignKitchenByQueue(
@@ -3044,25 +3277,101 @@ class RotationService {
     stateMap,
     rosterOrderMap = new Map(),
     dayOffset = 0,
-    counts = new Map()
+    counts = new Map(),
+    preassigned = new Map()
   ) {
     const result = new Map();
     if (!workingUserIds.length) return result;
 
     const ordered = this._sortKitchenByQueue(workingUserIds, stateMap, rosterOrderMap);
-    const packages = this.buildKitchenPackages(jobdeskList, ordered.length);
 
+    // ---- Jobdesk yang sudah dipastikan (manual override admin) ----
+    // Bug lama: staff terkunci tetap dihitung sebagai pemakan paket, tetapi
+    // hasil rotasinya dibuang saat menulis DB (barisnya dipertahankan). Paket
+    // yang mereka "ambil" karena itu lenyap → satu huruf kosong di kalender,
+    // huruf lain dobel. Terukur pada 2026-10-07: 3 staff, ketiganya huruf D,
+    // huruf A/B/C kosong. Sekarang nilai admin dipakai apa adanya dan hurufnya
+    // dicatat sebagai sudah terisi.
+    const lockedJobs = new Map();
+    for (const [uid, jobs] of preassigned || []) {
+      const list = (Array.isArray(jobs) ? jobs : String(jobs || '').split(' + '))
+        .map((x) => String(x || '').trim())
+        .filter(Boolean);
+      if (!list.length) continue;
+      lockedJobs.set(uid, list);
+      result.set(uid, {
+        jobs: list,
+        roleCode: this._kitchenPackagesAssigned(list),
+      });
+    }
+
+    // Huruf yang sudah terisi oleh jobdesk terkunci hari ini.
+    const lockedLetters = new Set();
+    for (const jobs of lockedJobs.values()) {
+      for (const L of this._kitchenLettersOfRoleCode(this._kitchenPackagesAssigned(jobs))) {
+        lockedLetters.add(L);
+      }
+    }
+
+    // Jumlah staff hari ini = staf bebas + staf terkunci. Paket dibuat untuk
+    // TOTAL itu. Kalau hanya staf bebas yang dihitung (jalur redistribusi
+    // swap/off-day mengeluarkan staf terkunci dari `workingUserIds`), satu staf
+    // bebas bisa kebagian SEMUA jobdesk — kelebihan beban walau huruf C/D
+    // sebenarnya sudah dipegang staf terkunci.
+    const workingSet = new Set(workingUserIds);
+    let lockedOutsidePool = 0;
+    for (const uid of lockedJobs.keys()) {
+      if (!workingSet.has(uid)) lockedOutsidePool += 1;
+    }
+
+    const packages = this.buildKitchenPackages(jobdeskList, ordered.length + lockedOutsidePool);
     if (!packages.length) return result;
-    if (packages.length === 1) {
-      ordered.forEach((uid) =>
+
+    // Paket yang SELURUH hurufnya sudah dipegang staff terkunci tidak perlu
+    // dibagikan lagi; paket lain (termasuk yang hanya menambah satu huruf
+    // baru) tetap dibagikan supaya tidak ada station kosong.
+    const openPacks = packages.filter((pack) => {
+      const letters = this._kitchenLettersOfPack(pack);
+      return !letters.length || !letters.every((L) => lockedLetters.has(L));
+    });
+
+    const pool = ordered.filter((uid) => !lockedJobs.has(uid));
+    if (!pool.length) return result;
+
+    // Staff otomatis lebih sedikit dari paket terbuka → paket sisanya DIGABUNG
+    // dari belakang (aturan yang sama dengan buildKitchenPackages: sisa paket
+    // digabung ke paket sebelumnya). Tanpa ini satu staff hanya mengambil
+    // satu paket dan huruf paket lain tetap kosong, mis. 2 staff terkunci di
+    // D + 1 staff bebas: paket A,B,C harus dipegang orang itu supaya A–D penuh.
+    const open = [...openPacks];
+    while (open.length > pool.length && open.length > 1) {
+      const last = open.pop();
+      open[open.length - 1] = open[open.length - 1].concat(last);
+    }
+
+    if (!open.length) {
+      // Semua station sudah terisi jobdesk terkunci — staff sisanya ikut
+      // paket paling ringan agar tetap punya jobdesk (bukan bekerja kosong).
+      const lightest = packages[packages.length - 1];
+      pool.forEach((uid) =>
         result.set(uid, {
-          jobs: packages[0],
-          roleCode: this._kitchenPackagesAssigned(packages[0]),
+          jobs: lightest,
+          roleCode: this._kitchenPackagesAssigned(lightest),
         })
       );
       return result;
     }
-    return this._spreadKitchenPackages(ordered, packages, dayOffset, result, counts);
+
+    if (open.length === 1) {
+      pool.forEach((uid) =>
+        result.set(uid, {
+          jobs: open[0],
+          roleCode: this._kitchenPackagesAssigned(open[0]),
+        })
+      );
+      return result;
+    }
+    return this._spreadKitchenPackages(pool, open, dayOffset, result, counts);
   }
 
   /**
@@ -3199,3 +3508,6 @@ module.exports.KITCHEN_PRIORITY_ORDER = [
   'RUNNER',
   'HELPER',
 ];
+
+// Huruf stasiun yang wajib terisi tiap hari operasional (dipakai tes coverage).
+module.exports.KITCHEN_LETTERS = KITCHEN_LETTERS;

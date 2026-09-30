@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react';
-import { Calendar as CalendarIcon, Filter, ChevronLeft, ChevronRight, Plus, Trash2 } from 'lucide-react';
+import { Calendar as CalendarIcon, Filter, ChevronLeft, ChevronRight, Plus, Trash2, AlertTriangle } from 'lucide-react';
 import { getAllSchedules, updateSchedule, upsertSingleSchedule, deleteSchedule } from '../../services/scheduleService';
 import { getAllShifts } from '../../services/shiftService';
 import { getUsers } from '../../services/adminService';
+import rotationService from '../../services/rotationService';
 import Card from '../shared/Card';
 import Modal from '../shared/Modal';
 import Button from '../shared/Button';
 import { showSuccess, showError } from '../../hooks/useToast';
+import { KITCHEN_STATION_LETTERS, stationLettersOf, stationLetterLabel } from '../../utils/kitchenStations';
 
 const KITCHEN_STATIONS = [
     'A - Main Cook',
@@ -32,10 +34,44 @@ const ScheduleCalendar = () => {
     const [addForm, setAddForm] = useState({ userId: '', shiftId: '', isOffDay: false, kitchenStation: '', temporaryDepartment: '' });
     const [addLoading, setAddLoading] = useState(false);
     const [deleteLoading, setDeleteLoading] = useState(false);
+    // Cakupan stasiun dapur per tanggal (backend) — key 'YYYY-MM-DD' → { missing, ... }
+    const [coverage, setCoverage] = useState({});
+    const [coverageReload, setCoverageReload] = useState(0);
 
     useEffect(() => {
         fetchSchedules();
     }, [currentDate, departmentFilter]);
+
+    useEffect(() => {
+        fetchKitchenCoverage();
+    }, [currentDate, coverageReload]);
+
+    /**
+     * Cakupan stasiun dapur A–D per tanggal untuk bulan yang sedang tampil.
+     * Sengaja TIDAK ikut filter departemen: coverage dihitung dari pool staf
+     * dapur yang sama dengan generator, jadi tetap benar walau admin sedang
+     * memfilter "BAR". Error ditelan supaya kalender tetap tampil.
+     */
+    const fetchKitchenCoverage = async () => {
+        try {
+            const year = currentDate.getFullYear();
+            const month = currentDate.getMonth();
+            const startDate = formatDateKey(new Date(year, month, 1));
+            const endDate = formatDateKey(new Date(year, month + 1, 0));
+            const res = await rotationService.getKitchenStationCoverage(startDate, endDate);
+            setCoverage(res?.data?.data?.days || {});
+        } catch (error) {
+            console.error('Failed to fetch kitchen station coverage:', error?.response?.data?.message || error?.message);
+            setCoverage({});
+        }
+    };
+
+    /** Data coverage satu tanggal + huruf yang belum terisi. */
+    const stationGapFor = (dateKey) => {
+        const day = coverage?.[dateKey];
+        if (!day || !Array.isArray(day.required) || day.required.length === 0) return null;
+        return { ...day, missing: day.missing || [] };
+    };
 
     useEffect(() => {
         getAllShifts().then(res => {
@@ -165,6 +201,7 @@ const ScheduleCalendar = () => {
             showSuccess('Jadwal pegawai berhasil ditambahkan');
             setShowAddModal(false);
             fetchSchedules();
+            setCoverageReload((n) => n + 1);
         } catch (error) {
             showError('Gagal menambahkan jadwal');
             console.error(error);
@@ -189,6 +226,7 @@ const ScheduleCalendar = () => {
             showSuccess('Jadwal berhasil diperbarui');
             setShowEditModal(false);
             fetchSchedules();
+            setCoverageReload((n) => n + 1);
         } catch (error) {
             showError('Gagal memperbarui jadwal');
             console.error(error);
@@ -208,6 +246,7 @@ const ScheduleCalendar = () => {
             showSuccess('Jadwal berhasil dihapus');
             setShowEditModal(false);
             fetchSchedules();
+            setCoverageReload((n) => n + 1);
         } catch (error) {
             showError('Gagal menghapus jadwal');
             console.error(error);
@@ -261,6 +300,35 @@ const ScheduleCalendar = () => {
                                     </button>
                                 </div>
                             </div>
+
+                            {/* Cakupan stasiun dapur hari ini: merah = belum ada yang memegang */}
+                            {(() => {
+                                const gap = stationGapFor(formatDateKey(new Date(year, month, day)));
+                                if (!gap) return null;
+                                return (
+                                    <div className="mb-1 flex flex-wrap items-center gap-0.5">
+                                        {(gap.required || KITCHEN_STATION_LETTERS.map((s) => s.letter)).map((L) => {
+                                            const isMissing = gap.missing.includes(L);
+                                            const holderNames = (gap.holders?.[L] || []).map((h) => h.name).join(', ');
+                                            return (
+                                                <span
+                                                    key={L}
+                                                    title={isMissing
+                                                        ? `${stationLetterLabel(L)} belum ada yang memegang${gap.allManual ? ' — semua jobdesk hari ini terkunci manual, ubah lewat Edit Jadwal' : ''}`
+                                                        : `${stationLetterLabel(L)}: ${holderNames}`}
+                                                    className={`text-[9px] font-bold leading-none px-1 py-0.5 rounded border ${
+                                                        isMissing
+                                                            ? 'bg-red-100 text-red-700 border-red-300 dark:bg-red-900/40 dark:text-red-300 dark:border-red-700'
+                                                            : 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-300 dark:border-emerald-800'
+                                                    }`}
+                                                >
+                                                    {L}{isMissing ? ' ✕' : ''}
+                                                </span>
+                                            );
+                                        })}
+                                    </div>
+                                );
+                            })()}
 
                             <div className="space-y-1">
                                 {daysSchedules
@@ -542,8 +610,17 @@ const ScheduleCalendar = () => {
                                         const dateKey = selectedSchedule?.date?.substring(0, 10) || '';
                                         const taken = getStationAssignments(dateKey, selectedSchedule?.userId);
                                         const isKitchen = selectedSchedule?.user?.department === 'KITCHEN';
-                                        
+                                        const gap = stationGapFor(dateKey);
+                                        const missing = gap?.missing || [];
+
                                         return (
+                                            <>
+                                            {missing.length > 0 && (
+                                                <p className="mb-1 flex items-start gap-1 text-xs font-semibold text-red-600 dark:text-red-400">
+                                                    <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                                                    <span>Stasiun kosong hari ini: {missing.map(stationLetterLabel).join(', ')}</span>
+                                                </p>
+                                            )}
                                             <select
                                                 className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 focus:border-primary-500 focus:ring-primary-500"
                                                 value={editForm.kitchenStation}
@@ -552,13 +629,15 @@ const ScheduleCalendar = () => {
                                                 <option value="">-- Tidak Ada / Hapus Jobdesk --</option>
                                                 {KITCHEN_STATIONS.filter(s => isKitchen || s.startsWith('D') || s.startsWith('E')).map(s => {
                                                     const assignedTo = taken[s];
+                                                    const isMissing = !assignedTo && stationLettersOf(s).some((L) => missing.includes(L));
                                                     return (
                                                         <option key={s} value={s} disabled={!!assignedTo}>
-                                                            {s}{assignedTo ? ` — ${assignedTo}` : ''}
+                                                            {s}{assignedTo ? ` — ${assignedTo}` : ''}{isMissing ? ' — ⚠ belum ada (stasiun kosong)' : ''}
                                                         </option>
                                                     );
                                                 })}
                                             </select>
+                                            </>
                                         );
                                     })()}
                                 </div>
@@ -690,8 +769,17 @@ const ScheduleCalendar = () => {
                                         const taken = addTargetDate ? getStationAssignments(addTargetDate, addForm.userId) : {};
                                         const selectedUser = allUsers.find(u => u.id === parseInt(addForm.userId));
                                         const isKitchen = selectedUser?.department === 'KITCHEN';
-                                        
+                                        const gap = addTargetDate ? stationGapFor(addTargetDate) : null;
+                                        const missing = gap?.missing || [];
+
                                         return (
+                                            <>
+                                            {missing.length > 0 && (
+                                                <p className="mb-1 flex items-start gap-1 text-xs font-semibold text-red-600 dark:text-red-400">
+                                                    <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                                                    <span>Stasiun kosong hari ini: {missing.map(stationLetterLabel).join(', ')}</span>
+                                                </p>
+                                            )}
                                             <select
                                                 className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 focus:border-primary-500 focus:ring-primary-500"
                                                 value={addForm.kitchenStation}
@@ -700,13 +788,15 @@ const ScheduleCalendar = () => {
                                                 <option value="">-- Tidak Ada --</option>
                                                 {KITCHEN_STATIONS.filter(s => isKitchen || s.startsWith('D') || s.startsWith('E')).map(s => {
                                                     const assignedTo = taken[s];
+                                                    const isMissing = !assignedTo && stationLettersOf(s).some((L) => missing.includes(L));
                                                     return (
                                                         <option key={s} value={s} disabled={!!assignedTo}>
-                                                            {s}{assignedTo ? ` — ${assignedTo}` : ''}
+                                                            {s}{assignedTo ? ` — ${assignedTo}` : ''}{isMissing ? ' — ⚠ belum ada (stasiun kosong)' : ''}
                                                         </option>
                                                     );
                                                 })}
                                             </select>
+                                            </>
                                         );
                                     })()}
                                 </div>

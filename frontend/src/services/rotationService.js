@@ -66,6 +66,10 @@ const rotationService = {
   saveManualOffDaysMonth: (month, offDays) =>
     api.post('/rotation/manual-off-days', { month, offDays }),
 
+  // Cakupan stasiun dapur A–D per hari (tanda "stasiun kosong" di tampilan jadwal)
+  getKitchenStationCoverage: (startDate, endDate) =>
+    api.get('/rotation/kitchen-station-coverage', { params: { startDate, endDate } }),
+
   // Backup assignments
   listBackups: (date) =>
     api.get('/rotation/backups', { params: { date } }),

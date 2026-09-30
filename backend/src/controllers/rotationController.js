@@ -482,6 +482,23 @@ class RotationController {
         }
     }
 
+    /**
+     * GET /rotation/kitchen-station-coverage?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
+     * Stasiun dapur (A–D) yang sudah / belum terisi pada tiap hari operasional.
+     * READ-ONLY — dipakai tampilan jadwal supaya admin tahu huruf apa yang masih
+     * kosong dan bisa menugaskan pegawai untuk mengisinya.
+     */
+    async getKitchenStationCoverage(req, res, next) {
+        try {
+            const { startDate, endDate } = req.query;
+            if (!startDate || !endDate) throw missingFields();
+            const coverage = await rotationService.kitchenStationCoverage(startDate, endDate);
+            return successResponse(res, 200, coverage, 'Cakupan stasiun Kitchen berhasil dimuat');
+        } catch (err) {
+            next(err);
+        }
+    }
+
     async getMonthSchedule(req, res, next) {
         try {
             const { month } = req.query;

@@ -175,6 +175,80 @@ Aturan yang menjaga supaya jadwal & rekap tidak berbeda:
 
 ---
 
+## 2d. Stasiun yang Dikunci Manual & Station yang Wajib Penuh (berlaku sejak Oktober 2026)
+
+Aturan lama cacat: staf `isManualOverride = true` ikut **mengambil** paket dari
+antrian, tetapi hasil rotasinya dibuang saat menulis database (baris admin
+dipertahankan). Paket itu lalu **lenyap** — satu huruf A–D kosong, huruf lain
+dobel. Terukur pada 2026-10-07: 3 staf, ketiganya huruf D, huruf A/B/C kosong.
+
+Aturan baru (`_assignKitchenByQueue`, dipakai `generateWeek` **dan**
+`distributeKitchenJobdesksForDates` supaya kedua jalur identik):
+
+1. **Nilai admin dipakai apa adanya**, dan hurufnya dicatat sebagai **sudah
+   terisi** — tidak ada paket yang dibagikan untuk huruf yang sudah terkunci.
+2. **Jumlah paket dihitung dari TOTAL staf hari itu** (staf bebas + staf terkunci),
+   bukan hanya staf bebas. Kalau hanya staf bebas yang dihitung, satu staf bebas
+   bisa kebagian SEMUA jobdesk saat redistribute swap/off-day (kelebihan beban).
+3. **Staf bebas lebih sedikit dari huruf yang tersisa → paketnya DIGABUNG** dari
+   belakang (aturan penggabungan yang sama dengan `buildKitchenPackages`). Contoh:
+   2 staf terkunci di D + 1 staf bebas → staf bebas memegang A+B+C supaya A–D penuh.
+4. **Semua huruf sudah terkunci → staf sisanya ikut paket paling ringan**, bukan
+   bekerja kosong.
+5. Kalau **semua staf hari itu terkunci manual**, generator tidak bisa menambah apa
+   pun — station yang kosong adalah keputusan admin, perbaiki lewat tabel jadwal.
+
+> Huruf sebuah jobdesk dibaca lewat `_kitchenRoleOf` yang mengikuti urutan
+> prioritas laporan **A→D** (bukan penemu pertama). Nama gabungan seperti
+> `Checker + Plating + Dishwasher` harus tetap terbaca **C** — kalau `/plating/`
+> diuji lebih dulu, kolom C terpotret sebagai PLATING dan hurufnya hilang dari
+> pemerataan. Urutan ini WAJIB sinkron dengan `JOBDESK_GROUPS` /
+> `parseJobdeskGroups()` di `scheduleService.js` (sumber huruf di laporan).
+
+Data yang terlanjur berlubang tidak ikut tersentuh tombol Generate kalau
+staff-nya terkunci manual; perbaiki dengan
+`node backend/scripts/repair-kitchen-stations.cjs [FROM] [TO]` (idempoten,
+hanya menulis ulang baris **non**-override dan log-nya).
+
+### 2e. Cakupan Stasiun & Tanda "Stasiun Kosong" di Jadwal (berlaku sejak Oktober 2026)
+
+Admin perlu **melihat** stasiun mana yang belum ada pegawainya **sebelum**
+jadwal dipakai. Untuk itu ada endpoint dan tanda visual:
+
+* **API coverage** — `GET /api/v1/rotation/kitchen-station-coverage?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD`
+  (khusus ADMIN, read-only, rentang maksimal 62 hari). Balasannya berisi,
+  per tanggal: `required` (huruf yang wajib ada), `filled`, `missing`,
+  `holders` (siapa memegang apa + flag `manual`), `staffCount`, dan
+  `allManual`. Huruf wajib diturunkan dari jobdesk yang benar-benar ada di
+  DB; kalau posisi dapur tidak punya jobdesk sama sekali, dipakai default
+  **A–D** supaya kegagalan konfigurasi tetap kelihatan.
+* **Pool staf sama dengan generator** (roster Kitchen/Dapur ∪
+  `temporaryDepartment='KITCHEN'` ∪ baris dengan `kitchenStation`) — supaya
+  tidak ada laporan "kosong" palsu hanya karena stafnya dihitung dari pool
+  yang berbeda.
+* **Kalender jadwal admin** (`ScheduleCalendar.jsx`): setiap hari operasional
+  menampilkan chip **A B C D**. Hijau = sudah ada pemegang, **merah + ✕** =
+  belum ada. Tooltip menampilkan nama pemegang; kalau `allManual`, tooltip
+  mengingatkan bahwa semua jobdesk hari itu terkunci manual sehingga harus
+  diubah lewat Edit Jadwal. Badge ini di-refresh otomatis setelah tambah /
+  ubah / hapus jadwal.
+* **Modal tambah/edit jadwal**: di atas dropdown jobdesk muncul peringatan
+  merah "Stasiun kosong hari ini: …" dan opsi jobdesk yang hurufnya kosong
+  ditandai "⚠ belum ada (stasiun kosong)" — memandu admin mengisi huruf
+  yang benar, bukan menambah huruf yang sudah penuh.
+* **Halaman Jadwal Lengkap** (`FullSchedulePage.jsx`): banner merah
+  meringkas semua tanggal (minggu/bulan tampil) yang punya stasiun kosong,
+  dan header tanggal pada tabel posisi dapur diberi badge merah kecil.
+* **Hari libur dapur vs stasiun kosong**: hari yang TIDAK punya satu pun
+  staf dapur masuk kerja dianggap **hari libur dapur** — tidak ditandai
+  apapun. Baru disebut "stasiun kosong" kalau ada staf dapur bekerja
+  tetapi huruf A–D yang wajib tidak terisi semua.
+* **Pemetaan E → D**: `E - Helper / Floating` menempel pada Runner (D), jadi
+  dihitung sebagai D. Kolom rekap hanya A–D; E tidak pernah muncul sebagai
+  "stasiun kosong" tersendiri.
+
+---
+
 ## 3. Aturan Rotasi Mingguan
 
 | Aturan | Penjelasan |
