@@ -5,9 +5,9 @@ const prisma = require('../utils/database');
  * Batas aman sel per permintaan bulk.
  *
  * 200 = dua bulan penuh (31 hari × ~4 staff dapur = 124) + cadangan untuk
- * setengah bulan ketiga. Per sel hanya ~2 round-trip DB (hapus manualOffDay
- * + upsert; audit log di-batch satu createMany di controller), jadi 200 sel
- * masih jauh di bawah maxDuration serverless (60s).
+ * setengah bulan ketiga. Sel diproses PARALEL dalam gelombang 10 (lihat
+ * `bulkUpsertSingleSchedules`), jadi 200 sel ≈ 20 gelombang ≈ 40 detik —
+ * masih di dalam maxDuration serverless (60 detik).
  */
 const MAX_BULK_CELLS = 200;
 
@@ -865,13 +865,18 @@ class ScheduleService {
      * halaman Jadwal Lengkap, supaya admin bisa menumpuk banyak perubahan
      * jobdesk/stasiun lalu mengirimnya dalam satu permintaan).
      *
-     * Sengaja diproses SATU per satu, bukan `$transaction` besar:
-     *  - `upsertSingleSchedule` juga menghapus baris `manualOffDays` milik sel
-     *    tersebut; kalau satu tanggal ditolak (mis. user tidak ada), admin
-     *    tetap menerima hasil parsial + daftar sel yang gagal — bukan satu
-     *    rollback yang membuang semua perubahannya;
-     *  - dijalankan berurutan (bukan `Promise.all`) supaya koneksi DB tidak
-     *    habis, sama seperti `updateUserShiftRange`.
+     * Sengaja BUKAN satu-per-satu sekuensial: tiap sel = ~2 round-trip DB
+     * (hapus manualOffDay + upsert) dan jarak Vercel→Neon bikin satu
+     * round-trip ~1 detik. Terukur: 72 sel sekuensial hanya sempat
+     * menyimpan 28 sel sebelum request dibunuh maxDuration 60 detik.
+     * Sel diproses dalam gelombang paralel 10 (Promise.allSettled) supaya
+     * 72 sel selesai ±16 detik, sementara 10 koneksi bersamaan masih
+     * jauh di bawah pool koneksi Prisma.
+     *
+     * Satu sel gagal (mis. user tidak ada) tidak membatalkan sel lain di
+     * gelombang yang sama — admin tetap menerima hasil parsial + daftar sel
+     * yang gagal, bukan satu rollback yang membuang semua perubahannya;
+     * antar sel tidak saling menimpa karena kunci userId+date unik.
      *
      * Aturan per sel PERSIS sama dengan `upsertSingleSchedule` (method yang sama
      * yang dipanggil), jadi tidak ada perbedaan efek antara simpan 1 sel dan
@@ -892,22 +897,35 @@ class ScheduleService {
 
         let saved = 0;
         const failed = [];
-        for (const change of list) {
-            try {
-                await this.upsertSingleSchedule({
-                    ...change,
-                    shiftId: change.isOffDay ? null : (change.shiftId ? parseInt(change.shiftId) : null),
-                    isOffDay: Boolean(change.isOffDay),
-                    kitchenStation: change.isOffDay ? null : (change.kitchenStation || null),
-                });
-                saved += 1;
-            } catch (err) {
-                failed.push({
-                    userId: parseInt(change.userId),
-                    date: String(change.date).slice(0, 10),
-                    message: err?.message || 'Gagal menyimpan sel jadwal',
-                });
-            }
+
+        // Gelombang paralel 10 sel — bukan sekuensial (lihat catatan method)
+        // dan bukan Promise.all besar-besaran, supaya pool koneksi DB tetap
+        // aman sementara total durasi jauh di bawah maxDuration.
+        const WAVE_SIZE = 10;
+        for (let i = 0; i < list.length; i += WAVE_SIZE) {
+            const wave = list.slice(i, i + WAVE_SIZE);
+            const results = await Promise.allSettled(
+                wave.map((change) =>
+                    this.upsertSingleSchedule({
+                        ...change,
+                        shiftId: change.isOffDay ? null : (change.shiftId ? parseInt(change.shiftId) : null),
+                        isOffDay: Boolean(change.isOffDay),
+                        kitchenStation: change.isOffDay ? null : (change.kitchenStation || null),
+                    })
+                )
+            );
+            results.forEach((r, j) => {
+                if (r.status === 'fulfilled') {
+                    saved += 1;
+                } else {
+                    const change = wave[j];
+                    failed.push({
+                        userId: parseInt(change.userId),
+                        date: String(change.date).slice(0, 10),
+                        message: r.reason?.message || 'Gagal menyimpan sel jadwal',
+                    });
+                }
+            });
         }
 
         return { saved, failed };

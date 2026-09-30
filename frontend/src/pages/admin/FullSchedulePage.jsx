@@ -73,10 +73,10 @@ function draftKey(userId, dateISO) {
 /**
  * Ukuran batch permintaan bulk saat "Simpan Semua".
  *
- * Satu request besar untuk ratusan sel berisiko kena batas waktu serverless
- * (Vercel 60 detik) — kalau putus di tengah, admin harus mengulang semuanya.
- * Dikirim bertahap 50 sel per request: tetap jauh di bawah batas server
- * (MAX_BULK_CELLS = 200), dan batch yang gagal tetap tinggal di antrean.
+ * Backend memproses sel paralel dalam gelombang 10 dan menampung hingga 200
+ * sel per request, tapi request tetap dikirim bertahap 50 supaya tiap
+ * request cepat selesai — batch yang gagal tetap tinggal di antrean, admin
+ * tidak perlu mengulang semuanya dari awal.
  */
 const BULK_SAVE_BATCH = 50;
 
