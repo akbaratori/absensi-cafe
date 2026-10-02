@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from "react";
+﻿import { useState, useEffect, useMemo } from "react";
 import Modal from "../shared/Modal";
 import Button from "../shared/Button";
 import Input from "../shared/Input";
@@ -10,6 +10,10 @@ import { showSuccess, showError } from "../../hooks/useToast";
 const OffDayRequestModal = ({ onClose, onSuccess }) => {
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
+  // Mode pengajuan: 'PAIR' = tukar dengan rekan, 'SOLO' = pindah hari libur
+  // mandiri tanpa rekan (langsung menunggu persetujuan Admin).
+  const [mode, setMode] = useState("PAIR");
+  const solo = mode === "SOLO";
   const [formData, setFormData] = useState({
     targetUserId: "",
     offDate: "",
@@ -39,6 +43,14 @@ const OffDayRequestModal = ({ onClose, onSuccess }) => {
     } else {
       setFormData(prev => ({ ...prev, [name]: value }));
     }
+  };
+
+  // Pergantian mode mereset pilihan rekan & tanggal pengganti karena makna
+  // workDate berbeda: PAIR = hari libur rekan; SOLO = hari kerja Anda sendiri.
+  const handleModeSwitch = (nextMode) => {
+    if (nextMode === mode) return;
+    setMode(nextMode);
+    setFormData(prev => ({ ...prev, targetUserId: "", workDate: "" }));
   };
 
   const getDayName = (i) => ["Minggu","Senin","Selasa","Rabu","Kamis","Jumat","Sabtu"][i];
@@ -102,11 +114,12 @@ const OffDayRequestModal = ({ onClose, onSuccess }) => {
     .map(s => toDateStr(s.date));
 
   // Fetch rekan kerja yang terjadwal MASUK (bekerja) di offDate yang dipilih
+  // Hanya relevan untuk mode PAIR — mode SOLO tidak memakai rekan tujuan.
   useEffect(() => {
     const fetchTargets = async () => {
-      if (!formData.offDate || !user) { 
-        setPotentialTargets([]); 
-        return; 
+      if (solo || !formData.offDate || !user) {
+        setPotentialTargets([]);
+        return;
       }
       setLoadingTargets(true);
       try {
@@ -126,7 +139,7 @@ const OffDayRequestModal = ({ onClose, onSuccess }) => {
     };
     const t = setTimeout(fetchTargets, 300);
     return () => clearTimeout(t);
-  }, [formData.offDate, user]);
+  }, [formData.offDate, user, solo]);
 
   // Ambil jadwal rekan kerja terpilih untuk menentukan hari libur rekan pengganti
   useEffect(() => {
@@ -158,6 +171,19 @@ const OffDayRequestModal = ({ onClose, onSuccess }) => {
     .map(s => toDateStr(s.date))
     .sort();
 
+  // Mode SOLO: hari kerja pemohon sendiri di masa depan yang akan dijadikan libur baru
+  const soloWorkDayOptions = useMemo(() => {
+    const t = new Date();
+    t.setHours(0, 0, 0, 0);
+    return myWorkDays
+      .filter((d) => {
+        const [y, m, dd] = d.split("-").map(Number);
+        const chosen = new Date(y, m - 1, dd);
+        return chosen > t && d !== formData.offDate;
+      })
+      .sort();
+  }, [myWorkDays, formData.offDate]);
+
   const selectedTargetName = potentialTargets.find(t => String(t.userId) === String(formData.targetUserId))?.fullName || "Rekan Kerja";
 
   // Validasi real-time berdasarkan jadwal aktual
@@ -188,23 +214,29 @@ const OffDayRequestModal = ({ onClose, onSuccess }) => {
       const chosen = new Date(y, m-1, d);
       if (chosen <= today) {
         v.workDate = { isValid: false, message: "Tanggal harus setelah hari ini" };
-      } else if (targetOffDays.length > 0 && !targetOffDays.includes(formData.workDate)) {
+      } else if (solo && myWorkDays.length > 0 && !myWorkDays.includes(formData.workDate)) {
+        v.workDate = { isValid: false, message: `Tanggal ${formData.workDate} bukan hari kerja Anda. Pilih salah satu hari kerja terjadwal Anda.` };
+      } else if (!solo && targetOffDays.length > 0 && !targetOffDays.includes(formData.workDate)) {
         v.workDate = { isValid: false, message: `Tanggal ${formData.workDate} bukan hari libur ${selectedTargetName}. Pilih salah satu hari libur rekan pengganti.` };
       } else if (myOffDays.includes(formData.workDate)) {
         v.workDate = { isValid: false, message: "Anda juga libur pada tanggal ini. Pilih hari di mana Anda terjadwal masuk bekerja." };
       } else if (formData.offDate && formData.workDate === formData.offDate) {
         v.workDate = { isValid: false, message: "Tanggal ganti libur tidak boleh sama dengan tanggal libur Anda" };
       } else {
-        v.workDate = { isValid: true, message: `Valid: ${getDayNameFromDate(formData.workDate)} — ${selectedTargetName} libur & Anda masuk` };
+        v.workDate = solo
+          ? { isValid: true, message: `Valid: ${getDayNameFromDate(formData.workDate)} — Anda masuk hari ini & akan dipindah menjadi libur` }
+          : { isValid: true, message: `Valid: ${getDayNameFromDate(formData.workDate)} — ${selectedTargetName} libur & Anda masuk` };
       }
     }
 
     setValidation(v);
-  }, [formData.offDate, formData.workDate, myOffDays, myWorkDays, targetOffDays, selectedTargetName, loadingSchedule, myMonthSchedule.length]);
+  }, [formData.offDate, formData.workDate, myOffDays, myWorkDays, targetOffDays, selectedTargetName, loadingSchedule, myMonthSchedule.length, solo]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!formData.targetUserId || !formData.offDate || !formData.workDate) {
+    // SOLO tidak butuh rekan tujuan — hanya offDate + workDate (milik sendiri).
+    const targetMissing = !solo && !formData.targetUserId;
+    if (targetMissing || !formData.offDate || !formData.workDate) {
       showError("Lengkapi semua field yang wajib diisi");
       return;
     }
@@ -215,12 +247,12 @@ const OffDayRequestModal = ({ onClose, onSuccess }) => {
     setLoading(true);
     try {
       await createOffDayRequest({
-        targetUserId: Number(formData.targetUserId),
+        ...(solo ? { mode: "SOLO" } : { targetUserId: Number(formData.targetUserId) }),
         offDate: formData.offDate,
         workDate: formData.workDate,
         reason: formData.reason,
       });
-      showSuccess("Permintaan tukar libur berhasil dikirim!");
+      showSuccess(solo ? "Permintaan pindah libur berhasil dikirim!" : "Permintaan tukar libur berhasil dikirim!");
       onSuccess?.();
       onClose();
     } catch (err) {
@@ -238,12 +270,36 @@ const OffDayRequestModal = ({ onClose, onSuccess }) => {
   };
 
   return (
-    <Modal isOpen={true} onClose={onClose} title="Ajukan Tukar Hari Libur">
+    <Modal isOpen={true} onClose={onClose} title={solo ? "Ajukan Pindah Hari Libur" : "Ajukan Tukar Hari Libur"}>
       <form onSubmit={handleSubmit} className="space-y-4">
+
+        {/* Mode toggle: PAIR vs SOLO */}
+        <div className="flex rounded-lg bg-gray-100 dark:bg-gray-800 p-1">
+          <button
+            type="button"
+            onClick={() => handleModeSwitch("PAIR")}
+            className={`flex-1 rounded-md py-1.5 text-sm font-medium transition-all ${
+              !solo ? "bg-white dark:bg-gray-700 text-primary-600 dark:text-primary-400 shadow-sm" : "text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
+            }`}
+          >
+            👥 Tukar Dengan Rekan
+          </button>
+          <button
+            type="button"
+            onClick={() => handleModeSwitch("SOLO")}
+            className={`flex-1 rounded-md py-1.5 text-sm font-medium transition-all ${
+              solo ? "bg-white dark:bg-gray-700 text-primary-600 dark:text-primary-400 shadow-sm" : "text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
+            }`}
+          >
+            📆 Pindah Mandiri
+          </button>
+        </div>
 
         {/* Info & Pilihan: Hari Libur Pemohon */}
         <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-xl p-4">
-          <p className="text-sm font-semibold text-blue-800 dark:text-blue-200 mb-2">📅 1. Pilih Jadwal Libur Anda yang Ingin Ditukar</p>
+          <p className="text-sm font-semibold text-blue-800 dark:text-blue-200 mb-2">
+            📅 1. Pilih Jadwal Libur Anda yang Ingin {solo ? "Dipindahkan" : "Ditukar"}
+          </p>
           {loadingSchedule ? (
             <p className="text-xs text-blue-600 dark:text-blue-400 animate-pulse">Memuat jadwal...</p>
           ) : myOffDays.length === 0 ? (
@@ -276,8 +332,8 @@ const OffDayRequestModal = ({ onClose, onSuccess }) => {
           )}
         </div>
 
-        {/* Pilih Rekan Kerja yang Masuk di offDate */}
-        {formData.offDate && (
+        {/* Pilih Rekan Kerja yang Masuk di offDate — hanya mode PAIR */}
+        {!solo && formData.offDate && (
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               2. Pilih Rekan Kerja Pengganti (yang masuk di tanggal libur Anda) <span className="text-red-500">*</span>
@@ -307,13 +363,39 @@ const OffDayRequestModal = ({ onClose, onSuccess }) => {
           </div>
         )}
 
-        {/* Pilihan Hari Libur Pengganti (Hari libur milik targetUserId) */}
-        {formData.targetUserId && (
+        {/* Pilihan Hari Libur Pengganti: mode PAIR → libur rekan; SOLO → hari kerja sendiri */}
+        {(solo ? formData.offDate : formData.targetUserId) && (
           <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-700 rounded-xl p-4">
             <p className="text-sm font-semibold text-purple-800 dark:text-purple-200 mb-2">
-              🔄 3. Pilih Jadwal Libur {selectedTargetName} (Hari Libur Pengganti Anda)
+              {solo
+                ? `📆 2. Pilih Hari Kerja Anda yang Akan Dijadikan Libur`
+                : `🔄 3. Pilih Jadwal Libur ${selectedTargetName} (Hari Libur Pengganti Anda)`}
             </p>
-            {loadingTargetSchedule ? (
+            {solo ? (
+              // ── Mode SOLO: daftar hari kerja pemohon sendiri sebagai kandidat libur baru ──
+              soloWorkDayOptions.length === 0 ? (
+                <p className="text-xs text-amber-600 dark:text-amber-400 italic">
+                  Tidak ada hari kerja terjadwal di masa depan bulan ini yang bisa dijadikan libur.
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-2 max-h-36 overflow-y-auto">
+                  {soloWorkDayOptions.map(d => (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() => setFormData(prev => ({ ...prev, workDate: d }))}
+                      className={`inline-flex items-center px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                        formData.workDate === d
+                          ? "bg-purple-600 text-white shadow"
+                          : "bg-purple-100 dark:bg-purple-800 text-purple-800 dark:text-purple-200 hover:bg-purple-200 dark:hover:bg-purple-700"
+                      }`}
+                    >
+                      💼 {formatDateID(d)}
+                    </button>
+                  ))}
+                </div>
+              )
+            ) : loadingTargetSchedule ? (
               <p className="text-xs text-purple-600 dark:text-purple-400 animate-pulse">Memuat jadwal libur {selectedTargetName}...</p>
             ) : targetOffDays.length === 0 ? (
               <p className="text-xs text-amber-600 dark:text-amber-400 italic">
@@ -352,7 +434,11 @@ const OffDayRequestModal = ({ onClose, onSuccess }) => {
               </p>
             )}
             <p className="text-xs text-purple-600 dark:text-purple-400 mt-2">
-              Pada tanggal ini, <strong>{selectedTargetName}</strong> akan masuk dan <strong>Anda</strong> libur menggantikannya.
+              {solo ? (
+                <>Pada tanggal ini Anda <strong>masuk kerja</strong>; setelah disetujui Admin tanggal ini menjadi <strong>libur</strong>, dan hari libur lama Anda menjadi hari kerja.</>
+              ) : (
+                <>Pada tanggal ini, <strong>{selectedTargetName}</strong> akan masuk dan <strong>Anda</strong> libur menggantikannya.</>
+              )}
             </p>
           </div>
         )}
@@ -371,14 +457,24 @@ const OffDayRequestModal = ({ onClose, onSuccess }) => {
         </div>
 
         {/* Ringkasan */}
-        {formData.offDate && formData.workDate && formData.targetUserId && (
+        {formData.offDate && formData.workDate && (solo || formData.targetUserId) && (
           <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-xl p-4 text-sm">
-            <p className="font-semibold text-amber-800 dark:text-amber-200 mb-2">📋 Ringkasan Pertukaran Libur</p>
-            <ul className="space-y-1 text-amber-700 dark:text-amber-300 text-xs">
-              <li>🏖️ <strong>{formatDateID(formData.offDate)}</strong>: Rekan <strong>{selectedTargetName}</strong> masuk menggantikan libur Anda (Anda bekerja di hari pengganti).</li>
-              <li>💼 <strong>{formatDateID(formData.workDate)}</strong>: Anda libur pada hari libur milik rekan <strong>{selectedTargetName}</strong>.</li>
-              <li>👤 Rekan yang ditukar: <strong>{selectedTargetName}</strong></li>
-            </ul>
+            <p className="font-semibold text-amber-800 dark:text-amber-200 mb-2">
+              {solo ? "📋 Ringkasan Pindah Hari Libur (Tanpa Rekan)" : "📋 Ringkasan Pertukaran Libur"}
+            </p>
+            {solo ? (
+              <ul className="space-y-1 text-amber-700 dark:text-amber-300 text-xs">
+                <li>🏖️ <strong>{formatDateID(formData.offDate)}</strong>: hari libur Anda saat ini — setelah disetujui menjadi <strong>hari kerja Anda</strong>.</li>
+                <li>💼 <strong>{formatDateID(formData.workDate)}</strong>: hari kerja Anda saat ini — setelah disetujui menjadi <strong>hari libur Anda</strong>.</li>
+                <li>👤 Tanpa rekan — hanya perlu <strong>persetujuan Admin</strong>, tidak ada rekan yang ditunjuk.</li>
+              </ul>
+            ) : (
+              <ul className="space-y-1 text-amber-700 dark:text-amber-300 text-xs">
+                <li>🏖️ <strong>{formatDateID(formData.offDate)}</strong>: Rekan <strong>{selectedTargetName}</strong> masuk menggantikan libur Anda (Anda bekerja di hari pengganti).</li>
+                <li>💼 <strong>{formatDateID(formData.workDate)}</strong>: Anda libur pada hari libur milik rekan <strong>{selectedTargetName}</strong>.</li>
+                <li>👤 Rekan yang ditukar: <strong>{selectedTargetName}</strong></li>
+              </ul>
+            )}
           </div>
         )}
 
@@ -391,7 +487,7 @@ const OffDayRequestModal = ({ onClose, onSuccess }) => {
             variant="primary"
             className="flex-1"
             loading={loading}
-            disabled={loading || !formData.targetUserId || !formData.offDate || !formData.workDate || validation.offDate.isValid === false || validation.workDate.isValid === false}
+            disabled={loading || (!solo && !formData.targetUserId) || !formData.offDate || !formData.workDate || validation.offDate.isValid === false || validation.workDate.isValid === false}
           >
             Kirim Permintaan
           </Button>

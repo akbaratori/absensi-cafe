@@ -2,7 +2,8 @@
  * Shared state machine for ShiftSwap and OffDayRequest
  * 
  * Valid status transitions:
- *   PENDING_VALIDATION  → PENDING_TARGET_RESPONSE (system validates)
+ *   PENDING_VALIDATION  → PENDING_TARGET_RESPONSE (system validates, PAIR)
+ *                        → PENDING_APPROVAL (system validates, SOLO — tanpa rekan)
  *                        → REJECTED_BY_SYSTEM (system rejects)
  *   PENDING_TARGET_RESPONSE → PENDING_APPROVAL (target accepts)
  *                            → REJECTED_BY_TARGET (target rejects)
@@ -40,7 +41,7 @@ const TERMINAL_STATUSES = [
  * based on the action being performed and the role of the user.
  * 
  * @param {string} currentStatus - Current status from DB
- * @param {string} action - One of: 'SYSTEM_VALIDATE', 'SYSTEM_REJECT', 'TARGET_ACCEPT', 'TARGET_REJECT',
+ * @param {string} action - One of: 'SYSTEM_VALIDATE', 'SYSTEM_VALIDATE_SOLO', 'SYSTEM_REJECT', 'TARGET_ACCEPT', 'TARGET_REJECT',
  *                          'ADMIN_APPROVE', 'ADMIN_REJECT', 'ADMIN_REVERT', 'REQUESTER_CANCEL'
  * @returns {{ valid: boolean, nextStatus: string|null, allowedStatuses: string[], error: string|null }}
  */
@@ -68,6 +69,8 @@ function canTransition(currentStatus, action) {
   const transitions = {
     'PENDING_VALIDATION': {
       'SYSTEM_VALIDATE': 'PENDING_TARGET_RESPONSE',
+      // SOLO: tidak ada rekan tujuan — validasi sistem langsung mengirim ke Admin.
+      'SYSTEM_VALIDATE_SOLO': 'PENDING_APPROVAL',
       'SYSTEM_REJECT': 'REJECTED_BY_SYSTEM',
       'REQUESTER_CANCEL': 'CANCELLED',
     },
@@ -127,7 +130,7 @@ function getAllowedActions(currentStatus) {
   if (TERMINAL_STATUSES.includes(currentStatus) && currentStatus !== 'APPROVED') return [];
 
   const transitions = {
-    'PENDING_VALIDATION': ['SYSTEM_VALIDATE', 'SYSTEM_REJECT', 'REQUESTER_CANCEL'],
+    'PENDING_VALIDATION': ['SYSTEM_VALIDATE', 'SYSTEM_VALIDATE_SOLO', 'SYSTEM_REJECT', 'REQUESTER_CANCEL'],
     'PENDING_TARGET_RESPONSE': ['TARGET_ACCEPT', 'TARGET_REJECT', 'REQUESTER_CANCEL', 'ADMIN_REJECT'],
     'PENDING_APPROVAL': ['ADMIN_APPROVE', 'ADMIN_REJECT'],
     'APPROVED': ['ADMIN_REVERT'],

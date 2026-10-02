@@ -11,6 +11,8 @@ class OffDayService {
    */
   async createRequest(requesterId, data) {
     const { targetUserId, offDate, workDate, reason } = data;
+    // 'SOLO' = pindah hari libur mandiri tanpa rekan tujuan; lainnya (default) = 'PAIR'.
+    const mode = data.mode === 'SOLO' ? 'SOLO' : 'PAIR';
 
     if (!offDate || !workDate) throw new Error('Tanggal libur dan tanggal kerja wajib diisi.');
 
@@ -30,20 +32,31 @@ class OffDayService {
       throw new Error('Tidak dapat mengajukan tukar libur untuk tanggal yang sudah lewat.');
     }
 
-    const targetId = parseInt(targetUserId);
-    if (isNaN(targetId)) throw new Error('ID karyawan tujuan tidak valid.');
+    let targetId = null;
+    let target = null;
 
-    if (requesterId === targetId) {
-      throw new Error('Tidak dapat bertukar dengan diri sendiri.');
-    }
+    if (mode === 'SOLO') {
+      // SOLO: tanpa rekan tujuan — pemohon memindahkan hari liburnya sendiri
+      // (masuk kerja di offDate, libur di workDate). Hanya Admin yang menyetujui.
+      if (targetUserId !== undefined && targetUserId !== null && targetUserId !== '') {
+        throw new Error('Mode pindah libur mandiri tidak boleh memiliki rekan tujuan.');
+      }
+    } else {
+      targetId = parseInt(targetUserId);
+      if (isNaN(targetId)) throw new Error('ID karyawan tujuan tidak valid.');
 
-    // Verify target exists and is active
-    const target = await prisma.user.findUnique({
-      where: { id: targetId },
-      select: { id: true, fullName: true, isActive: true },
-    });
-    if (!target || !target.isActive) {
-      throw new Error('Karyawan tujuan tidak tersedia.');
+      if (requesterId === targetId) {
+        throw new Error('Tidak dapat bertukar dengan diri sendiri.');
+      }
+
+      // Verify target exists and is active
+      target = await prisma.user.findUnique({
+        where: { id: targetId },
+        select: { id: true, fullName: true, isActive: true },
+      });
+      if (!target || !target.isActive) {
+        throw new Error('Karyawan tujuan tidak tersedia.');
+      }
     }
 
     // Dynamic fallback checking: try UserSchedule table first, if missing fallback to rotationService
@@ -67,19 +80,27 @@ class OffDayService {
       throw new Error(`Anda tidak memiliki jadwal libur pada ${offDateObj.toLocaleDateString('id-ID')}.`);
     }
 
-    const targetIsOffOnWorkDate = await isUserOffDayOnDate(targetId, workDateObj);
-    if (!targetIsOffOnWorkDate) {
-      throw new Error(`${target.fullName} tidak memiliki jadwal libur pada ${workDateObj.toLocaleDateString('id-ID')}.`);
-    }
+    if (mode === 'SOLO') {
+      // SOLO: workDate harus hari kerja pemohon — tidak ada validasi target sama sekali.
+      const requesterIsOffOnWorkDate = await isUserOffDayOnDate(requesterId, workDateObj);
+      if (requesterIsOffOnWorkDate) {
+        throw new Error(`Anda tidak memiliki jadwal kerja pada ${workDateObj.toLocaleDateString('id-ID')}.`);
+      }
+    } else {
+      const targetIsOffOnWorkDate = await isUserOffDayOnDate(targetId, workDateObj);
+      if (!targetIsOffOnWorkDate) {
+        throw new Error(`${target.fullName} tidak memiliki jadwal libur pada ${workDateObj.toLocaleDateString('id-ID')}.`);
+      }
 
-    const requesterIsOffOnWorkDate = await isUserOffDayOnDate(requesterId, workDateObj);
-    if (requesterIsOffOnWorkDate) {
-      throw new Error(`Anda tidak memiliki jadwal kerja pada ${workDateObj.toLocaleDateString('id-ID')}.`);
-    }
+      const requesterIsOffOnWorkDate = await isUserOffDayOnDate(requesterId, workDateObj);
+      if (requesterIsOffOnWorkDate) {
+        throw new Error(`Anda tidak memiliki jadwal kerja pada ${workDateObj.toLocaleDateString('id-ID')}.`);
+      }
 
-    const targetIsOffOnOffDate = await isUserOffDayOnDate(targetId, offDateObj);
-    if (targetIsOffOnOffDate) {
-      throw new Error(`${target.fullName} tidak memiliki jadwal kerja pada ${offDateObj.toLocaleDateString('id-ID')}.`);
+      const targetIsOffOnOffDate = await isUserOffDayOnDate(targetId, offDateObj);
+      if (targetIsOffOnOffDate) {
+        throw new Error(`${target.fullName} tidak memiliki jadwal kerja pada ${offDateObj.toLocaleDateString('id-ID')}.`);
+      }
     }
 
     // Run conflict validators (sebelum record dibuat)
@@ -89,8 +110,8 @@ class OffDayService {
     // mustahil ditukar liburnya).
     const requesterOffConflict = await checkEmployeeScheduleConflict(requesterId, workDateObj, null, null, 'OFF_DAY');
     const requesterWorkConflict = await checkEmployeeScheduleConflict(requesterId, offDateObj, null, null, 'OFF_DAY');
-    const targetOffConflict = await checkEmployeeScheduleConflict(targetId, workDateObj, null, null, 'OFF_DAY');
-    const targetWorkConflict = await checkEmployeeScheduleConflict(targetId, offDateObj, null, null, 'OFF_DAY');
+    const targetOffConflict = mode === 'SOLO' ? { hasConflict: false, reason: null } : await checkEmployeeScheduleConflict(targetId, workDateObj, null, null, 'OFF_DAY');
+    const targetWorkConflict = mode === 'SOLO' ? { hasConflict: false, reason: null } : await checkEmployeeScheduleConflict(targetId, offDateObj, null, null, 'OFF_DAY');
 
     const conflicts = [];
     if (requesterOffConflict.hasConflict) conflicts.push(`Pemohon (tanggal ${workDateObj.toLocaleDateString('id-ID')}): ${requesterOffConflict.reason}`);
@@ -110,6 +131,7 @@ class OffDayService {
         offDate: offDateObj,
         workDate: workDateObj,
         reason: reason || null,
+        mode,
         status: 'PENDING_VALIDATION',
       },
       include: {
@@ -142,13 +164,22 @@ class OffDayService {
       const axios = require('axios');
       const fmtOff = offDateObj.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
       const fmtWork = workDateObj.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
-      let waMsg = `🔄 *PENGAJUAN TUKAR LIBUR*\n\n`;
+      let waMsg = mode === 'SOLO'
+        ? `📆 *PENGAJUAN PINDAH LIBUR*\n\n`
+        : `🔄 *PENGAJUAN TUKAR LIBUR*\n\n`;
       waMsg += `👤 *Pemohon:* ${updated.user.fullName}\n`;
-      waMsg += `👥 *Ditukar Dengan:* ${updated.target.fullName}\n`;
+      // SOLO tidak punya rekan tujuan — jangan dereference `updated.target` (null).
+      if (mode === 'SOLO') {
+        waMsg += `👤 *Tanpa Rekan:* Pindah hari libur mandiri\n`;
+      } else {
+        waMsg += `👥 *Ditukar Dengan:* ${updated.target.fullName}\n`;
+      }
       waMsg += `🏖️ *Tanggal Libur Ditolak/Ditukar:* ${fmtOff}\n`;
       waMsg += `💼 *Tanggal Ganti Kerja:* ${fmtWork}\n`;
       if (reason) waMsg += `💬 *Alasan:* ${reason}\n`;
-      waMsg += `\n⏳ *Status:* Menunggu tanggapan karyawan tujuan`;
+      waMsg += mode === 'SOLO'
+        ? `\n⏳ *Status:* Menunggu persetujuan admin`
+        : `\n⏳ *Status:* Menunggu tanggapan karyawan tujuan`;
       
       axios.post('http://127.0.0.1:3000/send', {
         chatId: '120363411684764754@g.us',
@@ -175,7 +206,11 @@ class OffDayService {
 
     if (!req) throw ErrorCodes.RESOURCE_NOT_FOUND;
 
-    const transition = canTransition(req.status, 'SYSTEM_VALIDATE');
+    // SOLO: tanpa rekan — validasi langsung mengirim ke persetujuan Admin,
+    // bukan ke tanggapan rekan. Lewati validasi konflik target (targetUserId null).
+    const solo = req.mode === 'SOLO';
+    const stateAction = solo ? 'SYSTEM_VALIDATE_SOLO' : 'SYSTEM_VALIDATE';
+    const transition = canTransition(req.status, stateAction);
     if (!transition.valid) {
       throw new Error(transition.error);
     }
@@ -185,8 +220,8 @@ class OffDayService {
     // request yang sama tidak berubah jawaban hanya karena konteksnya beda.
     const requesterOffConflict = await checkEmployeeScheduleConflict(req.userId, req.workDate, null, requestId, 'OFF_DAY');
     const requesterWorkConflict = await checkEmployeeScheduleConflict(req.userId, req.offDate, null, requestId, 'OFF_DAY');
-    const targetOffConflict = await checkEmployeeScheduleConflict(req.targetUserId, req.workDate, null, requestId, 'OFF_DAY');
-    const targetWorkConflict = await checkEmployeeScheduleConflict(req.targetUserId, req.offDate, null, requestId, 'OFF_DAY');
+    const targetOffConflict = solo ? { hasConflict: false, reason: null } : await checkEmployeeScheduleConflict(req.targetUserId, req.workDate, null, requestId, 'OFF_DAY');
+    const targetWorkConflict = solo ? { hasConflict: false, reason: null } : await checkEmployeeScheduleConflict(req.targetUserId, req.offDate, null, requestId, 'OFF_DAY');
 
     const conflicts = [];
     if (requesterOffConflict.hasConflict) conflicts.push(requesterOffConflict.reason);
@@ -215,11 +250,36 @@ class OffDayService {
       return { rejected: true, reason: conflicts.join(' | ') };
     }
 
-    // System passes → notify target
+    // System passes. PAIR → masuk antrean tanggapan target; SOLO → langsung ke Admin.
     await prisma.offDayRequest.update({
       where: { id: requestId },
       data: { status: transition.nextStatus },
     });
+
+    if (solo) {
+      // Tidak ada rekan yang perlu diberi tahu. Kabari pemohon + Admin/Manager
+      // agar pengajuan langsung masuk antrean persetujuan.
+      await notificationService.create(
+        req.userId,
+        'Pindah Libur Menunggu Persetujuan Admin',
+        `Pengajuan pindah libur Anda lolos validasi sistem dan sedang menunggu persetujuan admin.`,
+        'OFFDAY'
+      );
+
+      const admins = await prisma.user.findMany({
+        where: { role: { in: ['ADMIN', 'MANAGER'] }, isActive: true },
+        select: { id: true },
+      });
+      for (const admin of admins) {
+        await notificationService.create(
+          admin.id,
+          'Persetujuan Pindah Libur Diperlukan',
+          `${req.user.fullName} mengajukan pindah hari libur mandiri. Silakan tinjau.`,
+          'OFFDAY_ADMIN_APPROVAL'
+        );
+      }
+      return;
+    }
 
     await notificationService.create(
       req.targetUserId,
@@ -349,18 +409,45 @@ class OffDayService {
         'OFFDAY_REJECTED'
       );
 
-      await notificationService.create(
-        req.targetUserId,
-        'Tukar Libur Ditolak Admin',
-        'Permintaan tukar libur yang Anda setujui ditolak oleh Admin/Manager.',
-        'OFFDAY_REJECTED'
-      );
+      // SOLO tidak punya rekan tujuan yang perlu diberi tahu.
+      if (req.targetUserId) {
+        await notificationService.create(
+          req.targetUserId,
+          'Tukar Libur Ditolak Admin',
+          'Permintaan tukar libur yang Anda setujui ditolak oleh Admin/Manager.',
+          'OFFDAY_REJECTED'
+        );
+      }
 
       return { status: transition.nextStatus, message: 'Permintaan tukar libur ditolak.' };
     }
 
     // Apply schedule changes using transaction with upsert for safety
+    const solo = req.mode === 'SOLO';
     await prisma.$transaction(async (tx) => {
+      if (solo) {
+        // ── Mode SOLO: pemohon memindahkan hari liburnya sendiri ──
+        // offDate: semula LIBUR → kini MASUK KERJA (shift default pemohon).
+        // workDate: semula kerja → kini LIBUR. Tidak menyentuh rekan lain,
+        // cukup 2 baris UserSchedule milik pemohon.
+        const requesterUser = await tx.user.findUnique({ where: { id: req.userId }, select: { shiftId: true } });
+        const requesterDefaultShift = requesterUser?.shiftId || 1;
+
+        // Requester pada offDate: isOffDay = false (masuk kerja)
+        await tx.userSchedule.upsert({
+          where: { userId_date: { userId: req.userId, date: req.offDate } },
+          update: { isOffDay: false, shiftId: requesterDefaultShift, isManualOverride: true },
+          create: { userId: req.userId, date: req.offDate, isOffDay: false, shiftId: requesterDefaultShift, isManualOverride: true },
+        });
+
+        // Requester pada workDate: isOffDay = true (pindah libur ke sini)
+        await tx.userSchedule.upsert({
+          where: { userId_date: { userId: req.userId, date: req.workDate } },
+          update: { isOffDay: true, isManualOverride: true },
+          create: { userId: req.userId, date: req.workDate, isOffDay: true, isManualOverride: true },
+        });
+      } else {
+      // ── Mode PAIR: tukar libur dengan rekan (4 baris UserSchedule) ──
       // 1. Get shift IDs for requester and target (from User.shiftId or default)
       const requesterUser = await tx.user.findUnique({ where: { id: req.userId }, select: { shiftId: true } });
       const targetUser = await tx.user.findUnique({ where: { id: req.targetUserId }, select: { shiftId: true } });
@@ -411,6 +498,7 @@ class OffDayService {
         update: { isOffDay: false, shiftId: shiftForTargetOnWorkDate, isManualOverride: true },
         create: { userId: req.targetUserId, date: req.workDate, isOffDay: false, shiftId: shiftForTargetOnWorkDate, isManualOverride: true },
       });
+      } // end PAIR
 
       // Update OffDayRequest status
       await tx.offDayRequest.update({
@@ -428,8 +516,14 @@ class OffDayService {
           OR: [
             { userId: req.userId, date: req.offDate },
             { userId: req.userId, date: req.workDate },
-            { userId: req.targetUserId, date: req.offDate },
-            { userId: req.targetUserId, date: req.workDate },
+            // SOLO tidak punya target — klausa target harus diabaikan agar tidak
+            // menghasilkan filter userId: null yang bisa ikut mencabut baris lain.
+            ...(req.targetUserId
+              ? [
+                  { userId: req.targetUserId, date: req.offDate },
+                  { userId: req.targetUserId, date: req.workDate },
+                ]
+              : []),
           ],
         },
       });
@@ -443,8 +537,10 @@ class OffDayService {
     try {
       await this._revertWeeklyScheduleForOverride(req.userId, req.offDate);
       await this._revertWeeklyScheduleForOverride(req.userId, req.workDate);
-      await this._revertWeeklyScheduleForOverride(req.targetUserId, req.offDate);
-      await this._revertWeeklyScheduleForOverride(req.targetUserId, req.workDate);
+      if (!solo) {
+        await this._revertWeeklyScheduleForOverride(req.targetUserId, req.offDate);
+        await this._revertWeeklyScheduleForOverride(req.targetUserId, req.workDate);
+      }
     } catch (revertErr) {
       console.warn('[offday] Gagal revert WeeklySchedule:', revertErr?.message);
     }
@@ -458,19 +554,24 @@ class OffDayService {
 
     await notificationService.create(
       req.userId,
-      'Tukar Libur Disetujui',
-      'Permintaan tukar libur Anda telah DISETUJUI. Jadwal telah diperbarui.',
+      solo ? 'Pindah Libur Disetujui' : 'Tukar Libur Disetujui',
+      solo
+        ? 'Permintaan pindah hari libur Anda telah DISETUJUI. Jadwal telah diperbarui.'
+        : 'Permintaan tukar libur Anda telah DISETUJUI. Jadwal telah diperbarui.',
       'OFFDAY_APPROVED'
     );
 
-    await notificationService.create(
-      req.targetUserId,
-      'Tukar Libur Disetujui',
-      'Tukar libur telah DISETUJUI. Jadwal Anda telah diperbarui.',
-      'OFFDAY_APPROVED'
-    );
+    // SOLO tidak punya rekan tujuan yang perlu diberi tahu.
+    if (req.targetUserId) {
+      await notificationService.create(
+        req.targetUserId,
+        'Tukar Libur Disetujui',
+        'Tukar libur telah DISETUJUI. Jadwal Anda telah diperbarui.',
+        'OFFDAY_APPROVED'
+      );
+    }
 
-    return { status: transition.nextStatus, message: 'Tukar libur berhasil disetujui dan jadwal telah diupdate.' };
+    return { status: transition.nextStatus, message: solo ? 'Pindah libur berhasil disetujui dan jadwal telah diupdate.' : 'Tukar libur berhasil disetujui dan jadwal telah diupdate.' };
   }
 
   /**
@@ -521,12 +622,15 @@ class OffDayService {
       data: { status: transition.nextStatus },
     });
 
-    await notificationService.create(
-      req.targetUserId,
-      'Permintaan Tukar Libur Dibatalkan',
-      `${req.user.fullName} membatalkan permintaan tukar libur.`,
-      'OFFDAY_CANCELLED'
-    );
+    // SOLO tidak punya target — notifikasi batal hanya relevan untuk mode PAIR.
+    if (req.targetUserId) {
+      await notificationService.create(
+        req.targetUserId,
+        'Permintaan Tukar Libur Dibatalkan',
+        `${req.user.fullName} membatalkan permintaan tukar libur.`,
+        'OFFDAY_CANCELLED'
+      );
+    }
 
     return { status: transition.nextStatus, message: 'Pengajuan dibatalkan.' };
   }

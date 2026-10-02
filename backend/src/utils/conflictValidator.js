@@ -97,6 +97,12 @@ async function checkEmployeeScheduleConflict(
   // - Target masuk kerja pada workDate (menggantikan requester), libur pada offDate.
   // Jika karyawan MASUK KERJA pada checkDate, BUKAN konflik tukar shift (jadwal kerja aktif bisa ditukar).
   // Hanya bentrok jika karyawan berstatus LIBUR di tanggal checkDate.
+  //
+  // Mode 'SOLO' (pindah libur tanpa rekan) membalik arah tanggal bagi pemohon:
+  // dia LIBUR di workDate dan justru MASUK KERJA di offDate. Karena itu klausa
+  // "{ userId, offDate }" dikecualikan untuk baris SOLO — tanggal itu bukan libur,
+  // sama seperti kasus swap di mana pemohon masuk menggantikan target.
+  // Baris lama (mode 'PAIR', termasuk legacy targetUserId null) tidak berubah makna.
   let offDayWhere;
   if (context === 'SHIFT_SWAP') {
     offDayWhere = {
@@ -110,7 +116,7 @@ async function checkEmployeeScheduleConflict(
     offDayWhere = {
       status: 'APPROVED',
       OR: [
-        { userId: employeeId, offDate: checkDate },
+        { userId: employeeId, offDate: checkDate, mode: { not: 'SOLO' } },
         { userId: employeeId, workDate: checkDate },
         { targetUserId: employeeId, offDate: checkDate },
         { targetUserId: employeeId, workDate: checkDate },

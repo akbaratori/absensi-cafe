@@ -182,8 +182,19 @@ const OffDayApprovalPage = () => {
                       <div className="text-xs text-gray-500">{req.user?.employeeId}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900 dark:text-white">{req.target?.fullName || "-"}</div>
-                      <div className="text-xs text-gray-500">{req.target?.employeeId}</div>
+                      {/* SOLO: pindah libur mandiri tanpa rekan — target null */}
+                      {req.mode === "SOLO" ? (
+                        <div className="text-sm">
+                          <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-800 border border-indigo-200 dark:bg-indigo-900/40 dark:text-indigo-200 dark:border-indigo-700">
+                            Pindah hari libur
+                          </span>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="text-sm font-medium text-gray-900 dark:text-white">{req.target?.fullName || "Tanpa rekan — Pindah hari libur"}</div>
+                          <div className="text-xs text-gray-500">{req.target?.employeeId}</div>
+                        </>
+                      )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-red-600 font-medium">{formatDate(req.offDate)}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-green-600 font-medium">{formatDate(req.workDate)}</td>
@@ -307,14 +318,18 @@ const OffDayApprovalPage = () => {
                   </div>
                   <div>
                     <p className="text-xs text-gray-500">Target</p>
-                    <p className="font-medium text-gray-900 dark:text-white">{req.target?.fullName || "-"}</p>
+                    <p className="font-medium text-gray-900 dark:text-white">
+                      {req.mode === "SOLO"
+                        ? <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-800 border border-indigo-200 dark:bg-indigo-900/40 dark:text-indigo-200 dark:border-indigo-700">Tanpa rekan — Pindah hari libur</span>
+                        : (req.target?.fullName || "-")}
+                    </p>
                   </div>
                   <div>
-                    <p className="text-xs text-gray-500">Ingin Libur</p>
+                    <p className="text-xs text-gray-500">{req.mode === "SOLO" ? "Libur Lama (Jadi Kerja)" : "Ingin Libur"}</p>
                     <p className="font-medium text-red-600">{formatDate(req.offDate)}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-gray-500">Ganti Masuk</p>
+                    <p className="text-xs text-gray-500">{req.mode === "SOLO" ? "Libur Baru" : "Ganti Masuk"}</p>
                     <p className="font-medium text-green-600">{formatDate(req.workDate)}</p>
                   </div>
                   <div className="col-span-2 border-t border-gray-200 dark:border-gray-600 pt-2 mt-1">
@@ -345,7 +360,7 @@ const OffDayApprovalPage = () => {
               {confirmModal.data && (
                 <div className="mt-2 text-sm opacity-90 space-y-1">
                   <p><strong>Pemohon:</strong> {confirmModal.data.user?.fullName}</p>
-                  <p><strong>Target:</strong> {confirmModal.data.target?.fullName || "-"}</p>
+                  <p><strong>Target:</strong> {confirmModal.data.mode === "SOLO" ? "Tanpa rekan — Pindah hari libur" : (confirmModal.data.target?.fullName || "-")}</p>
                   <p><strong>Libur (Off):</strong> {formatDate(confirmModal.data.offDate)}</p>
                   <p><strong>Masuk (Work):</strong> {formatDate(confirmModal.data.workDate)}</p>
                   <p><strong>Alasan:</strong> {confirmModal.data.reason}</p>

@@ -190,7 +190,10 @@ class AttendanceService {
           status: 'APPROVED',
           OR: [
             { userId, workDate: { gte: todayUTCStart, lte: todayUTCEnd } },
-            { userId, offDate: { gte: todayUTCStart, lte: todayUTCEnd }, targetUserId: null },
+            // 'targetUserId: null' = permintaan libur legacy — tetap dihitung libur.
+            // Baris SOLO punya targetUserId null juga, tapi pada offDate pemohon
+            // justru masuk kerja, jadi harus dikecualikan dari sini.
+            { userId, offDate: { gte: todayUTCStart, lte: todayUTCEnd }, targetUserId: null, mode: { not: 'SOLO' } },
             { targetUserId: userId, offDate: { gte: todayUTCStart, lte: todayUTCEnd } },
           ],
         },

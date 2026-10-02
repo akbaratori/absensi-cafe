@@ -1893,7 +1893,9 @@ class RotationService {
     // 2. OffDayRequest APPROVED — swap-aware:
     //    - Swap (targetUserId ada): pemohon LIBUR di workDate (dia ambil libur
     //      target), target LIBUR di offDate (dia ambil libur pemohon).
-    //    - Legacy (targetUserId null): pemohon libur di offDate biasa.
+    //    - SOLO (mode='SOLO'): pemohon memindahkan liburnya sendiri — LIBUR di
+    //      workDate, MASUK KERJA di offDate. Tidak ada pihak lain yang terpengaruh.
+    //    - Legacy (targetUserId null, mode='PAIR'): pemohon libur di offDate biasa.
     const offRequests = await prisma.offDayRequest.findMany({
       where: {
         status: 'APPROVED',
@@ -1903,11 +1905,16 @@ class RotationService {
           { targetUserId: userId, offDate: { gte: from, lte: to } },
         ],
       },
-      select: { userId: true, targetUserId: true, offDate: true, workDate: true },
+      select: { userId: true, targetUserId: true, offDate: true, workDate: true, mode: true },
     });
     for (const r of offRequests) {
       const offISO = toISO(r.offDate);
       const workISO = toISO(r.workDate);
+      if (r.mode === 'SOLO') {
+        // Pindah libur mandiri: hanya workDate yang menjadi hari libur pemohon.
+        if (r.userId === userId && dateISOs.includes(workISO)) mark(workISO);
+        continue;
+      }
       if (r.targetUserId == null) {
         // Legacy: permintaan libur biasa tanpa swap
         if (dateISOs.includes(offISO)) mark(offISO);

@@ -193,6 +193,10 @@ model OffDayRequest {
   offDate       DateTime  @map("off_date")
   workDate      DateTime  @map("work_date")
   reason        String?
+  // 'PAIR' = tukar dengan rekan (legacy default), 'SOLO' = pindah hari libur
+  // mandiri tanpa rekan (langsung persetujuan admin; pemohon masuk di offDate,
+  // libur di workDate).
+  mode          String    @default("PAIR") @map("mode")
   status        String    @default("PENDING_VALIDATION")
   rejectionNote String?   @db.Text @map("rejection_note")
   approverId    Int?      @map("approver_id")
