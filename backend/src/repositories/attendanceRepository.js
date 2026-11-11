@@ -451,6 +451,7 @@ class AttendanceRepository {
       lateDays: 0,
       absentDays: 0,
       halfDays: 0,
+      validDays: 0,
       totalHoursWorked: 0,
       averageHoursPerDay: 0,
       estimatedSalary: 0,
@@ -464,6 +465,7 @@ class AttendanceRepository {
 
       let hours = 0;
       if (record.clockOut) {
+        summary.validDays++;
         hours = (record.clockOut - record.clockIn) / (1000 * 60 * 60);
         totalHours += hours;
       }

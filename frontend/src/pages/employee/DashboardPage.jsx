@@ -10,6 +10,7 @@ import SwapInboxModal from '../../components/modals/SwapInboxModal';
 import OffDayRequestModal from '../../components/modals/OffDayRequestModal';
 import OffDayInboxModal from '../../components/modals/OffDayInboxModal';
 import LatePenaltyWidget from '../../components/employee/LatePenaltyWidget';
+import ClockOutReminderBanner from '../../components/employee/ClockOutReminderBanner';
 import { getTodayAttendance, clockIn, clockOut, getMonthlySummary } from '../../services/attendanceService';
 import { getUserSchedule } from '../../services/scheduleService';
 import { getLeaveQuota } from '../../services/leaveService';
@@ -308,6 +309,9 @@ const DashboardPage = () => {
 
   return (
     <div className="space-y-6">
+      {/* Pengingat absen pulang — muncul setelah login */}
+      <ClockOutReminderBanner />
+
       {/* Banner Terlambat Hari Ini */}
       {todayData?.status === 'late' && (
         <div className="flex items-center gap-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl px-5 py-3 animate-pulse-once">
@@ -592,6 +596,16 @@ const DashboardPage = () => {
               {monthlySummary?.summary?.totalWorkingDays || '-'}
             </p>
             <p className="text-gray-600 dark:text-gray-400 mt-1">Hari Kerja Bulan Ini</p>
+          </div>
+        </Card>
+
+        <Card className="p-6">
+          <div className="text-center">
+            <p className="text-3xl font-bold text-emerald-600 dark:text-emerald-400">
+              {monthlySummary?.summary?.validDays ?? 0}
+            </p>
+            <p className="text-gray-600 dark:text-gray-400 mt-1">Total Masuk</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Absen masuk + pulang lengkap</p>
           </div>
         </Card>
 
