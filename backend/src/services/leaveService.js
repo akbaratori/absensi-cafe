@@ -103,36 +103,94 @@ class LeaveService {
             }
         }
 
-        // --- 2. Collect ManualOffDay records this month (admin-assigned quota off-days) ---
+        // --- 2. Collect scheduled off-days this month (union of ALL sources) ---
         // Hanya hitung hari libur yang tanggalnya sudah lewat (≤ kemarin WITA),
-        // sama seperti noShow/absent — tidak menghitung libur masa depan yang belum terjadi.
+        // supaya tidak menghitung libur masa depan yang belum terjadi.
+        //
+        // Sebelumnya `offDays` hanya membaca ManualOffDay, sehingga angka "Sisa Jatah
+        // Libur" di dashboard tidak konsisten dengan Jadwal (yang memakai union
+        // getAllOffDayEntries). Sekarang dibaca dari sumber yang sama: ManualOffDay,
+        // UserSchedule isOffDay=true (hasil rotasi/override tersimpan), OffDayRequest
+        // APPROVED, PublicHoliday, dan User.offDay mingguan. Leave dihitung terpisah
+        // sebagai leaveDays, jadi tanggal yang dicakup Leave tidak dihitung dobel.
+        const offDateSet = new Set();
+
+        // Helper: ubah nilai Date/string dari driver Prisma menjadi "YYYY-MM-DD" WITA.
+        const witaStrOf = (value) => {
+            if (typeof value === 'string') return value.slice(0, 10);
+            if (value instanceof Date) return new Date(value.getTime() + WITA_OFFSET_MS).toISOString().slice(0, 10);
+            return null;
+        };
+
+        // 2a. ManualOffDay (libur jatah yang diatur admin)
         const manualOffDays = await prisma.manualOffDay.findMany({
-            where: {
-                userId,
-                date: { gte: monthStartWITA, lte: monthEndUTC },
-            },
+            where: { userId, date: { gte: monthStartWITA, lte: monthEndUTC } },
             select: { date: true },
         });
-
-        // Build a Set of WITA date-strings for manual off-days.
-        // ManualOffDay.date uses @db.Date (MySQL DATE). Prisma may return it as
-        // a Date object (midnight UTC) or as a plain "YYYY-MM-DD" string depending
-        // on the driver version. Handle both cases defensively.
-        const manualOffDateSet = new Set();
         for (const off of manualOffDays) {
-            let witaStr;
-            if (typeof off.date === 'string') {
-                // Already a date string — take it as-is (it represents the local date)
-                witaStr = off.date.slice(0, 10);
-            } else {
-                // Date object stored as midnight UTC → add WITA offset to get local date
-                witaStr = new Date(off.date.getTime() + WITA_OFFSET_MS).toISOString().slice(0, 10);
-            }
-            // Only count if not already covered by a formal Leave entry
-            if (!leaveDateSet.has(witaStr)) {
-                manualOffDateSet.add(witaStr);
+            const witaStr = witaStrOf(off.date);
+            if (witaStr) offDateSet.add(witaStr);
+        }
+
+        // 2b. UserSchedule berstatus libur (ditulis generateWeek saat rotasi)
+        const offSchedules = await prisma.userSchedule.findMany({
+            where: { userId, isOffDay: true, date: { gte: monthStartWITA, lte: monthEndUTC } },
+            select: { date: true },
+        });
+        for (const s of offSchedules) {
+            const witaStr = witaStrOf(s.date);
+            if (witaStr) offDateSet.add(witaStr);
+        }
+
+        // 2c. OffDayRequest APPROVED — libur tukar/mandiri yang sudah disetujui
+        const offRequests = await prisma.offDayRequest.findMany({
+            where: { userId, status: 'APPROVED', offDate: { gte: monthStartWITA, lte: monthEndUTC } },
+            select: { offDate: true },
+        });
+        for (const r of offRequests) {
+            const witaStr = witaStrOf(r.offDate);
+            if (witaStr) offDateSet.add(witaStr);
+        }
+
+        // 2d. PublicHoliday — semua orang libur
+        const holidays = await prisma.publicHoliday.findMany({
+            where: { date: { gte: monthStartWITA, lte: monthEndUTC } },
+            select: { date: true },
+        });
+        for (const h of holidays) {
+            const witaStr = witaStrOf(h.date);
+            if (witaStr) offDateSet.add(witaStr);
+        }
+
+        // 2e. User.offDay mingguan (hari libur tetap tiap minggu), hanya hari lewat
+        const userOffDay = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { offDay: true },
+        });
+        if (userOffDay?.offDay != null) {
+            const daysPast = parseInt(yesterdayStr.slice(8, 10), 10) || 0;
+            const mm = String(month).padStart(2, '0');
+            for (let d = 1; d <= daysPast; d++) {
+                const dow = new Date(Date.UTC(year, month - 1, d)).getUTCDay();
+                if (dow === userOffDay.offDay) {
+                    offDateSet.add(`${year}-${mm}-${String(d).padStart(2, '0')}`);
+                }
             }
         }
+
+        // 2f. Override admin "masuk kerja" (isOffDay=false + isManualOverride)
+        //     membatalkan status libur pada tanggal itu (prioritas tertinggi).
+        const workOverrides = await prisma.userSchedule.findMany({
+            where: { userId, isOffDay: false, isManualOverride: true, date: { gte: monthStartWITA, lte: monthEndUTC } },
+            select: { date: true },
+        });
+        for (const s of workOverrides) {
+            const witaStr = witaStrOf(s.date);
+            if (witaStr) offDateSet.delete(witaStr);
+        }
+
+        // 2g. Tanggal yang sudah dicakup Leave dihitung sebagai leaveDays — jangan dobel.
+        for (const witaStr of leaveDateSet) offDateSet.delete(witaStr);
 
         // --- 3. Collect UserSchedule entries this month where isOffDay = false ---
         const schedules = await prisma.userSchedule.findMany({
@@ -175,6 +233,8 @@ class LeaveService {
 
             // Skip days already covered by a formal Leave entry (avoid double-count)
             if (leaveDateSet.has(witaStr)) continue;
+            // Skip scheduled off-days — jangan hitung libur sebagai no-show/absent
+            if (offDateSet.has(witaStr)) continue;
 
             const status = attendanceMap.get(witaStr);
             if (status === undefined) {
@@ -196,11 +256,12 @@ class LeaveService {
             if (status !== 'ABSENT' && status !== 'HALF_DAY') continue;
             if (countedDates.has(witaStr)) continue;     // already counted above
             if (leaveDateSet.has(witaStr)) continue;     // covered by formal leave
+            if (offDateSet.has(witaStr)) continue;       // scheduled off-day — not an absence
             if (status === 'ABSENT') absentDays++; else halfDays++;
         }
 
         const leaveDays = leaveDateSet.size;
-        const offDays = manualOffDateSet.size;
+        const offDays = offDateSet.size;
         const used = leaveDays + offDays + noShowDays + absentDays + halfDays;
         const quota = 4; // Max 4 days per month
 
