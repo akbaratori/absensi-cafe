@@ -1,181 +1,110 @@
-import { useState, useEffect, useMemo } from 'react';
-import { getClosingConfig, getAllSchedules } from '../../services/scheduleService';
+import { useEffect, useMemo, useState } from 'react';
+import { getClosingConfig } from '../../services/scheduleService';
 import { useAuth } from '../../contexts/AuthContext';
+import { generateOpeningClosingRoster, validateFourStaff, mondayOf, toDateKey, OPENING_CLOSING_CONFIG_KEY } from '../../utils/openingClosing';
 
-// ─── JOB DEFINITIONS (3 posisi, sama dengan ClosingSetupPanel) ──────────────
-const JOBS = [
-    { id: 'A', label: 'Pos A — Dapur Dalam', icon: '🧹', tasks: ['Lap-lap meja', 'Cuci lap'], color: 'from-blue-600 to-blue-700' },
-    { id: 'B', label: 'Pos B — Dapur Dalam', icon: '🫧', tasks: ['Sapu lantai dapur', 'Pel lantai dapur', 'Cuci piring'], color: 'from-emerald-600 to-emerald-700' },
-    { id: 'C', label: 'Pos C — Dapur Luar', icon: '🪑', tasks: ['Angkat bangku', 'Sapu luar', 'Pel luar', 'Bersihkan WC'], color: 'from-purple-600 to-purple-700' },
-];
-
-const getDayOffset = (startDateStr, targetDateStr) => {
-    const start = new Date(startDateStr + 'T00:00:00');
-    const target = new Date(targetDateStr + 'T00:00:00');
-    return Math.floor((target - start) / (1000 * 60 * 60 * 24));
-};
-
-const getDaysInRange = (start, end) => {
-    const days = [];
-    let cur = new Date(start + 'T00:00:00');
-    const last = new Date(end + 'T00:00:00');
-    while (cur <= last) {
-        const y = cur.getFullYear(), m = String(cur.getMonth() + 1).padStart(2, '0'), d = String(cur.getDate()).padStart(2, '0');
-        days.push(`${y}-${m}-${d}`);
-        cur.setDate(cur.getDate() + 1);
-    }
-    return days;
-};
-
-const toLocalDateStr = (d) => {
-    const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, '0'), day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
-};
-
-const DAY_ID = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
-const MONTH_ID = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+const DAY_NAMES = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
 
 /**
- * Widget untuk karyawan — menampilkan jobdesk closing mereka hari ini
- * jika mereka termasuk dalam rotasi closing yang dikonfigurasi admin
+ * Widget karyawan: tampilkan tugas opening/closing HARI INI untuk yang login.
+ * Membaca config yang disimpan admin (getClosingConfig). Kalau user tidak termasuk
+ * 4 staf dapur terpilih, atau hari ini libur, tampilkan info yang sesuai.
  */
 const MyClosingJobdeskWidget = () => {
     const { user } = useAuth();
     const [config, setConfig] = useState(null);
-    const [myAssignment, setMyAssignment] = useState(null); // { job, isOff }
-    const [scheduleMap, setScheduleMap] = useState({}); // dateStr -> Set<userId>
-    const [loading, setLoading] = useState(true);
 
-    const today = new Date();
-    const todayStr = toLocalDateStr(today);
-
-    // Fetch closing config dari backend
     useEffect(() => {
-        setLoading(true);
+        const apply = (cfg) => { if (Array.isArray(cfg?.staff)) setConfig(cfg); };
         getClosingConfig()
-            .then(res => {
-                const cfg = res?.data?.config;
-                setConfig(cfg || null);
-            })
-            .catch(() => setConfig(null))
-            .finally(() => setLoading(false));
+            .then((res) => apply(res?.data?.config))
+            .catch(() => { try { apply(JSON.parse(localStorage.getItem(OPENING_CLOSING_CONFIG_KEY))); } catch { /* none */ } });
     }, []);
 
-    // Fetch jadwal libur untuk range Ramadhan
-    useEffect(() => {
-        if (!config?.startDate || !config?.endDate) return;
-        getAllSchedules({ startDate: config.startDate, endDate: config.endDate })
-            .then(res => {
-                const schedules = res.data?.data || [];
-                const map = {};
-                schedules.forEach(s => {
-                    if (!s.isOffDay) return;
-                    const dateStr = s.date.substring(0, 10);
-                    if (!map[dateStr]) map[dateStr] = new Set();
-                    map[dateStr].add(s.userId);
-                });
-                setScheduleMap(map);
-            })
-            .catch(() => { });
-    }, [config]);
+    const today = useMemo(() => new Date(), []);
+    const todayStr = toDateKey(today);
 
-    // Hitung assignment untuk hari ini
-    const todayData = useMemo(() => {
-        if (!config || !user) return null;
+    const assignment = useMemo(() => {
+        if (!config || !user || !validateFourStaff(config.staff)) return null;
+        try {
+            const rows = generateOpeningClosingRoster({ staff: config.staff, startDate: mondayOf(config.startDate) });
+            const row = rows.find((r) => r.dateKey === todayStr);
+            if (!row) return null;
 
-        const { mode, selectedUsers, startDate, endDate } = config;
-        if (!selectedUsers || !startDate || !endDate) return null;
-        if (todayStr < startDate || todayStr > endDate) return null;
+            if (row.off && String(row.off.id) === String(user.id)) return { kind: 'off' };
 
-        const workers = (selectedUsers || []).slice(0, mode).filter(Boolean);
-        if (workers.length === 0) return null;
+            const isStock = Boolean(row.stockChecker && String(row.stockChecker.id) === String(user.id));
 
-        // Cek apakah user ini termasuk dalam workers
-        const myWorker = workers.find(w => w.userId === user.id);
-        if (!myWorker) return null; // User tidak termasuk tim closing
+            const open = row.opening.find(({ person }) => String(person.id) === String(user.id));
+            if (open) return { kind: 'task', shift: 'Opening', job: open.job, stock: isStock };
 
-        const n = workers.length;
-        const days = getDaysInRange(startDate, endDate);
-        const dayIdx = days.indexOf(todayStr);
-        if (dayIdx === -1) return null;
+            const close = row.closing.find(({ person }) => String(person.id) === String(user.id));
+            if (close) return { kind: 'task', shift: 'Closing', job: close.job, stock: isStock };
 
-        // Rotasi workers untuk hari ini
-        const rotated = Array.from({ length: n }, (_, i) => workers[(i + dayIdx) % n]);
-        const offToday = scheduleMap[todayStr] || new Set();
+            if (isStock) return { kind: 'stock' };
 
-        if (offToday.has(user.id)) {
-            return { isOff: true, isFree: false, job: null, tasks: [] };
+            return null; // bukan bagian dari 4 staf terpilih
+        } catch {
+            return null;
         }
+    }, [config, user, todayStr]);
 
-        const working = rotated.filter(w => !offToday.has(w.userId));
-        if (working.length === 0) return null;
+    if (!assignment) return null;
+    const fmtToday = `${DAY_NAMES[today.getDay()]}, ${today.getDate()} ${MONTH_SHORT[today.getMonth()]}`;
 
-        // Cari posisi user dalam working list
-        const myWorkingIdx = working.findIndex(w => w.userId === user.id);
-        if (myWorkingIdx === -1) return null;
-
-        // Jika index >= jumlah pos (3), user bebas hari ini
-        if (myWorkingIdx >= JOBS.length) {
-            return { isOff: false, isFree: true, job: null, tasks: [] };
-        }
-
-        const job = JOBS[myWorkingIdx];
-        return { isOff: false, isFree: false, job, tasks: job.tasks };
-    }, [config, user, todayStr, scheduleMap]);
-
-    if (loading) return null;
-    if (!config || !todayData) return null;
-
-    const fmtToday = `${DAY_ID[today.getDay()]}, ${today.getDate()} ${MONTH_ID[today.getMonth()]}`;
-
-    if (todayData.isOff) {
+    if (assignment.kind === 'off') {
         return (
             <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4 mb-4">
                 <div className="flex items-center gap-2">
-                    <span>🧹</span>
+                    <span>🏖️</span>
                     <div>
-                        <p className="font-semibold text-sm text-gray-800 dark:text-gray-200">Jobdesk Closing — {fmtToday}</p>
-                        <p className="text-xs text-gray-500">Kamu libur hari ini — tidak ada tugas closing 🎉</p>
+                        <p className="font-semibold text-sm text-gray-800 dark:text-gray-200">Jobdesk Dapur — {fmtToday}</p>
+                        <p className="text-xs text-gray-500">Kamu libur hari ini — tidak ada tugas opening/closing 🎉</p>
                     </div>
                 </div>
             </div>
         );
     }
 
-    if (todayData.isFree) {
+    if (assignment.kind === 'stock') {
         return (
-            <div className="bg-gray-50 dark:bg-gray-800 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-4 mb-4">
+            <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700 rounded-xl p-4 mb-4">
                 <div className="flex items-center gap-2">
-                    <span className="text-xl">🆓</span>
+                    <span>📋</span>
                     <div>
-                        <p className="font-semibold text-sm text-gray-800 dark:text-gray-200">Jobdesk Closing — {fmtToday}</p>
-                        <p className="text-xs text-gray-500">Kamu <strong>bebas / helper</strong> hari ini — bantu posisi lain jika dibutuhkan 👋</p>
+                        <p className="font-semibold text-sm text-gray-800 dark:text-gray-200">Jobdesk Dapur — {fmtToday}</p>
+                        <p className="text-xs text-gray-500">Kamu <b>pengecek laporan stok DD9</b> hari ini (kerjakan di jam sepi sebelum closing).</p>
                     </div>
                 </div>
             </div>
         );
     }
+
+    const { shift, job, stock } = assignment;
+    const color = shift === 'Opening' ? 'from-orange-600 to-red-600' : 'from-slate-700 to-gray-800';
 
     return (
-        <div className={`bg-gradient-to-br ${todayData.job.color} text-white rounded-xl p-4 mb-4 shadow-lg`}>
+        <div className={`bg-gradient-to-br ${color} text-white rounded-xl p-4 mb-4 shadow-lg`}>
             <div className="flex items-start justify-between">
                 <div>
                     <div className="flex items-center gap-2 mb-1">
-                        <span className="text-lg">{todayData.job.icon}</span>
-                        <p className="font-bold text-sm">Jobdesk Closing Hari Ini</p>
+                        <span className="text-lg">{job.icon || '🍳'}</span>
+                        <p className="font-bold text-sm">Jobdesk {shift} Hari Ini</p>
                     </div>
-                    <p className="text-white/70 text-xs mb-3">{fmtToday}</p>
-                    <p className="font-bold text-lg">{todayData.job.label}</p>
+                    <p className="text-white/70 text-xs mb-2">{fmtToday}</p>
+                    <p className="font-bold text-lg">{job.label}</p>
                     <ul className="mt-2 space-y-1">
-                        {todayData.tasks.map((t, i) => (
+                        {job.tasks.map((t, i) => (
                             <li key={i} className="text-sm text-white/90 flex items-center gap-1.5">
-                                <span className="w-4 h-4 rounded-full bg-white/20 flex items-center justify-center text-xs">✓</span>
-                                {t}
+                                <span className="w-4 h-4 rounded-full bg-white/20 flex items-center justify-center text-xs">✓</span>{t}
                             </li>
                         ))}
                     </ul>
+                    {stock && (
+                        <p className="mt-3 text-xs bg-amber-400/20 border border-amber-300/40 rounded px-2 py-1">📋 Bonus: kamu juga pengecek laporan stok DD9 hari ini.</p>
+                    )}
                 </div>
-                <span className="text-4xl opacity-30">{todayData.job.icon}</span>
             </div>
         </div>
     );

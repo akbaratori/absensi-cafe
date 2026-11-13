@@ -5,6 +5,7 @@ import { getDashboardStats } from '../../services/adminService';
 import { formatTime } from '../../utils/formatters';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import DashboardInsights from '../../components/shared/DashboardInsights';
+import ClosingTodayWidget from '../../components/admin/ClosingTodayWidget';
 
 const AdminDashboardPage = () => {
     const [stats, setStats] = useState(null);
@@ -78,6 +79,9 @@ const AdminDashboardPage = () => {
                 <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Dashboard Admin</h1>
                 <p className="text-gray-600 dark:text-gray-400 mt-1">Ringkasan aktivitas hari ini</p>
             </div>
+
+            {/* Jobdesk Opening & Closing hari ini (4 staf) */}
+            <ClosingTodayWidget />
 
             {/* Stats Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">

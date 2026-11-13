@@ -1,456 +1,217 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Card from '../../components/shared/Card';
+import { getUsers } from '../../services/adminService';
+import { getClosingConfig, saveClosingConfig } from '../../services/scheduleService';
+import {
+  DAY_SHORT,
+  MONTH_SHORT,
+  mondayOf,
+  toDateKey,
+  generateOpeningClosingRoster,
+  validateFourStaff,
+  OPENING_CLOSING_CONFIG_KEY,
+} from '../../utils/openingClosing';
 
-// ─── DATA DEFINISI (3 Pos, berlaku untuk 4 maupun 5 orang) ──────────────────
-const JOBS = [
-    {
-        id: 'A',
-        label: 'Pos A — Dapur Dalam',
-        tasks: ['Lap-lap meja', 'Cuci lap'],
-        icon: '🧹',
-        color: 'from-blue-600 to-blue-700',
-        border: 'border-blue-500',
-    },
-    {
-        id: 'B',
-        label: 'Pos B — Dapur Dalam',
-        tasks: ['Sapu lantai dapur', 'Pel lantai dapur', 'Cuci piring'],
-        icon: '🫧',
-        color: 'from-emerald-600 to-emerald-700',
-        border: 'border-emerald-500',
-    },
-    {
-        id: 'C',
-        label: 'Pos C — Dapur Luar',
-        tasks: ['Angkat & rapikan bangku', 'Sapu area luar', 'Pel area luar', 'Bersihkan WC'],
-        icon: '🪑',
-        color: 'from-purple-600 to-purple-700',
-        border: 'border-purple-500',
-    },
-];
+const today = new Date();
+const fmt = (date) => `${DAY_SHORT[date.getDay()]}, ${date.getDate()} ${MONTH_SHORT[date.getMonth()]}`;
+const blankStaff = () => Array.from({ length: 4 }, () => ({ id: '', name: '' }));
 
-// ─── RAMADAN 2026 (default) ───────────────────────────────────────────────────
-const DEFAULT_START = '2026-03-01';
-const DEFAULT_END = '2026-03-30';
+export default function JobdeskClosingPage() {
+  const [employees, setEmployees] = useState([]);
+  const [staff, setStaff] = useState(blankStaff);
+  const [startDate, setStartDate] = useState(mondayOf(toDateKey(today)));
+  const [roster, setRoster] = useState(null);
+  const [error, setError] = useState('');
+  const [saved, setSaved] = useState(false);
+  const [details, setDetails] = useState(false);
 
-// ─── UTIL ─────────────────────────────────────────────────────────────────────
-const getDaysInRange = (start, end) => {
-    const days = [];
-    let cur = new Date(start);
-    const last = new Date(end);
-    while (cur <= last) {
-        days.push(new Date(cur));
-        cur.setDate(cur.getDate() + 1);
-    }
-    return days;
-};
+  useEffect(() => {
+    getUsers({ limit: 100, page: 1, status: 'active' })
+      .then((r) => {
+        const list = r?.data?.users ?? r?.users ?? [];
+        setEmployees(list.filter((u) => u.role === 'EMPLOYEE'));
+      })
+      .catch(() => {});
 
-const DAY_ID = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
-const MONTH_ID = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
-
-const fmtDate = (d) =>
-    `${DAY_ID[d.getDay()]}, ${d.getDate()} ${MONTH_ID[d.getMonth()]}`;
-
-/**
- * Build rotation: 3 job positions, N workers.
- * Each day, rotate who holds each position.
- * Workers with index >= JOBS.length get "Bebas" (free/helper) that day.
- */
-const buildRotation = (names, days) => {
-    const n = names.length;
-    return days.map((date, dayIdx) => {
-        // Rotate the worker order for this day
-        const rotated = Array.from({ length: n }, (_, i) => names[(i + dayIdx) % n]);
-        return {
-            date,
-            assignments: JOBS.map((job, jobIdx) => ({
-                job,
-                person: rotated[jobIdx] ?? '—',
-            })),
-            freeWorkers: rotated.slice(JOBS.length), // workers with no task
-        };
-    });
-};
-
-// ─── COMPONENT ────────────────────────────────────────────────────────────────
-const JobdeskClosingPage = () => {
-    const [mode, setMode] = useState(4); // 4 or 5
-    const [startDate, setStartDate] = useState(DEFAULT_START);
-    const [endDate, setEndDate] = useState(DEFAULT_END);
-    const [nameInputs, setNameInputs] = useState(
-        Array(5).fill('').map((_, i) => ['', '', '', '', ''][i])
-    );
-    const [generated, setGenerated] = useState(null);
-    const [viewMode, setViewMode] = useState('today'); // 'today' | 'all'
-
-    const filledNames = nameInputs.slice(0, mode).filter((n) => n.trim());
-
-    const handleGenerate = () => {
-        const names = nameInputs.slice(0, mode).map((n) => n.trim());
-        if (names.some((n) => !n)) {
-            alert(`Masukkan ${mode} nama karyawan terlebih dahulu.`);
-            return;
-        }
-        if (!startDate || !endDate) {
-            alert('Pilih tanggal mulai dan selesai.');
-            return;
-        }
-        const days = getDaysInRange(startDate, endDate);
-        const rotation = buildRotation(names, days);
-        setGenerated(rotation);
-
-        // Simpan ke localStorage
-        const config = { mode, names, startDate, endDate };
-        localStorage.setItem('jobdesk_closing_config', JSON.stringify(config));
+    const apply = (c) => {
+      if (!Array.isArray(c?.staff)) return;
+      setStaff(Array.from({ length: 4 }, (_, i) => c.staff[i] || { id: '', name: '' }));
+      if (c.startDate) setStartDate(mondayOf(c.startDate));
     };
+    getClosingConfig()
+      .then((r) => apply(r?.data?.config))
+      .catch(() => {
+        try { apply(JSON.parse(localStorage.getItem(OPENING_CLOSING_CONFIG_KEY))); } catch { /* none */ }
+      });
+  }, []);
 
-    // Find today's entry
-    const todayStr = new Date().toLocaleDateString('en-CA');
-    const todayEntry = generated?.find(
-        (g) => g.date.toLocaleDateString('en-CA') === todayStr
+  const changeStaff = (i, id) => {
+    const u = employees.find((x) => String(x.id) === String(id));
+    setStaff((old) => old.map((s, j) => (j === i ? (u ? { id: u.id, name: u.fullName } : { id: '', name: '' }) : s)));
+    setSaved(false);
+    setRoster(null);
+  };
+
+  const generate = () => {
+    try {
+      if (staff.some((s) => !s.id || !s.name)) throw new Error('Pilih tepat 4 staf dapur (terisi, tanpa duplikat).');
+      const monday = mondayOf(startDate);
+      setStartDate(monday);
+      setRoster(generateOpeningClosingRoster({ staff, startDate: monday }));
+      setError('');
+      setSaved(false);
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
+  const save = async () => {
+    try {
+      if (!validateFourStaff(staff) || !roster) throw new Error('Lengkapi 4 staf lalu Generate dulu.');
+      const cfg = { version: 2, startDate, staff };
+      localStorage.setItem(OPENING_CLOSING_CONFIG_KEY, JSON.stringify(cfg));
+      await saveClosingConfig(cfg);
+      setSaved(true);
+      setError('');
+    } catch (e) {
+      setError(`Gagal menyimpan: ${e.message}`);
+    }
+  };
+
+  const fairness = useMemo(() => {
+    if (!roster) return {};
+    const out = Object.fromEntries(
+      staff.map((s) => [s.name, { dapur: 0, area: 0, openCombined: 0, jalur1: 0, jalur2: 0, closeCombined: 0, stock: 0, off: 0 }]),
     );
+    const keyFor = (job, combined) => (job.id === combined ? combined : job.id);
+    roster.forEach((r) => {
+      r.opening.forEach(({ job, person }) => { if (out[person.name]) out[person.name][keyFor(job, 'openCombined')] += 1; });
+      r.closing.forEach(({ job, person }) => { if (out[person.name]) out[person.name][keyFor(job, 'closeCombined')] += 1; });
+      if (r.stockChecker && out[r.stockChecker.name]) out[r.stockChecker.name].stock += 1;
+      if (r.off && out[r.off.name]) out[r.off.name].off += 1;
+    });
+    return out;
+  }, [roster, staff]);
 
-    // Build per-person summary
-    const personSummary = generated
-        ? (() => {
-            const map = {};
-            generated.forEach(({ assignments }) => {
-                assignments.forEach(({ job, person }) => {
-                    if (!map[person]) map[person] = {};
-                    map[person][job.id] = (map[person][job.id] || 0) + 1;
-                });
-            });
-            return map;
-        })()
-        : null;
+  return (
+    <div className="max-w-6xl mx-auto p-4 md:p-6 space-y-4">
+      <header>
+        <h1 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-white">🍳 Jobdesk Opening &amp; Closing Dapur</h1>
+        <p className="text-sm text-gray-500 dark:text-gray-400">Jadwal simulasi 4 staf untuk 4 minggu — shift bertukar tiap minggu, pos bergilir tiap hari.</p>
+      </header>
 
-    return (
-        <div className="space-y-6">
-            {/* Header */}
-            <div>
-                <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                    🌙 Jobdesk Closing Ramadhan
-                </h1>
-                <p className="text-gray-500 dark:text-gray-400 mt-1">
-                    Rotasi tugas closing dapur yang adil selama Ramadhan
-                </p>
-            </div>
+      <Card>
+        <div className="p-4 space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {staff.map((person, i) => (
+              <label key={i} className="block text-xs font-semibold text-gray-500">
+                Staf {i + 1} · Kelompok {i < 2 ? '1 (Staf 1–2)' : '2 (Staf 3–4)'}
+                <select
+                  className="mt-1 w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 p-2 text-sm"
+                  value={person.id}
+                  onChange={(e) => changeStaff(i, e.target.value)}
+                >
+                  <option value="">— pilih staf —</option>
+                  {employees.map((u) => (
+                    <option key={u.id} value={u.id} disabled={staff.some((p, j) => j !== i && String(p.id) === String(u.id))}>
+                      {u.fullName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ))}
+          </div>
 
-            {/* Setup Panel */}
-            <Card>
-                <div className="p-5 space-y-5">
-                    {/* Mode */}
-                    <div>
-                        <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-                            Jumlah Karyawan Closing
-                        </label>
-                        <div className="flex gap-3">
-                            {[4, 5].map((m) => (
-                                <button
-                                    key={m}
-                                    onClick={() => {
-                                        setMode(m);
-                                        setGenerated(null);
-                                    }}
-                                    className={`px-5 py-2 rounded-lg font-semibold text-sm border-2 transition-all ${mode === m
-                                        ? 'bg-indigo-700 text-white border-indigo-700 shadow'
-                                        : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-indigo-400'
-                                        }`}
-                                >
-                                    {m} Orang
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-
-                    {/* Names */}
-                    <div>
-                        <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-                            Nama Karyawan Closing Dapur
-                        </label>
-                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
-                            {Array.from({ length: mode }).map((_, i) => (
-                                <div key={i}>
-                                    <label className="text-xs text-gray-400 mb-1 block">
-                                        Karyawan {i + 1}
-                                    </label>
-                                    <input
-                                        type="text"
-                                        value={nameInputs[i]}
-                                        onChange={(e) => {
-                                            const next = [...nameInputs];
-                                            next[i] = e.target.value;
-                                            setNameInputs(next);
-                                            setGenerated(null);
-                                        }}
-                                        placeholder={`Nama ${i + 1}`}
-                                        className="w-full px-3 py-2 rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                    />
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-
-                    {/* Date Range */}
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">
-                                Tanggal Mulai Ramadhan
-                            </label>
-                            <input
-                                type="date"
-                                value={startDate}
-                                onChange={(e) => { setStartDate(e.target.value); setGenerated(null); }}
-                                className="w-full px-3 py-2 rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">
-                                Tanggal Selesai Ramadhan
-                            </label>
-                            <input
-                                type="date"
-                                value={endDate}
-                                onChange={(e) => { setEndDate(e.target.value); setGenerated(null); }}
-                                className="w-full px-3 py-2 rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm"
-                            />
-                        </div>
-                    </div>
-
-                    <button
-                        onClick={handleGenerate}
-                        className="w-full py-3 bg-gradient-to-r from-indigo-700 to-slate-700 hover:from-indigo-800 hover:to-slate-800 text-white font-semibold rounded-lg shadow transition-all"
-                    >
-                        🌙 Generate Rotasi Jobdesk
-                    </button>
-                </div>
-            </Card>
-
-            {/* Job Definitions */}
-            <div>
-                <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">
-                    3 Pos Closing ({mode} Orang — {mode - JOBS.length} Bebas per hari)
-                </h2>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    {JOBS.map((job) => (
-                        <div
-                            key={job.id}
-                            className={`bg-gradient-to-br ${job.color} text-white rounded-xl p-4 shadow`}
-                        >
-                            <div className="text-2xl mb-1">{job.icon}</div>
-                            <p className="font-bold text-sm">{job.label}</p>
-                            <ul className="mt-2 space-y-1">
-                                {job.tasks.map((t, i) => (
-                                    <li key={i} className="text-xs text-white/85 flex items-start gap-1">
-                                        <span className="mt-0.5">•</span> {t}
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
-                    ))}
-                    {/* Bebas slot */}
-                    {Array.from({ length: mode - JOBS.length }).map((_, i) => (
-                        <div key={`free-${i}`} className="bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 rounded-xl p-4 border-2 border-dashed border-gray-300 dark:border-gray-600">
-                            <div className="text-2xl mb-1">🆓</div>
-                            <p className="font-bold text-sm">Bebas / Helper</p>
-                            <p className="text-xs mt-2 opacity-70">Giliran tidak ada tugas hari ini — bantu posisi lain jika diperlukan</p>
-                        </div>
-                    ))}
-                </div>
-            </div>
-
-            {/* Results */}
-            {generated && (
-                <>
-                    {/* Today's Assignments */}
-                    <div>
-                        <div className="flex items-center justify-between mb-3">
-                            <h2 className="text-lg font-bold text-gray-900 dark:text-white">
-                                📅 Hari Ini — {fmtDate(new Date())}
-                            </h2>
-                            <div className="flex gap-2">
-                                <button
-                                    onClick={() => setViewMode('today')}
-                                    className={`px-3 py-1 rounded text-sm font-medium border transition-all ${viewMode === 'today'
-                                        ? 'bg-indigo-700 text-white border-indigo-700'
-                                        : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300'
-                                        }`}
-                                >
-                                    Hari Ini
-                                </button>
-                                <button
-                                    onClick={() => setViewMode('all')}
-                                    className={`px-3 py-1 rounded text-sm font-medium border transition-all ${viewMode === 'all'
-                                        ? 'bg-indigo-700 text-white border-indigo-700'
-                                        : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300'
-                                        }`}
-                                >
-                                    Semua Hari
-                                </button>
-                            </div>
-                        </div>
-
-                        {viewMode === 'today' && (
-                            <div>
-                                {todayEntry ? (
-                                    <div>
-                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                            {todayEntry.assignments.map(({ job, person }) => (
-                                                <div
-                                                    key={job.id}
-                                                    className={`bg-gradient-to-br ${job.color} text-white rounded-xl p-5 shadow-lg`}
-                                                >
-                                                    <div className="text-3xl mb-2">{job.icon}</div>
-                                                    <p className="font-bold text-lg">{person}</p>
-                                                    <p className="text-xs text-white/70 mt-0.5">{job.label}</p>
-                                                    <ul className="mt-3 space-y-1">
-                                                        {job.tasks.map((t, i) => (
-                                                            <li key={i} className="text-xs text-white/90 flex items-start gap-1">
-                                                                <span>✓</span> {t}
-                                                            </li>
-                                                        ))}
-                                                    </ul>
-                                                </div>
-                                            ))}
-                                        </div>
-                                        {todayEntry.freeWorkers?.length > 0 && (
-                                            <div className="mt-3 flex items-center gap-2 bg-gray-50 dark:bg-gray-800 rounded-lg px-4 py-2.5 border border-gray-200 dark:border-gray-700">
-                                                <span>🆓</span>
-                                                <span className="text-sm text-gray-600 dark:text-gray-300">
-                                                    <strong>Bebas hari ini:</strong> {todayEntry.freeWorkers.join(', ')}
-                                                </span>
-                                            </div>
-                                        )}
-                                    </div>
-                                ) : (
-                                    <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-8 text-center text-gray-400">
-                                        Hari ini bukan termasuk periode Ramadhan yang diset.
-                                    </div>
-                                )}
-                            </div>
-                        )}
-
-                {viewMode === 'all' && (
-                    <>
-                        {/* Desktop table */}
-                        <div className="hidden md:block overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700">
-                            <table className="min-w-full text-sm">
-                                <thead className="bg-gray-50 dark:bg-gray-800">
-                                    <tr>
-                                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">Tanggal</th>
-                                        {JOBS.map((j) => (
-                                            <th key={j.id} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">
-                                                {j.icon} Pos {j.id}
-                                            </th>
-                                        ))}
-                                        {mode > JOBS.length && <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">🆓 Bebas</th>}
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-900">
-                                    {generated.map(({ date, assignments, freeWorkers }, idx) => {
-                                        const isToday = date.toLocaleDateString('en-CA') === todayStr;
-                                        return (
-                                            <tr key={idx} className={isToday ? 'bg-indigo-50 dark:bg-indigo-900/30 font-semibold' : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'}>
-                                                <td className="px-4 py-2 whitespace-nowrap text-gray-700 dark:text-gray-300">
-                                                    {isToday && <span className="mr-1 text-indigo-600">▶</span>}
-                                                    {fmtDate(date)}
-                                                </td>
-                                                {assignments.map(({ job, person }) => (
-                                                    <td key={job.id} className="px-4 py-2 whitespace-nowrap text-gray-800 dark:text-gray-200">{person}</td>
-                                                ))}
-                                                {mode > JOBS.length && <td className="px-4 py-2 whitespace-nowrap text-gray-500 dark:text-gray-400 italic">{(freeWorkers || []).join(', ')}</td>}
-                                            </tr>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
-                        </div>
-
-                        {/* Mobile cards */}
-                        <div className="block md:hidden space-y-3">
-                            {generated.map(({ date, assignments, freeWorkers }, idx) => {
-                                const isToday = date.toLocaleDateString('en-CA') === todayStr;
-                                return (
-                                    <div key={idx} className={`rounded-xl border p-4 space-y-2 ${isToday ? 'bg-indigo-50 dark:bg-indigo-900/30 border-indigo-200 dark:border-indigo-800' : 'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700'}`}>
-                                        <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">
-                                            {isToday && <span className="mr-1 text-indigo-600">▶</span>}
-                                            {fmtDate(date)}
-                                        </p>
-                                        <div className="space-y-1">
-                                            {assignments.map(({ job, person }) => (
-                                                <div key={job.id} className="flex items-center justify-between text-xs">
-                                                    <span className="text-gray-500 dark:text-gray-400">{job.icon} Pos {job.id}</span>
-                                                    <span className="font-medium text-gray-800 dark:text-gray-200">{person}</span>
-                                                </div>
-                                            ))}
-                                            {mode > JOBS.length && (
-                                                <div className="flex items-center justify-between text-xs">
-                                                    <span className="text-gray-500 dark:text-gray-400">🆓 Bebas</span>
-                                                    <span className="font-medium text-gray-600 dark:text-gray-300 italic">{(freeWorkers || []).join(', ')}</span>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </>
-                )}
-                    </div>
-
-                    {/* Fairness Summary */}
-                    {personSummary && (
-                        <Card>
-                            <div className="p-5">
-                                <h3 className="font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-                                    ⚖️ Ringkasan Keadilan Rotasi
-                                    <span className="text-xs font-normal text-gray-400">(jumlah hari per pos)</span>
-                                </h3>
-                                <div className="overflow-x-auto">
-                                    <table className="min-w-full text-sm">
-                                        <thead>
-                                            <tr className="text-left text-xs text-gray-500 dark:text-gray-400 uppercase">
-                                                <th className="pb-2 pr-4">Nama</th>
-                                                {JOBS.map((j) => (
-                                                    <th key={j.id} className="pb-2 px-3">
-                                                        {j.icon} Pos {j.id}
-                                                    </th>
-                                                ))}
-                                                <th className="pb-2 px-3">🆓 Bebas</th>
-                                                <th className="pb-2 pl-3">Total Hari</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                                            {Object.entries(personSummary).map(([name, counts]) => {
-                                                const total = Object.values(counts).reduce((a, b) => a + b, 0);
-                                                return (
-                                                    <tr key={name}>
-                                                        <td className="py-2 pr-4 font-medium text-gray-800 dark:text-gray-200 whitespace-nowrap">
-                                                            {name}
-                                                        </td>
-                                                        {JOBS.map((j) => (
-                                                            <td key={j.id} className="py-2 px-3 text-center">
-                                                                <span className="inline-block min-w-[2rem] py-0.5 rounded bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 font-semibold text-xs">
-                                                                    {counts[j.id] || 0}
-                                                                </span>
-                                                            </td>
-                                                        ))}
-                                                        <td className="py-2 pl-3 text-center font-bold text-gray-700 dark:text-gray-300">
-                                                            {total}
-                                                        </td>
-                                                    </tr>
-                                                );
-                                            })}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </Card>
-                    )}
-                </>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="text-xs font-semibold text-gray-500">
+              Mulai (Senin)
+              <input
+                type="date"
+                className="mt-1 block rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 p-2"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+              />
+            </label>
+            <button onClick={generate} className="rounded-md bg-indigo-600 hover:bg-indigo-700 px-4 py-2 text-sm font-medium text-white">Generate Jadwal</button>
+            {roster && (
+              <button onClick={save} className="rounded-md bg-emerald-600 hover:bg-emerald-700 px-4 py-2 text-sm font-medium text-white">
+                {saved ? '✓ Tersimpan' : 'Simpan'}
+              </button>
             )}
-        </div>
-    );
-};
+          </div>
 
-export default JobdeskClosingPage;
+          <p className="text-xs text-gray-400">Libur Senin–Kamis (satu orang per hari, urutan diputar tiap minggu); Jumat–Minggu semua masuk. Kalau satu orang libur di shift-nya, pos digabung.</p>
+          {error && <p className="text-sm text-red-600">{error}</p>}
+        </div>
+      </Card>
+
+      {roster && (
+        <>
+          <div className="flex items-center justify-between">
+            <h2 className="font-bold text-gray-900 dark:text-white">Jadwal 4 Minggu</h2>
+            <button onClick={() => setDetails((d) => !d)} className="text-xs text-indigo-600 underline">{details ? 'Sembunyikan rincian' : 'Tampilkan rincian tugas'}</button>
+          </div>
+          {[1, 2, 3, 4].map((week) => (
+            <Card key={week}>
+              <div className="p-3 overflow-x-auto">
+                <h3 className="font-bold text-sm mb-2">Minggu {week} · {week % 2 === 1 ? 'Kelompok 1 Opening, Kelompok 2 Closing' : 'Kelompok 2 Opening, Kelompok 1 Closing'}</h3>
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-xs text-gray-500 uppercase">
+                      <th className="py-2 pr-3">Hari</th>
+                      <th className="py-2 pr-3">Libur</th>
+                      <th className="py-2 pr-3">Opening (Shift 1)</th>
+                      <th className="py-2 pr-3">Closing (Shift 2)</th>
+                      <th className="py-2">📋 Stok</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                    {roster.filter((r) => r.week === week).map((r) => (
+                      <tr key={r.dateKey} className={toDateKey(today) === r.dateKey ? 'bg-indigo-50 dark:bg-indigo-900/30' : ''}>
+                        <td className="py-2 pr-3 whitespace-nowrap font-medium">{fmt(r.date)}</td>
+                        <td className="py-2 pr-3 text-gray-500">{r.off?.name || '—'}</td>
+                        <td className="py-2 pr-3">
+                          {r.opening.map(({ job, person }) => (
+                            <div key={job.id}><b>{person.name}</b> · {job.label}{details && <ul className="ml-4 list-disc text-xs text-gray-500">{job.tasks.map((t) => <li key={t}>{t}</li>)}</ul>}</div>
+                          ))}
+                        </td>
+                        <td className="py-2 pr-3">
+                          {r.closing.map(({ job, person }) => (
+                            <div key={job.id}><b>{person.name}</b> · {job.label}{details && <ul className="ml-4 list-disc text-xs text-gray-500">{job.tasks.map((t) => <li key={t}>{t}</li>)}</ul>}</div>
+                          ))}
+                        </td>
+                        <td className="py-2 text-gray-500">{r.stockChecker?.name || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          ))}
+
+          <Card>
+            <div className="p-4 overflow-x-auto">
+              <h3 className="font-bold mb-3">⚖️ Ringkasan Keadilan</h3>
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs text-gray-500 uppercase">
+                    {['Nama', 'Dapur', 'Area', 'Dapur+Area', 'Jalur 1', 'Jalur 2', 'Jalur 1+2', 'Stok', 'Libur'].map((h) => <th key={h} className="px-2 py-1">{h}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(fairness).map(([name, c]) => (
+                    <tr key={name}>
+                      <td className="py-1 px-2 font-medium">{name}</td>
+                      {['dapur', 'area', 'openCombined', 'jalur1', 'jalur2', 'closeCombined', 'stock', 'off'].map((k) => <td key={k} className="py-1 px-2 text-center">{c[k]}</td>)}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="mt-2 text-xs text-gray-400">Laporan stok DD9 dicek Senin &amp; Kamis oleh pasangan shift 2. Angka dihitung ulang saat Generate.</p>
+            </div>
+          </Card>
+        </>
+      )}
+    </div>
+  );
+}

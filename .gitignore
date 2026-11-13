@@ -42,6 +42,8 @@ coverage/
 server_started.txt
 
 # Temp test scripts & local backups (never commit)
+backend/_sept_fix_backup_*.json
+
 backend/tmp_*.cjs
 backend/tmp_*.json
 

@@ -8,7 +8,6 @@ import api from '../../services/api';
 import { showSuccess, showError } from '../../hooks/useToast';
 import ScheduleCalendar from '../../components/admin/ScheduleCalendar';
 import BulkSchedulePanel from '../../components/admin/BulkSchedulePanel';
-import ClosingSetupPanel from '../../components/admin/ClosingSetupPanel';
 
 const ScheduleManagementPage = () => {
     // Satu-satunya aksi di halaman ini: acak ulang jobdesk untuk hari yang sudah
@@ -71,8 +70,7 @@ const ScheduleManagementPage = () => {
                     Tombol <b>Distribusi Kitchen</b>, <b>Generate Jadwal</b> (per pegawai), dan
                     <b> Rotasi Role</b> sudah dihapus karena hasilnya sama dengan menu
                     {' '}<b>Posisi &amp; Rotasi</b> dan saling menimpa. Pakai menu itu untuk
-                    me-generate jadwal. Yang masih tersedia di sini: kalender, setup closing,
-                    dan Generate Jadwal Massal.
+                    me-generate jadwal. Yang masih tersedia di sini: kalender dan Generate Jadwal Massal.
                 </p>
             </div>
             <div className="flex justify-between items-center">
@@ -91,8 +89,6 @@ const ScheduleManagementPage = () => {
                     </Button>
                 </div>
             </div>
-
-            <ClosingSetupPanel />
 
             <BulkSchedulePanel />
 

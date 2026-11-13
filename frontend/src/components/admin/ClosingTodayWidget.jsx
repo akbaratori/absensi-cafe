@@ -1,105 +1,72 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { getClosingConfig } from '../../services/scheduleService';
+import { generateOpeningClosingRoster, validateFourStaff, mondayOf, toDateKey, OPENING_CLOSING_CONFIG_KEY } from '../../utils/openingClosing';
 
-// ─── JOB DEFINITIONS (sama persis dengan JobdeskClosingPage) ──────────────────
-const JOBS_4 = [
-    { id: 'A', label: 'Pos A', icon: '🧹', tasks: ['Lap-lap meja', 'Cuci lap'], color: 'bg-blue-600' },
-    { id: 'B', label: 'Pos B', icon: '🫧', tasks: ['Sapu lantai dapur', 'Pel lantai dapur'], color: 'bg-emerald-600' },
-    { id: 'C', label: 'Pos C', icon: '🚿', tasks: ['Cuci piring', 'Bersihkan WC'], color: 'bg-amber-600' },
-    { id: 'D', label: 'Pos D', icon: '🪑', tasks: ['Angkat bangku', 'Sapu luar', 'Pel luar'], color: 'bg-purple-600' },
-];
-
-const JOBS_5 = [
-    { id: 'A', label: 'Pos A', icon: '🧹', tasks: ['Lap-lap meja', 'Cuci lap'], color: 'bg-blue-600' },
-    { id: 'B', label: 'Pos B', icon: '🫧', tasks: ['Sapu lantai dapur', 'Pel lantai dapur'], color: 'bg-emerald-600' },
-    { id: 'C', label: 'Pos C', icon: '🍽️', tasks: ['Cuci piring'], color: 'bg-amber-600' },
-    { id: 'D', label: 'Pos D', icon: '🚿', tasks: ['Bersihkan WC', 'Angkat bangku'], color: 'bg-rose-600' },
-    { id: 'E', label: 'Pos E', icon: '🪑', tasks: ['Sapu luar', 'Pel luar'], color: 'bg-purple-600' },
-];
-
-const getDayOffset = (startDateStr, targetDate) => {
-    const start = new Date(startDateStr);
-    start.setHours(0, 0, 0, 0);
-    const target = new Date(targetDate);
-    target.setHours(0, 0, 0, 0);
-    return Math.floor((target - start) / (1000 * 60 * 60 * 24));
-};
-
-const DAY_ID = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
-const MONTH_ID = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+const DAY_NAMES = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
 
 const ClosingTodayWidget = () => {
-    const today = new Date();
-    const todayStr = today.toLocaleDateString('en-CA'); // YYYY-MM-DD
+    const [config, setConfig] = useState(null);
 
-    const assignments = useMemo(() => {
-        try {
-            const raw = localStorage.getItem('jobdesk_closing_config');
-            if (!raw) return null;
-            const { mode, names, startDate, endDate } = JSON.parse(raw);
+    // Baca config dari backend, fallback localStorage (dipasang admin di halaman jobdesk).
+    useEffect(() => {
+        const apply = (cfg) => { if (Array.isArray(cfg?.staff)) setConfig(cfg); };
+        getClosingConfig()
+            .then((res) => apply(res?.data?.config))
+            .catch(() => { try { apply(JSON.parse(localStorage.getItem(OPENING_CLOSING_CONFIG_KEY))); } catch { /* none */ } });
+    }, []);
 
-            // Check if today is within range
-            if (todayStr < startDate || todayStr > endDate) return null;
-            if (!names || names.length === 0) return null;
+    const today = useMemo(() => new Date(), []);
+    const todayStr = toDateKey(today);
 
-            const jobs = mode === 5 ? JOBS_5 : JOBS_4;
-            const dayOffset = getDayOffset(startDate, todayStr);
-            const n = names.length;
+    const rows = useMemo(() => {
+        if (!config || !validateFourStaff(config.staff)) return null;
+        try { return generateOpeningClosingRoster({ staff: config.staff, startDate: mondayOf(config.startDate) }); }
+        catch { return null; }
+    }, [config]);
 
-            return jobs.map((job, jobIdx) => ({
-                job,
-                person: names[(jobIdx + dayOffset) % n],
-            }));
-        } catch {
-            return null;
-        }
-    }, [todayStr]);
+    const row = useMemo(() => rows?.find((r) => r.dateKey === todayStr) ?? null, [rows, todayStr]);
 
-    if (!assignments) return null;
+    if (!row) return null;
+    const fmtToday = `${DAY_NAMES[today.getDay()]}, ${today.getDate()} ${MONTH_SHORT[today.getMonth()]} ${today.getFullYear()}`;
 
-    const fmtToday = `${DAY_ID[today.getDay()]}, ${today.getDate()} ${MONTH_ID[today.getMonth()]} ${today.getFullYear()}`;
+    const card = (job, person, color) => (
+        <div key={job.id} className={`${color} text-white rounded-lg p-3 shadow-sm`}>
+            <div className="flex items-center gap-1.5 mb-1">
+                <span>{job.icon || '🧹'}</span><span className="text-xs font-bold opacity-80">{job.label}</span>
+            </div>
+            <p className="font-bold text-sm leading-tight">{person.name}</p>
+            <ul className="mt-1.5 space-y-0.5">{job.tasks.map((t, i) => <li key={i} className="text-[10px] text-white/85">· {t}</li>)}</ul>
+        </div>
+    );
 
     return (
         <div className="mb-4 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
-            {/* Header */}
             <div className="px-4 py-3 bg-gradient-to-r from-indigo-700 to-slate-700 text-white flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                    <span>🧹</span>
+                    <span>🍳</span>
                     <div>
-                        <p className="font-semibold text-sm">Jobdesk Closing Hari Ini</p>
+                        <p className="font-semibold text-sm">Jobdesk Opening &amp; Closing Hari Ini</p>
                         <p className="text-xs text-white/70">{fmtToday}</p>
                     </div>
                 </div>
-                <a
-                    href="/admin/jobdesk-closing"
-                    className="text-xs text-white/80 hover:text-white underline"
-                >
-                    Ubah Konfigurasi →
-                </a>
+                <a href="/admin/jobdesk-closing" className="text-xs text-white/80 hover:text-white underline">Ubah →</a>
             </div>
-
-            {/* Assignments */}
-            <div className="p-3">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                    {assignments.map(({ job, person }) => (
-                        <div
-                            key={job.id}
-                            className={`${job.color} text-white rounded-lg p-3 shadow-sm`}
-                        >
-                            <div className="flex items-center gap-1.5 mb-1.5">
-                                <span className="text-base">{job.icon}</span>
-                                <span className="text-xs font-bold opacity-80">{job.label}</span>
-                            </div>
-                            <p className="font-bold text-sm leading-tight">{person}</p>
-                            <ul className="mt-1.5 space-y-0.5">
-                                {job.tasks.map((t, i) => (
-                                    <li key={i} className="text-[10px] text-white/85 flex items-start gap-1">
-                                        <span className="mt-px">·</span> {t}
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
-                    ))}
+            <div className="p-3 space-y-3">
+                <div>
+                    <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase mb-1">🎬 Opening (Shift 1)</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">{row.opening.map(({ job, person }) => card(job, person, 'bg-orange-600'))}</div>
                 </div>
+                <div>
+                    <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase mb-1">🌙 Closing (Shift 2)</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">{row.closing.map(({ job, person }) => card(job, person, 'bg-slate-700'))}</div>
+                </div>
+                {(row.off || row.stockChecker) && (
+                    <div className="text-xs text-gray-500 dark:text-gray-400 flex gap-4">
+                        {row.off && <span>🏖️ Libur: <b>{row.off.name}</b></span>}
+                        {row.stockChecker && <span>📋 Pengecek stok: <b>{row.stockChecker.name}</b></span>}
+                    </div>
+                )}
             </div>
         </div>
     );
