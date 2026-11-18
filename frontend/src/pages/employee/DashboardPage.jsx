@@ -463,6 +463,16 @@ const DashboardPage = () => {
                 </div>
               )}
 
+              {/* Absen masuk dicatat admin: tampilkan info, tidak minta absen masuk lagi */}
+              {todayData?.clockInByAdmin && (
+                <div className="mb-4 rounded-xl border border-green-200 bg-green-50 p-4 text-center dark:border-green-800 dark:bg-green-900/20">
+                  <p className="font-semibold text-green-800 dark:text-green-200">Absen masuk dicatat oleh admin</p>
+                  <p className="mt-1 text-sm text-green-700 dark:text-green-300">
+                    Jam masuk: {formatTime(todayData.clockIn)}
+                  </p>
+                </div>
+              )}
+
               {/* Camera Section */}
               <div className="mb-6 flex flex-col items-center">
                 {!todayData?.clockOut && (todayData?.canClockIn || todayData?.canClockOut) ? (
@@ -484,29 +494,33 @@ const DashboardPage = () => {
               </div>
 
               <div className="flex items-center justify-center gap-4">
-                <Button
-                  variant="primary"
-                  size="lg"
-                  onClick={handleClockIn}
-                  disabled={!todayData?.canClockIn || actionLoading || !(faceDetected || bypassFaceDetection)}
-                  loading={actionLoading}
-                  className="min-w-[160px]"
-                >
-                  <Camera className="w-5 h-5 mr-2" />
-                  Masuk (Selfie)
-                </Button>
+                {!todayData?.clockInByAdmin && (
+                  <>
+                    <Button
+                      variant="primary"
+                      size="lg"
+                      onClick={handleClockIn}
+                      disabled={!todayData?.canClockIn || actionLoading || !(faceDetected || bypassFaceDetection)}
+                      loading={actionLoading}
+                      className="min-w-[160px]"
+                    >
+                      <Camera className="w-5 h-5 mr-2" />
+                      Masuk (Selfie)
+                    </Button>
 
-                <div className="mt-2 flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id="bypassFace"
-                    checked={bypassFaceDetection}
-                    onChange={(e) => setBypassFaceDetection(e.target.checked)}
-                  />
-                  <label htmlFor="bypassFace" className="text-sm text-gray-600 dark:text-gray-400">
-                    Aktifkan Absensi Manual (Tanpa Deteksi Wajah)
-                  </label>
-                </div>
+                    <div className="mt-2 flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="bypassFace"
+                        checked={bypassFaceDetection}
+                        onChange={(e) => setBypassFaceDetection(e.target.checked)}
+                      />
+                      <label htmlFor="bypassFace" className="text-sm text-gray-600 dark:text-gray-400">
+                        Aktifkan Absensi Manual (Tanpa Deteksi Wajah)
+                      </label>
+                    </div>
+                  </>
+                )}
 
                 <Button
                   variant={todayData?.clockOut ? 'secondary' : 'primary'}

@@ -490,6 +490,7 @@ class AttendanceService {
       clockIn: record?.clockIn || null,
       clockOut: record?.clockOut || null,
       status: record ? formatStatus(record.status) : null,
+      clockInByAdmin: record?.clockInLocation === 'Manual oleh admin',
       shift: shift,
       canClockIn: !record && !isOffDay && !noSchedule,
       canClockOut: !!(record && !record.clockOut),
